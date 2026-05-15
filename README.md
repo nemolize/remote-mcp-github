@@ -6,6 +6,8 @@ Connect this server in `Claude.ai → Settings → Connectors → Add custom con
 
 Based on the [`cloudflare/ai/demos/remote-mcp-github-oauth`](https://github.com/cloudflare/ai/tree/main/demos/remote-mcp-github-oauth) template, with the bundled placeholder tools replaced by a focused 8-tool GitHub surface and minor production polish.
 
+> A public instance maintained by the author is deployed at `https://remote-mcp-github.nemolize.workers.dev`. It is offered on a best-effort basis with no uptime or quota guarantees; self-host (the steps below) for anything you depend on.
+
 ## What's included
 
 8 tools, all responding in Markdown (not raw JSON) so the model can read them efficiently and large payloads (diff, file content) are truncated at the boundary.
