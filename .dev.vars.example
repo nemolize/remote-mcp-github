@@ -1,3 +1,3 @@
-GITHUB_CLIENT_ID=<your github client id>
-GITHUB_CLIENT_SECRET=<your github client secret>
-COOKIE_ENCRYPTION_KEY=<your cookie cookie encryption key>
+GITHUB_CLIENT_ID=<your dev GitHub OAuth App client ID>
+GITHUB_CLIENT_SECRET=<your dev GitHub OAuth App client secret>
+COOKIE_ENCRYPTION_KEY=<run: openssl rand -hex 32>
