@@ -24,10 +24,18 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
 	}
 }
 
+const corsOptions = {
+	origin: "*",
+	methods: "GET, POST, OPTIONS",
+	headers: "Content-Type, Authorization, mcp-protocol-version",
+	exposeHeaders: "mcp-session-id",
+	maxAge: 86400,
+};
+
 export default new OAuthProvider({
 	apiHandlers: {
-		"/mcp": MyMCP.serve("/mcp"),
-		"/sse": MyMCP.serveSSE("/sse"),
+		"/mcp": MyMCP.serve("/mcp", { corsOptions }),
+		"/sse": MyMCP.serveSSE("/sse", { corsOptions }),
 	},
 	authorizeEndpoint: "/authorize",
 	clientRegistrationEndpoint: "/register",
