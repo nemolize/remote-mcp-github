@@ -224,7 +224,11 @@ export const registerTools = (
 		"Create a new branch in a repository, pointing at the tip of a base branch (default: the repo's default branch). Use when the user asks to branch off, start a new feature branch, or fork the current state. Returns the new ref name and SHA.",
 		{
 			...RepoTarget,
-			branch: z.string().min(1).describe("New branch name (without 'refs/heads/' prefix)."),
+			branch: z
+				.string()
+				.min(1)
+				.regex(SameRepoBranchPattern, "Use a same-repo branch name.")
+				.describe("New branch name (without 'refs/heads/' prefix)."),
 			from: z
 				.string()
 				.optional()
@@ -250,7 +254,7 @@ export const registerTools = (
 
 	server.tool(
 		"delete_branch",
-		"Delete a branch from a repository. Use when the user asks to delete, remove, or clean up a branch. Refuses to delete the repo's default branch as a safety measure. Returns confirmation of the deleted ref.",
+		"Delete a branch from a repository. Use when the user asks to delete, remove, or clean up a branch. Refuses to delete the repo's default branch. Returns the deleted branch name and the SHA it pointed at (useful if the caller needs to recreate the ref).",
 		{
 			...RepoTarget,
 			branch: z
@@ -268,6 +272,7 @@ export const registerTools = (
 						`Refusing to delete the repo's default branch \`${branch}\`.`,
 					);
 				}
+				const headSha = await getBranchHeadSha(octo, owner, repo, branch);
 				const res = await octo.rest.git.deleteRef({
 					owner,
 					repo,
@@ -275,7 +280,7 @@ export const registerTools = (
 				});
 				logRateLimit(res.headers);
 				return text(
-					`# Branch deleted\n\n- **${branch}** removed from ${owner}/${repo}`,
+					`# Branch deleted\n\n- **${branch}** removed from ${owner}/${repo}\n- was @ \`${headSha.slice(0, 7)}\` (full: \`${headSha}\`)`,
 				);
 			}),
 	);
@@ -346,7 +351,7 @@ export const registerTools = (
 
 	server.tool(
 		"commit_files",
-		"Create or update multiple files on a branch in a single commit via the Git Tree API. Use when the user asks to commit several files at once. Per-file `mode` preserves executable bits / symlinks; per-file `encoding` supports binary via blob creation. Returns the new commit SHA and URL.",
+		"Create or update multiple files on a branch in a single commit via the Git Tree API. Use when the user asks to commit several files at once. Per-file `mode` (default 100644; 100755 for executables, 120000 for symlinks) and `encoding` (default utf-8; base64 for binary). Returns the new commit SHA and URL.",
 		{
 			...RepoTarget,
 			branch: z.string().min(1).describe("Branch to commit to (must already exist)."),
