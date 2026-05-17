@@ -4,13 +4,11 @@ A Claude.ai-ready remote MCP server that exposes GitHub as a custom connector, d
 
 Connect this server in `Claude.ai → Settings → Connectors → Add custom connector` and Claude can list/search/inspect your repositories, read files, fetch PR diffs, and (with `repo` scope) create issues, comment, and branch — all under the user's own GitHub identity via standard OAuth 2.1 / PKCE.
 
-Based on the [`cloudflare/ai/demos/remote-mcp-github-oauth`](https://github.com/cloudflare/ai/tree/main/demos/remote-mcp-github-oauth) template, with the bundled placeholder tools replaced by a focused 11-tool GitHub surface and minor production polish.
-
 > A public instance maintained by the author is deployed at `https://remote-mcp-github.nemolize.workers.dev`. It is offered on a best-effort basis with no uptime or quota guarantees; self-host (the steps below) for anything you depend on.
 
 ## What's included
 
-11 tools, all responding in Markdown (not raw JSON) so the model can read them efficiently and large payloads (diff, file content) are truncated at the boundary.
+All tools respond in Markdown (not raw JSON) so the model can read them efficiently, and large payloads (diff, file content) are truncated at the boundary.
 
 | Tool | Kind | Purpose |
 |---|---|---|
@@ -134,7 +132,7 @@ The server requests `read:user repo` from GitHub. The `repo` portion is what ena
 ```
 src/
 ├── index.ts             # OAuthProvider + MyMCP class wiring
-├── tools.ts             # 8 GitHub tools + helpers (truncation, rate-limit log)
+├── tools.ts             # GitHub tools + helpers (truncation, rate-limit log)
 ├── github-handler.ts    # OAuth redirect handler (scope set here)
 ├── workers-oauth-utils.ts
 └── utils.ts
@@ -151,4 +149,4 @@ wrangler.jsonc           # Cloudflare Workers config; KV id goes here
 
 ## License
 
-Not yet licensed. If you want to fork or extend, open an issue first.
+MIT
