@@ -21,6 +21,9 @@ const RepoTarget = {
 	repo: z.string().describe("Repository name."),
 } as const;
 
+const SameRepoBranchPattern = /^[A-Za-z0-9._/-]+$/;
+const CrossRepoHeadPattern = /^[A-Za-z0-9._-]+:[A-Za-z0-9._/-]+$/;
+
 export const registerTools = (
 	server: McpServer,
 	getAccessToken: () => string,
@@ -426,15 +429,31 @@ export const registerTools = (
 
 	server.tool(
 		"create_pull_request",
-		"Open a new pull request in a repository. Use when the user asks to open, file, or create a PR. Requires title and head branch; base defaults to the repo's default branch. Optionally body, draft, and maintainer_can_modify. Returns the new PR's number and URL.",
+		"Open a new pull request in a repository. Use when the user asks to open, file, or create a PR. `head` is a branch in the target repo by default; for cross-repo (fork) PRs, set `cross_repo_head: 'owner:branch'` instead. `base` defaults to the repo's default branch.",
 		{
 			...RepoTarget,
 			title: z.string().min(1).describe("Pull request title."),
 			head: z
 				.string()
 				.min(1)
+				.regex(
+					SameRepoBranchPattern,
+					"Use cross_repo_head for 'owner:branch' form (cross-repo PRs).",
+				)
+				.optional()
 				.describe(
-					"Branch where your changes are implemented. For cross-repo PRs use 'owner:branch'.",
+					"Branch in the target repo containing your changes. Required unless cross_repo_head is set.",
+				),
+			cross_repo_head: z
+				.string()
+				.min(1)
+				.regex(
+					CrossRepoHeadPattern,
+					"Cross-repo head must be of form 'owner:branch'.",
+				)
+				.optional()
+				.describe(
+					"For cross-repo (fork) PRs only. Format: 'owner:branch'. Mutually exclusive with `head`.",
 				),
 			base: z
 				.string()
@@ -447,15 +466,36 @@ export const registerTools = (
 				.optional()
 				.describe("Allow maintainers to edit the PR branch (cross-repo PRs)."),
 		},
-		async ({ owner, repo, title, head, base, body, draft, maintainer_can_modify }) =>
+		async ({
+			owner,
+			repo,
+			title,
+			head,
+			cross_repo_head,
+			base,
+			body,
+			draft,
+			maintainer_can_modify,
+		}) =>
 			wrapTool(async () => {
+				if (head == null && cross_repo_head == null) {
+					return errorResult(
+						"Provide either `head` (same-repo branch) or `cross_repo_head` ('owner:branch' for fork PRs).",
+					);
+				}
+				if (head != null && cross_repo_head != null) {
+					return errorResult(
+						"`head` and `cross_repo_head` are mutually exclusive; pass exactly one.",
+					);
+				}
+				const effectiveHead = (cross_repo_head ?? head) as string;
 				const octo = client();
 				const target = base ?? (await resolveDefaultBranch(octo, owner, repo));
 				const { data, headers } = await octo.rest.pulls.create({
 					owner,
 					repo,
 					title,
-					head,
+					head: effectiveHead,
 					base: target,
 					body,
 					draft,
@@ -464,7 +504,7 @@ export const registerTools = (
 				logRateLimit(headers);
 				const flag = data.draft ? " (draft)" : "";
 				return text(
-					`# Pull request opened${flag}\n\n- **${data.title}** (#${data.number}) — \`${head}\` → \`${target}\`\n- ${data.html_url}`,
+					`# Pull request opened${flag}\n\n- **${data.title}** (#${data.number}) — \`${effectiveHead}\` → \`${target}\`\n- ${data.html_url}`,
 				);
 			}),
 	);
