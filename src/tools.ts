@@ -2,6 +2,10 @@ import { Octokit } from "octokit";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
+	getBranchHeadSha,
+	resolveDefaultBranch,
+} from "./github/helpers.js";
+import {
 	errorResult,
 	logRateLimit,
 	text,
@@ -341,13 +345,7 @@ export const registerTools = (
 		async ({ owner, repo, branch, message, files }) =>
 			wrapTool(async () => {
 				const octo = client();
-				const refRes = await octo.rest.git.getRef({
-					owner,
-					repo,
-					ref: `heads/${branch}`,
-				});
-				logRateLimit(refRes.headers);
-				const parentSha = refRes.data.object.sha;
+				const parentSha = await getBranchHeadSha(octo, owner, repo, branch);
 				const parentCommit = await octo.rest.git.getCommit({
 					owner,
 					repo,
@@ -414,12 +412,7 @@ export const registerTools = (
 		async ({ owner, repo, title, head, base, body, draft, maintainer_can_modify }) =>
 			wrapTool(async () => {
 				const octo = client();
-				let target = base;
-				if (!target) {
-					const repoMeta = await octo.rest.repos.get({ owner, repo });
-					logRateLimit(repoMeta.headers);
-					target = repoMeta.data.default_branch;
-				}
+				const target = base ?? (await resolveDefaultBranch(octo, owner, repo));
 				const { data, headers } = await octo.rest.pulls.create({
 					owner,
 					repo,
@@ -452,27 +445,17 @@ export const registerTools = (
 		async ({ owner, repo, branch, from }) =>
 			wrapTool(async () => {
 				const octo = client();
-				let base = from;
-				if (!base) {
-					const repoMeta = await octo.rest.repos.get({ owner, repo });
-					logRateLimit(repoMeta.headers);
-					base = repoMeta.data.default_branch;
-				}
-				const baseRef = await octo.rest.git.getRef({
-					owner,
-					repo,
-					ref: `heads/${base}`,
-				});
-				logRateLimit(baseRef.headers);
+				const base = from ?? (await resolveDefaultBranch(octo, owner, repo));
+				const baseSha = await getBranchHeadSha(octo, owner, repo, base);
 				const created = await octo.rest.git.createRef({
 					owner,
 					repo,
 					ref: `refs/heads/${branch}`,
-					sha: baseRef.data.object.sha,
+					sha: baseSha,
 				});
 				logRateLimit(created.headers);
 				return text(
-					`# Branch created\n\n- **${branch}** ← branched from \`${base}\` @ \`${baseRef.data.object.sha.slice(0, 7)}\`\n- ref: ${created.data.ref}`,
+					`# Branch created\n\n- **${branch}** ← branched from \`${base}\` @ \`${baseSha.slice(0, 7)}\`\n- ref: ${created.data.ref}`,
 				);
 			}),
 	);
