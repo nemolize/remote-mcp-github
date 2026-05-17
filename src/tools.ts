@@ -9,6 +9,13 @@ type ToolResult = {
 
 const MAX_RESPONSE_CHARS = 8000;
 
+const encodeBase64Utf8 = (text: string): string => {
+	const bytes = new TextEncoder().encode(text);
+	let binary = "";
+	for (const b of bytes) binary += String.fromCharCode(b);
+	return btoa(binary);
+};
+
 const truncate = (text: string, maxChars = MAX_RESPONSE_CHARS): string => {
 	if (text.length <= maxChars) return text;
 	const omitted = text.length - maxChars;
@@ -309,6 +316,173 @@ export const registerTools = (
 	);
 
 	server.tool(
+		"commit_file",
+		"Create or update a single file on a branch in one commit. Use when the user asks to add, edit, or replace one file. Auto-detects the existing file's blob SHA when updating, so callers only supply path/content/branch/message. Returns the new commit SHA and file URL.",
+		{
+			...RepoTarget,
+			branch: z.string().min(1).describe("Branch to commit to (must already exist)."),
+			path: z.string().min(1).describe("File path within the repo."),
+			content: z.string().describe("New file content (UTF-8 text)."),
+			message: z.string().min(1).describe("Commit message."),
+		},
+		async ({ owner, repo, branch, path, content, message }) =>
+			wrapTool(async () => {
+				const octo = client();
+				let sha: string | undefined;
+				try {
+					const existing = await octo.rest.repos.getContent({
+						owner,
+						repo,
+						path,
+						ref: branch,
+					});
+					logRateLimit(existing.headers);
+					if (!Array.isArray(existing.data) && "sha" in existing.data) {
+						sha = existing.data.sha;
+					}
+				} catch (e: unknown) {
+					const status =
+						e != null && typeof e === "object" && "status" in e
+							? (e as { status: number }).status
+							: undefined;
+					if (status !== 404) throw e;
+				}
+				const encoded = encodeBase64Utf8(content);
+				const { data, headers } = await octo.rest.repos.createOrUpdateFileContents({
+					owner,
+					repo,
+					path,
+					branch,
+					message,
+					content: encoded,
+					sha,
+				});
+				logRateLimit(headers);
+				const action = sha ? "updated" : "created";
+				return text(
+					`# File ${action}\n\n- \`${path}\` on \`${branch}\`\n- commit: \`${data.commit.sha?.slice(0, 7)}\` — ${data.commit.html_url}\n- file: ${data.content?.html_url ?? "(n/a)"}`,
+				);
+			}),
+	);
+
+	server.tool(
+		"commit_files",
+		"Create or update multiple files on a branch in a single commit via the Git Tree API. Use when the user asks to commit several files at once (e.g. a feature change touching many files). Returns the new commit SHA and URL.",
+		{
+			...RepoTarget,
+			branch: z.string().min(1).describe("Branch to commit to (must already exist)."),
+			message: z.string().min(1).describe("Commit message."),
+			files: z
+				.array(
+					z.object({
+						path: z.string().min(1).describe("File path within the repo."),
+						content: z.string().describe("New file content (UTF-8 text)."),
+					}),
+				)
+				.min(1)
+				.describe("Files to create or update in this commit."),
+		},
+		async ({ owner, repo, branch, message, files }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const refRes = await octo.rest.git.getRef({
+					owner,
+					repo,
+					ref: `heads/${branch}`,
+				});
+				logRateLimit(refRes.headers);
+				const parentSha = refRes.data.object.sha;
+				const parentCommit = await octo.rest.git.getCommit({
+					owner,
+					repo,
+					commit_sha: parentSha,
+				});
+				logRateLimit(parentCommit.headers);
+				const tree = await octo.rest.git.createTree({
+					owner,
+					repo,
+					base_tree: parentCommit.data.tree.sha,
+					tree: files.map((f) => ({
+						path: f.path,
+						mode: "100644",
+						type: "blob",
+						content: f.content,
+					})),
+				});
+				logRateLimit(tree.headers);
+				const commit = await octo.rest.git.createCommit({
+					owner,
+					repo,
+					message,
+					tree: tree.data.sha,
+					parents: [parentSha],
+				});
+				logRateLimit(commit.headers);
+				const updated = await octo.rest.git.updateRef({
+					owner,
+					repo,
+					ref: `heads/${branch}`,
+					sha: commit.data.sha,
+				});
+				logRateLimit(updated.headers);
+				const list = files.map((f) => `  - \`${f.path}\``).join("\n");
+				return text(
+					`# Commit pushed\n\n- branch: \`${branch}\`\n- commit: \`${commit.data.sha.slice(0, 7)}\` — ${commit.data.html_url}\n- files (${files.length}):\n${list}`,
+				);
+			}),
+	);
+
+	server.tool(
+		"create_pull_request",
+		"Open a new pull request in a repository. Use when the user asks to open, file, or create a PR. Requires title and head branch; base defaults to the repo's default branch. Optionally body, draft, and maintainer_can_modify. Returns the new PR's number and URL.",
+		{
+			...RepoTarget,
+			title: z.string().min(1).describe("Pull request title."),
+			head: z
+				.string()
+				.min(1)
+				.describe(
+					"Branch where your changes are implemented. For cross-repo PRs use 'owner:branch'.",
+				),
+			base: z
+				.string()
+				.optional()
+				.describe("Branch to merge into. Defaults to the repo's default branch."),
+			body: z.string().optional().describe("PR description (Markdown supported)."),
+			draft: z.boolean().optional().describe("Create as a draft PR."),
+			maintainer_can_modify: z
+				.boolean()
+				.optional()
+				.describe("Allow maintainers to edit the PR branch (cross-repo PRs)."),
+		},
+		async ({ owner, repo, title, head, base, body, draft, maintainer_can_modify }) =>
+			wrapTool(async () => {
+				const octo = client();
+				let target = base;
+				if (!target) {
+					const repoMeta = await octo.rest.repos.get({ owner, repo });
+					logRateLimit(repoMeta.headers);
+					target = repoMeta.data.default_branch;
+				}
+				const { data, headers } = await octo.rest.pulls.create({
+					owner,
+					repo,
+					title,
+					head,
+					base: target,
+					body,
+					draft,
+					maintainer_can_modify,
+				});
+				logRateLimit(headers);
+				const flag = data.draft ? " (draft)" : "";
+				return text(
+					`# Pull request opened${flag}\n\n- **${data.title}** (#${data.number}) — \`${head}\` → \`${target}\`\n- ${data.html_url}`,
+				);
+			}),
+	);
+
+	server.tool(
 		"create_branch",
 		"Create a new branch in a repository, pointing at the tip of a base branch (default: the repo's default branch). Use when the user asks to branch off, start a new feature branch, or fork the current state. Returns the new ref name and SHA.",
 		{
@@ -343,6 +517,47 @@ export const registerTools = (
 				logRateLimit(created.headers);
 				return text(
 					`# Branch created\n\n- **${branch}** ← branched from \`${base}\` @ \`${baseRef.data.object.sha.slice(0, 7)}\`\n- ref: ${created.data.ref}`,
+				);
+			}),
+	);
+
+	server.tool(
+		"request_pr_review",
+		"Request reviewers (users and/or teams) on an existing pull request. Use when the user asks to assign, request, or add reviewers to a PR. At least one of `reviewers` or `team_reviewers` must be non-empty. Returns the PR URL and the list of requested reviewers.",
+		{
+			...RepoTarget,
+			pull_number: z.number().int().positive().describe("Pull request number."),
+			reviewers: z
+				.array(z.string())
+				.optional()
+				.describe("GitHub usernames to request review from."),
+			team_reviewers: z
+				.array(z.string())
+				.optional()
+				.describe("Team slugs (within the repo's org) to request review from."),
+		},
+		async ({ owner, repo, pull_number, reviewers, team_reviewers }) =>
+			wrapTool(async () => {
+				if ((reviewers == null || reviewers.length === 0) &&
+					(team_reviewers == null || team_reviewers.length === 0)) {
+					return errorResult(
+						"At least one of `reviewers` or `team_reviewers` must be provided.",
+					);
+				}
+				const { data, headers } = await client().rest.pulls.requestReviewers({
+					owner,
+					repo,
+					pull_number,
+					reviewers,
+					team_reviewers,
+				});
+				logRateLimit(headers);
+				const users = (data.requested_reviewers ?? []).map((u) => `@${u.login}`);
+				const teams = (data.requested_teams ?? []).map((t) => `@${owner}/${t.slug}`);
+				const requested = [...users, ...teams];
+				const list = requested.length > 0 ? requested.join(", ") : "(none)";
+				return text(
+					`# Reviewers requested\n\n- PR: #${pull_number} — ${data.html_url}\n- requested: ${list}`,
 				);
 			}),
 	);
