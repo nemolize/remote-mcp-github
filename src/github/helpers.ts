@@ -8,6 +8,12 @@ export const ContentEncodingSchema = z
 		"Encoding of `content`. 'utf-8' (default) for text; 'base64' for binary or pre-encoded bytes.",
 	);
 
+export const FileModeSchema = z
+	.enum(["100644", "100755", "120000"])
+	.describe(
+		"Git file mode. 100644=regular, 100755=executable, 120000=symlink.",
+	);
+
 export const encodeBase64Utf8 = (text: string): string => {
 	const bytes = new TextEncoder().encode(text);
 	let binary = "";
