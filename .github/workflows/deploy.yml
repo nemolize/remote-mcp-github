@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-  pull_request:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -12,20 +11,14 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   Deploy:
     runs-on: ubuntu-24.04
     environment:
-      name: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
+      name: production
       url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
-      - uses: marocchino/sticky-pull-request-comment@v3
-        name: Show wip message in sticky comment
-        with:
-          message: "Version Preview URL: ⏳deployment is in progress..."
-
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
@@ -34,16 +27,4 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: ${{ github.event_name == 'push' && 'deploy' || 'versions upload' }}
-
-      - if: ${{ github.event_name == 'pull_request' }}
-        name: Show version preview URL in sticky comment
-        uses: marocchino/sticky-pull-request-comment@v3
-        with:
-          message: "Version Preview URL: ${{ steps.deploy.outputs.deployment-url }}"
-
-      - if: failure()
-        name: Show error message in sticky comment
-        uses: marocchino/sticky-pull-request-comment@v3
-        with:
-          message: "Version Preview URL: ❌deployment failed."
+          command: deploy
