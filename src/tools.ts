@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
 	ContentEncodingSchema,
 	encodeBase64Utf8,
+	FileModeSchema,
 	getBranchHeadSha,
 	resolveDefaultBranch,
 } from "./github/helpers.js";
@@ -336,7 +337,7 @@ export const registerTools = (
 
 	server.tool(
 		"commit_files",
-		"Create or update multiple files on a branch in a single commit via the Git Tree API. Use when the user asks to commit several files at once. Per-file `encoding` supports binary (default 'utf-8'; 'base64' uploads via git.createBlob). Returns the new commit SHA and URL.",
+		"Create or update multiple files on a branch in a single commit via the Git Tree API. Use when the user asks to commit several files at once. Per-file `mode` preserves executable bits / symlinks; per-file `encoding` supports binary via blob creation. Returns the new commit SHA and URL.",
 		{
 			...RepoTarget,
 			branch: z.string().min(1).describe("Branch to commit to (must already exist)."),
@@ -351,6 +352,7 @@ export const registerTools = (
 								"File content; encoding is determined by per-file `encoding` (default 'utf-8').",
 							),
 						encoding: ContentEncodingSchema.optional().default("utf-8"),
+						mode: FileModeSchema.optional().default("100644"),
 					}),
 				)
 				.min(1)
@@ -378,14 +380,14 @@ export const registerTools = (
 							logRateLimit(blob.headers);
 							return {
 								path: f.path,
-								mode: "100644" as const,
+								mode: f.mode,
 								type: "blob" as const,
 								sha: blob.data.sha,
 							};
 						}
 						return {
 							path: f.path,
-							mode: "100644" as const,
+							mode: f.mode,
 							type: "blob" as const,
 							content: f.content,
 						};
@@ -414,7 +416,7 @@ export const registerTools = (
 				});
 				logRateLimit(updated.headers);
 				const list = files
-					.map((f) => `  - \`${f.path}\` (encoding=${f.encoding})`)
+					.map((f) => `  - \`${f.path}\` (mode=${f.mode}, encoding=${f.encoding})`)
 					.join("\n");
 				return text(
 					`# Commit pushed\n\n- branch: \`${branch}\`\n- commit: \`${commit.data.sha.slice(0, 7)}\` — ${commit.data.html_url}\n- files (${files.length}):\n${list}`,
