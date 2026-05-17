@@ -2,6 +2,8 @@ import { Octokit } from "octokit";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
+	ContentEncodingSchema,
+	encodeBase64Utf8,
 	getBranchHeadSha,
 	resolveDefaultBranch,
 } from "./github/helpers.js";
@@ -12,13 +14,6 @@ import {
 	truncate,
 	wrapTool,
 } from "./mcp/response.js";
-
-const encodeBase64Utf8 = (text: string): string => {
-	const bytes = new TextEncoder().encode(text);
-	let binary = "";
-	for (const b of bytes) binary += String.fromCharCode(b);
-	return btoa(binary);
-};
 
 const RepoTarget = {
 	owner: z.string().describe("Repository owner (user or organisation login)."),
@@ -277,15 +272,20 @@ export const registerTools = (
 
 	server.tool(
 		"commit_file",
-		"Create or update a single file on a branch in one commit. Use when the user asks to add, edit, or replace one file. Auto-detects the existing file's blob SHA when updating, so callers only supply path/content/branch/message. Returns the new commit SHA and file URL.",
+		"Create or update a single file on a branch in one commit. Use when the user asks to add, edit, or replace one file. On update, the existing blob SHA is looked up automatically. `encoding` defaults to 'utf-8'; pass 'base64' when sending pre-encoded binary bytes. Returns the new commit SHA and file URL.",
 		{
 			...RepoTarget,
 			branch: z.string().min(1).describe("Branch to commit to (must already exist)."),
 			path: z.string().min(1).describe("File path within the repo."),
-			content: z.string().describe("New file content (UTF-8 text)."),
+			content: z
+				.string()
+				.describe(
+					"File content; encoding determined by `encoding` (default 'utf-8'). Pass pre-base64'd bytes only when `encoding: 'base64'`.",
+				),
+			encoding: ContentEncodingSchema.optional().default("utf-8"),
 			message: z.string().min(1).describe("Commit message."),
 		},
-		async ({ owner, repo, branch, path, content, message }) =>
+		async ({ owner, repo, branch, path, content, encoding, message }) =>
 			wrapTool(async () => {
 				const octo = client();
 				let sha: string | undefined;
@@ -315,7 +315,8 @@ export const registerTools = (
 							: undefined;
 					if (status !== 404) throw e;
 				}
-				const encoded = encodeBase64Utf8(content);
+				const encoded =
+					encoding === "base64" ? content : encodeBase64Utf8(content);
 				const { data, headers } = await octo.rest.repos.createOrUpdateFileContents({
 					owner,
 					repo,
@@ -328,14 +329,14 @@ export const registerTools = (
 				logRateLimit(headers);
 				const action = sha ? "updated" : "created";
 				return text(
-					`# File ${action}\n\n- \`${path}\` on \`${branch}\`\n- commit: \`${data.commit.sha?.slice(0, 7)}\` — ${data.commit.html_url}\n- file: ${data.content?.html_url ?? "(n/a)"}`,
+					`# File ${action}\n\n- \`${path}\` on \`${branch}\` (encoding=${encoding})\n- commit: \`${data.commit.sha?.slice(0, 7)}\` — ${data.commit.html_url}\n- file: ${data.content?.html_url ?? "(n/a)"}`,
 				);
 			}),
 	);
 
 	server.tool(
 		"commit_files",
-		"Create or update multiple files on a branch in a single commit via the Git Tree API. Use when the user asks to commit several files at once (e.g. a feature change touching many files). Returns the new commit SHA and URL.",
+		"Create or update multiple files on a branch in a single commit via the Git Tree API. Use when the user asks to commit several files at once. Per-file `encoding` supports binary (default 'utf-8'; 'base64' uploads via git.createBlob). Returns the new commit SHA and URL.",
 		{
 			...RepoTarget,
 			branch: z.string().min(1).describe("Branch to commit to (must already exist)."),
@@ -344,7 +345,12 @@ export const registerTools = (
 				.array(
 					z.object({
 						path: z.string().min(1).describe("File path within the repo."),
-						content: z.string().describe("New file content (UTF-8 text)."),
+						content: z
+							.string()
+							.describe(
+								"File content; encoding is determined by per-file `encoding` (default 'utf-8').",
+							),
+						encoding: ContentEncodingSchema.optional().default("utf-8"),
 					}),
 				)
 				.min(1)
@@ -360,16 +366,36 @@ export const registerTools = (
 					commit_sha: parentSha,
 				});
 				logRateLimit(parentCommit.headers);
+				const treeEntries = await Promise.all(
+					files.map(async (f) => {
+						if (f.encoding === "base64") {
+							const blob = await octo.rest.git.createBlob({
+								owner,
+								repo,
+								content: f.content,
+								encoding: "base64",
+							});
+							logRateLimit(blob.headers);
+							return {
+								path: f.path,
+								mode: "100644" as const,
+								type: "blob" as const,
+								sha: blob.data.sha,
+							};
+						}
+						return {
+							path: f.path,
+							mode: "100644" as const,
+							type: "blob" as const,
+							content: f.content,
+						};
+					}),
+				);
 				const tree = await octo.rest.git.createTree({
 					owner,
 					repo,
 					base_tree: parentCommit.data.tree.sha,
-					tree: files.map((f) => ({
-						path: f.path,
-						mode: "100644",
-						type: "blob",
-						content: f.content,
-					})),
+					tree: treeEntries,
 				});
 				logRateLimit(tree.headers);
 				const commit = await octo.rest.git.createCommit({
@@ -387,7 +413,9 @@ export const registerTools = (
 					sha: commit.data.sha,
 				});
 				logRateLimit(updated.headers);
-				const list = files.map((f) => `  - \`${f.path}\``).join("\n");
+				const list = files
+					.map((f) => `  - \`${f.path}\` (encoding=${f.encoding})`)
+					.join("\n");
 				return text(
 					`# Commit pushed\n\n- branch: \`${branch}\`\n- commit: \`${commit.data.sha.slice(0, 7)}\` — ${commit.data.html_url}\n- files (${files.length}):\n${list}`,
 				);
