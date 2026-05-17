@@ -20,6 +20,7 @@ Based on the [`cloudflare/ai/demos/remote-mcp-github-oauth`](https://github.com/
 | `get_pr_diff` | read | Unified diff for a pull request |
 | `search_code` | read | Code search across GitHub |
 | `create_branch` | write | Branch from a base (or the repo's default) |
+| `delete_branch` | write | Delete a branch (default branch refused) |
 | `commit_file` | write | Create or update a single file on a branch in one commit |
 | `commit_files` | write | Create or update multiple files on a branch in one commit (Tree API, per-file mode / encoding) |
 | `create_pull_request` | write | Open a PR (same-repo `head` by default; `cross_repo_head` for fork PRs) |

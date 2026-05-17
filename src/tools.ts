@@ -249,6 +249,38 @@ export const registerTools = (
 	);
 
 	server.tool(
+		"delete_branch",
+		"Delete a branch from a repository. Use when the user asks to delete, remove, or clean up a branch. Refuses to delete the repo's default branch as a safety measure. Returns confirmation of the deleted ref.",
+		{
+			...RepoTarget,
+			branch: z
+				.string()
+				.min(1)
+				.regex(SameRepoBranchPattern, "Use a same-repo branch name.")
+				.describe("Branch name to delete (without 'refs/heads/' prefix)."),
+		},
+		async ({ owner, repo, branch }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const defaultBranch = await resolveDefaultBranch(octo, owner, repo);
+				if (branch === defaultBranch) {
+					return errorResult(
+						`Refusing to delete the repo's default branch \`${branch}\`.`,
+					);
+				}
+				const res = await octo.rest.git.deleteRef({
+					owner,
+					repo,
+					ref: `heads/${branch}`,
+				});
+				logRateLimit(res.headers);
+				return text(
+					`# Branch deleted\n\n- **${branch}** removed from ${owner}/${repo}`,
+				);
+			}),
+	);
+
+	server.tool(
 		"commit_file",
 		"Create or update a single file on a branch in one commit. Use when the user asks to add, edit, or replace one file. `encoding` defaults to 'utf-8'; pass 'base64' when sending pre-encoded binary bytes. Returns the new commit SHA and file URL.",
 		{
