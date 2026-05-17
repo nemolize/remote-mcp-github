@@ -297,9 +297,17 @@ export const registerTools = (
 						ref: branch,
 					});
 					logRateLimit(existing.headers);
-					if (!Array.isArray(existing.data) && "sha" in existing.data) {
-						sha = existing.data.sha;
+					if (Array.isArray(existing.data)) {
+						return errorResult(
+							`Path \`${path}\` resolves to a directory; commit_file targets a single regular file.`,
+						);
 					}
+					if (existing.data.type !== "file") {
+						return errorResult(
+							`Path \`${path}\` is a ${existing.data.type}, not a regular file; refusing to overwrite via commit_file.`,
+						);
+					}
+					sha = existing.data.sha;
 				} catch (e: unknown) {
 					const status =
 						e != null && typeof e === "object" && "status" in e
