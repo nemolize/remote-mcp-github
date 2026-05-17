@@ -250,7 +250,7 @@ export const registerTools = (
 
 	server.tool(
 		"commit_file",
-		"Create or update a single file on a branch in one commit. Use when the user asks to add, edit, or replace one file. On update, the existing blob SHA is looked up automatically. `encoding` defaults to 'utf-8'; pass 'base64' when sending pre-encoded binary bytes. Returns the new commit SHA and file URL.",
+		"Create or update a single file on a branch in one commit. Use when the user asks to add, edit, or replace one file. `encoding` defaults to 'utf-8'; pass 'base64' when sending pre-encoded binary bytes. Returns the new commit SHA and file URL.",
 		{
 			...RepoTarget,
 			branch: z.string().min(1).describe("Branch to commit to (must already exist)."),

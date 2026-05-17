@@ -19,13 +19,13 @@ Based on the [`cloudflare/ai/demos/remote-mcp-github-oauth`](https://github.com/
 | `get_file_content` | read | Raw file contents at a path + ref (directory listings supported) |
 | `get_pr_diff` | read | Unified diff for a pull request |
 | `search_code` | read | Code search across GitHub |
-| `create_issue` | write | Title + body + labels + assignees |
-| `add_comment` | write | Comment on an issue or PR |
 | `create_branch` | write | Branch from a base (or the repo's default) |
 | `commit_file` | write | Create or update a single file on a branch in one commit |
-| `commit_files` | write | Create or update multiple files on a branch in one commit (Tree API) |
-| `create_pull_request` | write | Open a PR (head → base, optional draft) |
+| `commit_files` | write | Create or update multiple files on a branch in one commit (Tree API, per-file mode / encoding) |
+| `create_pull_request` | write | Open a PR (same-repo `head` by default; `cross_repo_head` for fork PRs) |
 | `request_pr_review` | write | Request reviewers (users and/or teams) on a PR |
+| `create_issue` | write | Title + body + labels + assignees |
+| `add_comment` | write | Comment on an issue or PR |
 
 Both `/mcp` (Streamable HTTP) and `/sse` endpoints are exposed; Claude.ai currently uses `/sse`.
 
