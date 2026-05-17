@@ -4,13 +4,13 @@ A Claude.ai-ready remote MCP server that exposes GitHub as a custom connector, d
 
 Connect this server in `Claude.ai → Settings → Connectors → Add custom connector` and Claude can list/search/inspect your repositories, read files, fetch PR diffs, and (with `repo` scope) create issues, comment, and branch — all under the user's own GitHub identity via standard OAuth 2.1 / PKCE.
 
-Based on the [`cloudflare/ai/demos/remote-mcp-github-oauth`](https://github.com/cloudflare/ai/tree/main/demos/remote-mcp-github-oauth) template, with the bundled placeholder tools replaced by a focused 8-tool GitHub surface and minor production polish.
+Based on the [`cloudflare/ai/demos/remote-mcp-github-oauth`](https://github.com/cloudflare/ai/tree/main/demos/remote-mcp-github-oauth) template, with the bundled placeholder tools replaced by a focused 11-tool GitHub surface and minor production polish.
 
 > A public instance maintained by the author is deployed at `https://remote-mcp-github.nemolize.workers.dev`. It is offered on a best-effort basis with no uptime or quota guarantees; self-host (the steps below) for anything you depend on.
 
 ## What's included
 
-8 tools, all responding in Markdown (not raw JSON) so the model can read them efficiently and large payloads (diff, file content) are truncated at the boundary.
+11 tools, all responding in Markdown (not raw JSON) so the model can read them efficiently and large payloads (diff, file content) are truncated at the boundary.
 
 | Tool | Kind | Purpose |
 |---|---|---|
@@ -22,6 +22,10 @@ Based on the [`cloudflare/ai/demos/remote-mcp-github-oauth`](https://github.com/
 | `create_issue` | write | Title + body + labels + assignees |
 | `add_comment` | write | Comment on an issue or PR |
 | `create_branch` | write | Branch from a base (or the repo's default) |
+| `commit_file` | write | Create or update a single file on a branch in one commit |
+| `commit_files` | write | Create or update multiple files on a branch in one commit (Tree API) |
+| `create_pull_request` | write | Open a PR (head → base, optional draft) |
+| `request_pr_review` | write | Request reviewers (users and/or teams) on a PR |
 
 Both `/mcp` (Streamable HTTP) and `/sse` endpoints are exposed; Claude.ai currently uses `/sse`.
 
