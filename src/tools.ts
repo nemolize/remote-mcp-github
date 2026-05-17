@@ -215,62 +215,36 @@ export const registerTools = (
 	);
 
 	// ─── Write tools ───────────────────────────────────────────────────────────
+	// Ordered so prerequisites precede dependents:
+	// create_branch → commit_file → commit_files → create_pull_request →
+	// request_pr_review → create_issue → add_comment.
 
 	server.tool(
-		"create_issue",
-		"Create a new GitHub issue in the specified repository. Use when the user explicitly asks to file, open, or create an issue. Requires title; body, labels, and assignees are optional. Returns the created issue's number and URL.",
+		"create_branch",
+		"Create a new branch in a repository, pointing at the tip of a base branch (default: the repo's default branch). Use when the user asks to branch off, start a new feature branch, or fork the current state. Returns the new ref name and SHA.",
 		{
 			...RepoTarget,
-			title: z.string().min(1).describe("Issue title."),
-			body: z.string().optional().describe("Issue body (Markdown supported)."),
-			labels: z
-				.array(z.string())
+			branch: z.string().min(1).describe("New branch name (without 'refs/heads/' prefix)."),
+			from: z
+				.string()
 				.optional()
-				.describe("Labels to attach (must already exist in the repo)."),
-			assignees: z
-				.array(z.string())
-				.optional()
-				.describe("GitHub usernames to assign."),
+				.describe("Base branch name to branch from. Defaults to the repo's default branch."),
 		},
-		async ({ owner, repo, title, body, labels, assignees }) =>
+		async ({ owner, repo, branch, from }) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.issues.create({
+				const octo = client();
+				const base = from ?? (await resolveDefaultBranch(octo, owner, repo));
+				const baseSha = await getBranchHeadSha(octo, owner, repo, base);
+				const created = await octo.rest.git.createRef({
 					owner,
 					repo,
-					title,
-					body,
-					labels,
-					assignees,
+					ref: `refs/heads/${branch}`,
+					sha: baseSha,
 				});
-				logRateLimit(headers);
+				logRateLimit(created.headers);
 				return text(
-					`# Issue created\n\n- **${data.title}** (#${data.number})\n- ${data.html_url}`,
+					`# Branch created\n\n- **${branch}** ← branched from \`${base}\` @ \`${baseSha.slice(0, 7)}\`\n- ref: ${created.data.ref}`,
 				);
-			}),
-	);
-
-	server.tool(
-		"add_comment",
-		"Add a comment to an existing issue or pull request. Use when the user asks to comment on, reply to, or annotate an issue/PR. PRs accept comments via the same endpoint as issues. Returns the new comment's URL.",
-		{
-			...RepoTarget,
-			issue_number: z
-				.number()
-				.int()
-				.positive()
-				.describe("Issue or PR number to comment on."),
-			body: z.string().min(1).describe("Comment body (Markdown supported)."),
-		},
-		async ({ owner, repo, issue_number, body }) =>
-			wrapTool(async () => {
-				const { data, headers } = await client().rest.issues.createComment({
-					owner,
-					repo,
-					issue_number,
-					body,
-				});
-				logRateLimit(headers);
-				return text(`# Comment added\n\n- on #${issue_number}\n- ${data.html_url}`);
 			}),
 	);
 
@@ -510,35 +484,6 @@ export const registerTools = (
 	);
 
 	server.tool(
-		"create_branch",
-		"Create a new branch in a repository, pointing at the tip of a base branch (default: the repo's default branch). Use when the user asks to branch off, start a new feature branch, or fork the current state. Returns the new ref name and SHA.",
-		{
-			...RepoTarget,
-			branch: z.string().min(1).describe("New branch name (without 'refs/heads/' prefix)."),
-			from: z
-				.string()
-				.optional()
-				.describe("Base branch name to branch from. Defaults to the repo's default branch."),
-		},
-		async ({ owner, repo, branch, from }) =>
-			wrapTool(async () => {
-				const octo = client();
-				const base = from ?? (await resolveDefaultBranch(octo, owner, repo));
-				const baseSha = await getBranchHeadSha(octo, owner, repo, base);
-				const created = await octo.rest.git.createRef({
-					owner,
-					repo,
-					ref: `refs/heads/${branch}`,
-					sha: baseSha,
-				});
-				logRateLimit(created.headers);
-				return text(
-					`# Branch created\n\n- **${branch}** ← branched from \`${base}\` @ \`${baseSha.slice(0, 7)}\`\n- ref: ${created.data.ref}`,
-				);
-			}),
-	);
-
-	server.tool(
 		"request_pr_review",
 		"Request reviewers (users and/or teams) on an existing pull request. Use when the user asks to assign, request, or add reviewers to a PR. At least one of `reviewers` or `team_reviewers` must be non-empty. Returns the PR URL and the list of requested reviewers.",
 		{
@@ -547,21 +492,27 @@ export const registerTools = (
 			reviewers: z
 				.array(z.string())
 				.optional()
-				.describe("GitHub usernames to request review from."),
+				.describe(
+					"GitHub usernames to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
+				),
 			team_reviewers: z
 				.array(z.string())
 				.optional()
-				.describe("Team slugs (within the repo's org) to request review from."),
+				.describe(
+					"Team slugs (within the repo's org) to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
+				),
 		},
 		async ({ owner, repo, pull_number, reviewers, team_reviewers }) =>
 			wrapTool(async () => {
-				if ((reviewers == null || reviewers.length === 0) &&
-					(team_reviewers == null || team_reviewers.length === 0)) {
+				const reviewerCount =
+					(reviewers?.length ?? 0) + (team_reviewers?.length ?? 0);
+				if (reviewerCount === 0) {
 					return errorResult(
-						"At least one of `reviewers` or `team_reviewers` must be provided.",
+						"At least one of `reviewers` or `team_reviewers` must be non-empty.",
 					);
 				}
-				const { data, headers } = await client().rest.pulls.requestReviewers({
+				const octo = client();
+				const { data, headers } = await octo.rest.pulls.requestReviewers({
 					owner,
 					repo,
 					pull_number,
@@ -576,6 +527,64 @@ export const registerTools = (
 				return text(
 					`# Reviewers requested\n\n- PR: #${pull_number} — ${data.html_url}\n- requested: ${list}`,
 				);
+			}),
+	);
+
+	server.tool(
+		"create_issue",
+		"Create a new GitHub issue in the specified repository. Use when the user explicitly asks to file, open, or create an issue. Requires title; body, labels, and assignees are optional. Returns the created issue's number and URL.",
+		{
+			...RepoTarget,
+			title: z.string().min(1).describe("Issue title."),
+			body: z.string().optional().describe("Issue body (Markdown supported)."),
+			labels: z
+				.array(z.string())
+				.optional()
+				.describe("Labels to attach (must already exist in the repo)."),
+			assignees: z
+				.array(z.string())
+				.optional()
+				.describe("GitHub usernames to assign."),
+		},
+		async ({ owner, repo, title, body, labels, assignees }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.issues.create({
+					owner,
+					repo,
+					title,
+					body,
+					labels,
+					assignees,
+				});
+				logRateLimit(headers);
+				return text(
+					`# Issue created\n\n- **${data.title}** (#${data.number})\n- ${data.html_url}`,
+				);
+			}),
+	);
+
+	server.tool(
+		"add_comment",
+		"Add a comment to an existing issue or pull request. Use when the user asks to comment on, reply to, or annotate an issue/PR. PRs accept comments via the same endpoint as issues. Returns the new comment's URL.",
+		{
+			...RepoTarget,
+			issue_number: z
+				.number()
+				.int()
+				.positive()
+				.describe("Issue or PR number to comment on."),
+			body: z.string().min(1).describe("Comment body (Markdown supported)."),
+		},
+		async ({ owner, repo, issue_number, body }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.issues.createComment({
+					owner,
+					repo,
+					issue_number,
+					body,
+				});
+				logRateLimit(headers);
+				return text(`# Comment added\n\n- on #${issue_number}\n- ${data.html_url}`);
 			}),
 	);
 };
