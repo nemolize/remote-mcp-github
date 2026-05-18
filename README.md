@@ -130,7 +130,7 @@ pnpm lint     # eslint + tsc --noEmit + prettier --check, in parallel
 pnpm fix      # eslint --fix && prettier --write
 ```
 
-`pnpm lint` is the gate for CI; `pnpm fix` is the local shortcut to auto-resolve formatting and any autofixable ESLint findings before opening a PR.
+CI runs each sub-check (`lint:eslint`, `lint:typecheck`, `lint:prettier`) as a separate matrix job for clearer status reporting; locally, `pnpm lint` is the one-shot equivalent and `pnpm fix` auto-resolves formatting and any autofixable ESLint findings before opening a PR.
 
 ## OAuth scopes
 
