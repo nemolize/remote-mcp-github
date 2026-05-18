@@ -70,7 +70,11 @@ app.post("/authorize", async (c) => {
 			return c.text("Invalid state data", 400);
 		}
 
-		if (state.oauthReqInfo == null || state.oauthReqInfo.clientId === "") {
+		if (
+			state.oauthReqInfo == null ||
+			typeof state.oauthReqInfo.clientId !== "string" ||
+			state.oauthReqInfo.clientId === ""
+		) {
 			return c.text("Invalid request", 400);
 		}
 
@@ -156,7 +160,7 @@ app.get("/callback", async (c) => {
 		return c.text("Internal server error", 500);
 	}
 
-	if (oauthReqInfo.clientId === "") {
+	if (typeof oauthReqInfo.clientId !== "string" || oauthReqInfo.clientId === "") {
 		return c.text("Invalid OAuth request data", 400);
 	}
 
