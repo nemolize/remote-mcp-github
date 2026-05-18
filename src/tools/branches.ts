@@ -1,17 +1,12 @@
-import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-	getBranchHeadSha,
-	resolveDefaultBranch,
-} from "../github/helpers.js";
+import { z } from "zod";
+
+import { getBranchHeadSha, resolveDefaultBranch } from "../github/helpers.js";
 import { errorResult, logRateLimit, text, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget, SameRepoBranchPattern } from "./common.js";
 
-export const registerBranchTools = (
-	server: McpServer,
-	client: OctokitFactory,
-): void => {
+export const registerBranchTools = (server: McpServer, client: OctokitFactory): void => {
 	server.tool(
 		"create_branch",
 		"Create a new branch in a repository, pointing at the tip of a base branch (default: the repo's default branch). Use when the user asks to branch off, start a new feature branch, or fork the current state. Returns the new ref name and SHA.",
@@ -61,9 +56,7 @@ export const registerBranchTools = (
 				const octo = client();
 				const defaultBranch = await resolveDefaultBranch(octo, owner, repo);
 				if (branch === defaultBranch) {
-					return errorResult(
-						`Refusing to delete the repo's default branch \`${branch}\`.`,
-					);
+					return errorResult(`Refusing to delete the repo's default branch \`${branch}\`.`);
 				}
 				const headSha = await getBranchHeadSha(octo, owner, repo, branch);
 				const res = await octo.rest.git.deleteRef({

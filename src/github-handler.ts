@@ -1,7 +1,8 @@
-import { env } from "cloudflare:workers";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+import { env } from "cloudflare:workers";
 import { Hono } from "hono";
 import { Octokit } from "octokit";
+
 import { fetchUpstreamAuthToken, getUpstreamAuthorizeUrl, type Props } from "./utils";
 import {
 	addApprovedClient,
@@ -58,7 +59,7 @@ app.post("/authorize", async (c) => {
 
 		// Extract state from form data
 		const encodedState = formData.get("state");
-		if (!encodedState || typeof encodedState !== "string") {
+		if (typeof encodedState !== "string" || encodedState === "") {
 			return c.text("Missing state in form data", 400);
 		}
 
@@ -69,7 +70,7 @@ app.post("/authorize", async (c) => {
 			return c.text("Invalid state data", 400);
 		}
 
-		if (!state.oauthReqInfo || !state.oauthReqInfo.clientId) {
+		if (state.oauthReqInfo == null || state.oauthReqInfo.clientId === "") {
 			return c.text("Invalid request", 400);
 		}
 
@@ -90,13 +91,14 @@ app.post("/authorize", async (c) => {
 		headers.append("Set-Cookie", sessionBindingCookie);
 
 		return redirectToGithub(c.req.raw, stateToken, Object.fromEntries(headers));
-	} catch (error: any) {
+	} catch (error: unknown) {
 		console.error("POST /authorize error:", error);
 		if (error instanceof OAuthError) {
 			return error.toResponse();
 		}
 		// Unexpected non-OAuth error
-		return c.text(`Internal server error: ${error.message}`, 500);
+		const message = error instanceof Error ? error.message : String(error);
+		return c.text(`Internal server error: ${message}`, 500);
 	}
 });
 
@@ -146,7 +148,7 @@ app.get("/callback", async (c) => {
 		const result = await validateOAuthState(c.req.raw, c.env.OAUTH_KV);
 		oauthReqInfo = result.oauthReqInfo;
 		clearSessionCookie = result.clearCookie;
-	} catch (error: any) {
+	} catch (error: unknown) {
 		if (error instanceof OAuthError) {
 			return error.toResponse();
 		}
@@ -154,7 +156,7 @@ app.get("/callback", async (c) => {
 		return c.text("Internal server error", 500);
 	}
 
-	if (!oauthReqInfo.clientId) {
+	if (oauthReqInfo.clientId === "") {
 		return c.text("Invalid OAuth request data", 400);
 	}
 
@@ -180,10 +182,10 @@ app.get("/callback", async (c) => {
 		// This will be available on this.props inside MyMCP
 		props: {
 			accessToken,
-			email,
+			email: email ?? "",
 			login,
-			name,
-		} as Props,
+			name: name ?? "",
+		} satisfies Props,
 		request: oauthReqInfo,
 		scope: oauthReqInfo.scope,
 		userId: login,

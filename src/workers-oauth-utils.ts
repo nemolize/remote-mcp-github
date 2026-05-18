@@ -219,16 +219,17 @@ export function validateCSRFToken(formData: FormData, request: Request): Validat
 
 	const tokenFromForm = formData.get("csrf_token");
 
-	if (!tokenFromForm || typeof tokenFromForm !== "string") {
+	if (typeof tokenFromForm !== "string" || tokenFromForm === "") {
 		throw new OAuthError("invalid_request", "Missing CSRF token in form data", 400);
 	}
 
-	const cookieHeader = request.headers.get("Cookie") || "";
+	const cookieHeader = request.headers.get("Cookie") ?? "";
 	const cookies = cookieHeader.split(";").map((c) => c.trim());
 	const csrfCookie = cookies.find((c) => c.startsWith(`${csrfCookieName}=`));
-	const tokenFromCookie = csrfCookie ? csrfCookie.substring(csrfCookieName.length + 1) : null;
+	const tokenFromCookie =
+		csrfCookie != null ? csrfCookie.substring(csrfCookieName.length + 1) : null;
 
-	if (!tokenFromCookie) {
+	if (tokenFromCookie == null || tokenFromCookie === "") {
 		throw new OAuthError("invalid_request", "Missing CSRF token cookie", 400);
 	}
 
@@ -316,26 +317,27 @@ export async function validateOAuthState(
 	const url = new URL(request.url);
 	const stateFromQuery = url.searchParams.get("state");
 
-	if (!stateFromQuery) {
+	if (stateFromQuery == null || stateFromQuery === "") {
 		throw new OAuthError("invalid_request", "Missing state parameter", 400);
 	}
 
 	// Validate state exists in KV (secure, one-time use, with TTL)
 	const storedDataJson = await kv.get(`oauth:state:${stateFromQuery}`);
-	if (!storedDataJson) {
+	if (storedDataJson == null || storedDataJson === "") {
 		throw new OAuthError("invalid_request", "Invalid or expired state", 400);
 	}
 
 	// SECURITY FIX: Validate that this state token belongs to this browser session
 	// by checking that the state hash matches the session cookie
-	const cookieHeader = request.headers.get("Cookie") || "";
+	const cookieHeader = request.headers.get("Cookie") ?? "";
 	const cookies = cookieHeader.split(";").map((c) => c.trim());
 	const consentedStateCookie = cookies.find((c) => c.startsWith(`${consentedStateCookieName}=`));
-	const consentedStateHash = consentedStateCookie
-		? consentedStateCookie.substring(consentedStateCookieName.length + 1)
-		: null;
+	const consentedStateHash =
+		consentedStateCookie != null
+			? consentedStateCookie.substring(consentedStateCookieName.length + 1)
+			: null;
 
-	if (!consentedStateHash) {
+	if (consentedStateHash == null || consentedStateHash === "") {
 		throw new OAuthError(
 			"invalid_request",
 			"Missing session binding cookie - authorization flow must be restarted",
@@ -360,7 +362,7 @@ export async function validateOAuthState(
 
 	let oauthReqInfo: AuthRequest;
 	try {
-		oauthReqInfo = JSON.parse(storedDataJson) as AuthRequest;
+		oauthReqInfo = parseAuthRequest(storedDataJson);
 	} catch (_e) {
 		throw new OAuthError("server_error", "Invalid state data", 500);
 	}
@@ -405,8 +407,7 @@ export async function addApprovedClient(
 	const approvedClientsCookieName = "__Host-APPROVED_CLIENTS";
 	const THIRTY_DAYS_IN_SECONDS = 2592000;
 
-	const existingApprovedClients =
-		(await getApprovedClientsFromCookie(request, cookieSecret)) || [];
+	const existingApprovedClients = (await getApprovedClientsFromCookie(request, cookieSecret)) || [];
 	const updatedApprovedClients = Array.from(new Set([...existingApprovedClients, clientId]));
 
 	const payload = JSON.stringify(updatedApprovedClients);
@@ -436,7 +437,7 @@ export interface ApprovalDialogOptions {
 	 * Arbitrary state data to pass through the approval flow
 	 * Will be encoded in the form and returned when approval is complete
 	 */
-	state: Record<string, any>;
+	state: Record<string, unknown>;
 	/**
 	 * CSRF token to include in the form
 	 */
@@ -461,18 +462,32 @@ export function renderApprovalDialog(request: Request, options: ApprovalDialogOp
 
 	const encodedState = btoa(JSON.stringify(state));
 
+	const sanitizeIfPresent = (s: string | undefined | null): string =>
+		s != null && s !== "" ? sanitizeText(s) : "";
+
 	const serverName = sanitizeText(server.name);
-	const clientName = client?.clientName ? sanitizeText(client.clientName) : "Unknown MCP Client";
-	const serverDescription = server.description ? sanitizeText(server.description) : "";
+	const clientName =
+		client?.clientName != null && client.clientName !== ""
+			? sanitizeText(client.clientName)
+			: "Unknown MCP Client";
+	const serverDescription = sanitizeIfPresent(server.description);
 
 	// Validate URLs then HTML-escape for safe use in attributes
-	const logoUrl = server.logo ? sanitizeText(sanitizeUrl(server.logo)) : "";
-	const clientUri = client?.clientUri ? sanitizeText(sanitizeUrl(client.clientUri)) : "";
-	const policyUri = client?.policyUri ? sanitizeText(sanitizeUrl(client.policyUri)) : "";
-	const tosUri = client?.tosUri ? sanitizeText(sanitizeUrl(client.tosUri)) : "";
+	const logoUrl =
+		server.logo != null && server.logo !== "" ? sanitizeText(sanitizeUrl(server.logo)) : "";
+	const clientUri =
+		client?.clientUri != null && client.clientUri !== ""
+			? sanitizeText(sanitizeUrl(client.clientUri))
+			: "";
+	const policyUri =
+		client?.policyUri != null && client.policyUri !== ""
+			? sanitizeText(sanitizeUrl(client.policyUri))
+			: "";
+	const tosUri =
+		client?.tosUri != null && client.tosUri !== "" ? sanitizeText(sanitizeUrl(client.tosUri)) : "";
 
 	const contacts =
-		client?.contacts && client.contacts.length > 0
+		client?.contacts != null && client.contacts.length > 0
 			? sanitizeText(client.contacts.join(", "))
 			: "";
 
@@ -689,8 +704,8 @@ export function renderApprovalDialog(request: Request, options: ApprovalDialogOp
               </div>
 
               ${
-					clientUri
-						? `
+								clientUri
+									? `
                 <div class="client-detail">
                   <div class="detail-label">Website:</div>
                   <div class="detail-value small">
@@ -700,12 +715,12 @@ export function renderApprovalDialog(request: Request, options: ApprovalDialogOp
                   </div>
                 </div>
               `
-						: ""
-				}
+									: ""
+							}
 
               ${
-					policyUri
-						? `
+								policyUri
+									? `
                 <div class="client-detail">
                   <div class="detail-label">Privacy Policy:</div>
                   <div class="detail-value">
@@ -715,12 +730,12 @@ export function renderApprovalDialog(request: Request, options: ApprovalDialogOp
                   </div>
                 </div>
               `
-						: ""
-				}
+									: ""
+							}
 
               ${
-					tosUri
-						? `
+								tosUri
+									? `
                 <div class="client-detail">
                   <div class="detail-label">Terms of Service:</div>
                   <div class="detail-value">
@@ -730,12 +745,12 @@ export function renderApprovalDialog(request: Request, options: ApprovalDialogOp
                   </div>
                 </div>
               `
-						: ""
-				}
+									: ""
+							}
 
               ${
-					redirectUris.length > 0
-						? `
+								redirectUris.length > 0
+									? `
                 <div class="client-detail">
                   <div class="detail-label">Redirect URIs:</div>
                   <div class="detail-value small">
@@ -743,19 +758,19 @@ export function renderApprovalDialog(request: Request, options: ApprovalDialogOp
                   </div>
                 </div>
               `
-						: ""
-				}
+									: ""
+							}
 
               ${
-					contacts
-						? `
+								contacts
+									? `
                 <div class="client-detail">
                   <div class="detail-label">Contact:</div>
                   <div class="detail-value">${contacts}</div>
                 </div>
               `
-						: ""
-				}
+									: ""
+							}
             </div>
 
             <p>This MCP Client is requesting to be authorized on ${serverName}. If you approve, you will be redirected to complete authentication.</p>
@@ -794,12 +809,12 @@ async function getApprovedClientsFromCookie(
 	const approvedClientsCookieName = "__Host-APPROVED_CLIENTS";
 
 	const cookieHeader = request.headers.get("Cookie");
-	if (!cookieHeader) return null;
+	if (cookieHeader == null || cookieHeader === "") return null;
 
 	const cookies = cookieHeader.split(";").map((c) => c.trim());
 	const targetCookie = cookies.find((c) => c.startsWith(`${approvedClientsCookieName}=`));
 
-	if (!targetCookie) return null;
+	if (targetCookie == null) return null;
 
 	const cookieValue = targetCookie.substring(approvedClientsCookieName.length + 1);
 	const parts = cookieValue.split(".");
@@ -814,18 +829,25 @@ async function getApprovedClientsFromCookie(
 	if (!isValid) return null;
 
 	try {
-		const approvedClients = JSON.parse(payload);
+		const approvedClients: unknown = JSON.parse(payload);
 		if (
 			!Array.isArray(approvedClients) ||
-			!approvedClients.every((item) => typeof item === "string")
+			!approvedClients.every((item): item is string => typeof item === "string")
 		) {
 			return null;
 		}
-		return approvedClients as string[];
+		return approvedClients;
 	} catch (_e) {
 		return null;
 	}
 }
+
+// JSON.parse returns `any`, which is incompatible with the no-explicit-any /
+// consistent-type-assertions lint rules. The function return type narrows it
+// without an inline assertion expression. The KV-stored payload is written by
+// `createOAuthState` and round-tripped through `JSON.stringify`, so the shape
+// is trusted by construction.
+const parseAuthRequest = (json: string): AuthRequest => JSON.parse(json);
 
 async function signData(data: string, secret: string): Promise<string> {
 	const key = await importKey(secret);
@@ -844,9 +866,9 @@ async function verifySignature(
 	const key = await importKey(secret);
 	const enc = new TextEncoder();
 	try {
-		const signatureBytes = new Uint8Array(
-			signatureHex.match(/.{1,2}/g)!.map((byte) => Number.parseInt(byte, 16)),
-		);
+		const matches = signatureHex.match(/.{1,2}/g);
+		if (matches == null) return false;
+		const signatureBytes = new Uint8Array(matches.map((byte) => Number.parseInt(byte, 16)));
 		return await crypto.subtle.verify("HMAC", key, signatureBytes.buffer, enc.encode(data));
 	} catch (_e) {
 		return false;
