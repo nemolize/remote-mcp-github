@@ -1,26 +1,44 @@
 {
-  "name": "remote-mcp-github",
-  "version": "0.0.1",
-  "private": true,
-  "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "cf-typegen": "wrangler types",
-    "type-check": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.4.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "agents": "^0.9.0",
-    "hono": "^4.12.9",
-    "just-pick": "^4.2.0",
-    "octokit": "^5.0.5",
-    "zod": "^4.3.6"
-  },
-  "devDependencies": {
-    "@types/node": "^25.8.0",
-    "typescript": "6.0.2",
-    "wrangler": "^4.92.0"
-  }
+	"name": "remote-mcp-github",
+	"version": "0.0.1",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"cf-typegen": "wrangler types",
+		"type-check": "tsc --noEmit",
+		"lint": "run-p --continue-on-error 'lint:*'",
+		"lint:eslint": "eslint .",
+		"lint:typecheck": "tsc --noEmit",
+		"lint:prettier": "prettier --check .",
+		"fix": "run-s --continue-on-error fix:eslint fix:prettier",
+		"fix:eslint": "eslint . --fix",
+		"fix:prettier": "prettier --write .",
+		"prepare": "lefthook install"
+	},
+	"dependencies": {
+		"@cloudflare/workers-oauth-provider": "^0.4.0",
+		"@modelcontextprotocol/sdk": "^1.29.0",
+		"agents": "^0.9.0",
+		"hono": "^4.12.9",
+		"just-pick": "^4.2.0",
+		"octokit": "^5.0.5",
+		"zod": "^4.3.6"
+	},
+	"devDependencies": {
+		"@eslint/compat": "^2.1.0",
+		"@eslint/js": "^10.0.1",
+		"@types/node": "^25.8.0",
+		"eslint": "^10.4.0",
+		"eslint-plugin-simple-import-sort": "^13.0.0",
+		"eslint-plugin-unused-imports": "^4.4.1",
+		"globals": "^17.6.0",
+		"lefthook": "^2.1.6",
+		"npm-run-all2": "^8.0.4",
+		"prettier": "^3.8.3",
+		"typescript": "6.0.2",
+		"typescript-eslint": "^8.59.3",
+		"wrangler": "^4.92.0"
+	}
 }
