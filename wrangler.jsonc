@@ -7,18 +7,15 @@
 	"name": "remote-mcp-github",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-10",
-	"compatibility_flags": [
-		"nodejs_compat",
-		"global_fetch_strictly_public"
-	],
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 	"workers_dev": true,
 	"preview_urls": false,
 	"upload_source_maps": true,
 	"observability": {
-		"enabled": true
+		"enabled": true,
 	},
 	"dev": {
-		"port": 8788
+		"port": 8788,
 	},
 	/**
 	 * Secrets are populated via `wrangler secret put` (see README):
@@ -28,24 +25,22 @@
 	 */
 	"migrations": [
 		{
-			"new_sqlite_classes": [
-				"MyMCP"
-			],
-			"tag": "v1"
-		}
+			"new_sqlite_classes": ["MyMCP"],
+			"tag": "v1",
+		},
 	],
 	"durable_objects": {
 		"bindings": [
 			{
 				"class_name": "MyMCP",
-				"name": "MCP_OBJECT"
-			}
-		]
+				"name": "MCP_OBJECT",
+			},
+		],
 	},
 	"kv_namespaces": [
 		{
 			"binding": "OAUTH_KV",
-			"id": "2af89bb4f35b428ab92d314d1423b69c"
-		}
-	]
+			"id": "2af89bb4f35b428ab92d314d1423b69c",
+		},
+	],
 }
