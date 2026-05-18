@@ -8,10 +8,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  TypeCheck:
+  Lint:
     runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
-      - run: pnpm type-check
+      - run: pnpm lint
