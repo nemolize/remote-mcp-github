@@ -8,6 +8,7 @@ import {
 	getBranchHeadSha,
 } from "../github/helpers.js";
 import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
+import { isNonEmpty } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
@@ -32,7 +33,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					ref,
 				});
 				logRateLimit(headers);
-				const refSuffix = ref != null && ref !== "" ? `@${ref}` : "";
+				const refSuffix = isNonEmpty(ref) ? `@${ref}` : "";
 				if (Array.isArray(data)) {
 					const entries = data.map((e) => `- ${e.type === "dir" ? "📁" : "📄"} ${e.name}`);
 					return text(

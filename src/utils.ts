@@ -1,3 +1,5 @@
+export const isNonEmpty = (s: string | null | undefined): s is string => s != null && s !== "";
+
 /**
  * Constructs an authorization URL for an upstream service.
  *
@@ -26,7 +28,7 @@ export function getUpstreamAuthorizeUrl({
 	upstream.searchParams.set("client_id", client_id);
 	upstream.searchParams.set("redirect_uri", redirect_uri);
 	upstream.searchParams.set("scope", scope);
-	if (state != null && state !== "") upstream.searchParams.set("state", state);
+	if (isNonEmpty(state)) upstream.searchParams.set("state", state);
 	upstream.searchParams.set("response_type", "code");
 	return upstream.href;
 }
@@ -56,7 +58,7 @@ export async function fetchUpstreamAuthToken({
 	redirect_uri: string;
 	client_id: string;
 }): Promise<[string, null] | [null, Response]> {
-	if (code == null || code === "") {
+	if (!isNonEmpty(code)) {
 		return [null, new Response("Missing code", { status: 400 })];
 	}
 
