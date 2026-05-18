@@ -2,9 +2,9 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { resolveDefaultBranch } from "../github/helpers.js";
 import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
+import type { OctokitFactory } from "./common.js";
 import {
 	CrossRepoHeadPattern,
-	OctokitFactory,
 	RepoTarget,
 	SameRepoBranchPattern,
 } from "./common.js";

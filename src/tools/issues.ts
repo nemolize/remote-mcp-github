@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
-import { OctokitFactory, RepoTarget } from "./common.js";
+import type { OctokitFactory } from "./common.js";
+import { RepoTarget } from "./common.js";
 
 export const registerIssueTools = (
 	server: McpServer,

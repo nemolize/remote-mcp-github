@@ -5,7 +5,8 @@ import {
 	resolveDefaultBranch,
 } from "../github/helpers.js";
 import { errorResult, logRateLimit, text, wrapTool } from "../mcp/response.js";
-import { OctokitFactory, RepoTarget, SameRepoBranchPattern } from "./common.js";
+import type { OctokitFactory } from "./common.js";
+import { RepoTarget, SameRepoBranchPattern } from "./common.js";
 
 export const registerBranchTools = (
 	server: McpServer,
