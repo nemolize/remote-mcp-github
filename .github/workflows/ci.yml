@@ -10,8 +10,12 @@ concurrency:
 jobs:
   Lint:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [eslint, typecheck, prettier]
 
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
-      - run: pnpm lint
+      - run: pnpm lint:${{ matrix.check }}
