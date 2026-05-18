@@ -10,21 +10,21 @@ Connect this server in `Claude.ai → Settings → Connectors → Add custom con
 
 All tools respond in Markdown (not raw JSON) so the model can read them efficiently, and large payloads (diff, file content) are truncated at the boundary.
 
-| Tool | Kind | Purpose |
-|---|---|---|
-| `list_my_repos` | read | Authenticated user's repositories, with visibility / sort options |
-| `search_issues` | read | Issue / PR search inside a specific repo |
-| `get_file_content` | read | Raw file contents at a path + ref (directory listings supported) |
-| `get_pr_diff` | read | Unified diff for a pull request |
-| `search_code` | read | Code search across GitHub |
-| `create_branch` | write | Branch from a base (or the repo's default) |
-| `delete_branch` | write | Delete a branch (default branch refused) |
-| `commit_file` | write | Create or update a single file on a branch in one commit |
-| `commit_files` | write | Create or update multiple files on a branch in one commit (Tree API, per-file mode / encoding) |
-| `create_pull_request` | write | Open a PR (same-repo `head` by default; `cross_repo_head` for fork PRs) |
-| `request_pr_review` | write | Request reviewers (users and/or teams) on a PR |
-| `create_issue` | write | Title + body + labels + assignees |
-| `add_comment` | write | Comment on an issue or PR |
+| Tool                  | Kind  | Purpose                                                                                        |
+| --------------------- | ----- | ---------------------------------------------------------------------------------------------- |
+| `list_my_repos`       | read  | Authenticated user's repositories, with visibility / sort options                              |
+| `search_issues`       | read  | Issue / PR search inside a specific repo                                                       |
+| `get_file_content`    | read  | Raw file contents at a path + ref (directory listings supported)                               |
+| `get_pr_diff`         | read  | Unified diff for a pull request                                                                |
+| `search_code`         | read  | Code search across GitHub                                                                      |
+| `create_branch`       | write | Branch from a base (or the repo's default)                                                     |
+| `delete_branch`       | write | Delete a branch (default branch refused)                                                       |
+| `commit_file`         | write | Create or update a single file on a branch in one commit                                       |
+| `commit_files`        | write | Create or update multiple files on a branch in one commit (Tree API, per-file mode / encoding) |
+| `create_pull_request` | write | Open a PR (same-repo `head` by default; `cross_repo_head` for fork PRs)                        |
+| `request_pr_review`   | write | Request reviewers (users and/or teams) on a PR                                                 |
+| `create_issue`        | write | Title + body + labels + assignees                                                              |
+| `add_comment`         | write | Comment on an issue or PR                                                                      |
 
 Both `/mcp` (Streamable HTTP) and `/sse` endpoints are exposed; Claude.ai currently uses `/sse`.
 
@@ -50,10 +50,10 @@ pnpm install
 
 Create **two** OAuth Apps at `https://github.com/settings/applications/new` — one for local dev, one for production. Use the values below; the production URLs use the `*.workers.dev` host you'll be deploying to.
 
-| Purpose | Homepage URL | Authorization callback URL |
-|---|---|---|
-| Dev | `http://localhost:8788` | `http://localhost:8788/callback` |
-| Prod | `https://remote-mcp-github.<your-subdomain>.workers.dev` | `https://remote-mcp-github.<your-subdomain>.workers.dev/callback` |
+| Purpose | Homepage URL                                             | Authorization callback URL                                        |
+| ------- | -------------------------------------------------------- | ----------------------------------------------------------------- |
+| Dev     | `http://localhost:8788`                                  | `http://localhost:8788/callback`                                  |
+| Prod    | `https://remote-mcp-github.<your-subdomain>.workers.dev` | `https://remote-mcp-github.<your-subdomain>.workers.dev/callback` |
 
 After creation, generate a Client Secret for each app and keep both Client ID + Secret pairs handy.
 
@@ -121,7 +121,16 @@ curl https://remote-mcp-github.<your-subdomain>.workers.dev/.well-known/oauth-au
 3. Remote MCP server URL: `https://remote-mcp-github.<your-subdomain>.workers.dev/sse`
 4. Add → Connect → approve on the MCP authorize page → authorize on GitHub → done
 
-In a new chat, prompt Claude with something like *"List my GitHub repositories by most recently updated"* — Claude will pick `list_my_repos` and call it.
+In a new chat, prompt Claude with something like _"List my GitHub repositories by most recently updated"_ — Claude will pick `list_my_repos` and call it.
+
+## Code quality
+
+```bash
+pnpm lint     # eslint + tsc --noEmit + prettier --check, in parallel
+pnpm fix      # eslint --fix && prettier --write
+```
+
+`pnpm lint` is the gate for CI; `pnpm fix` is the local shortcut to auto-resolve formatting and any autofixable ESLint findings before opening a PR.
 
 ## OAuth scopes
 
@@ -143,7 +152,7 @@ wrangler.jsonc           # Cloudflare Workers config; KV id goes here
 ## Security notes
 
 - Tokens are encrypted at rest in the `OAUTH_KV` namespace using `COOKIE_ENCRYPTION_KEY`. Rotate the key (and re-deploy) to invalidate all active grants.
-- The Worker is the OAuth *server* for Claude.ai (and any other MCP client) and the OAuth *client* for GitHub. The GitHub access token never leaves the Worker — it sits in `this.props.accessToken` inside the Durable Object instance, used by Octokit per request.
+- The Worker is the OAuth _server_ for Claude.ai (and any other MCP client) and the OAuth _client_ for GitHub. The GitHub access token never leaves the Worker — it sits in `this.props.accessToken` inside the Durable Object instance, used by Octokit per request.
 - All tool calls go through a `wrapTool()` boundary that converts thrown errors into `{ isError: true, content: [{ type: "text", text: "Error: …" }] }` so the model sees the failure mode rather than the connection dropping.
 - This is still a small server. Audit before exposing to untrusted users; consider tightening CORS, limiting allowed origins, or restricting `ALLOWED_USERNAMES` for sensitive write tools.
 
