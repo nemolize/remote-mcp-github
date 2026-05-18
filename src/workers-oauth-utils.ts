@@ -364,7 +364,7 @@ export async function validateOAuthState(
 
 	let oauthReqInfo: AuthRequest;
 	try {
-		oauthReqInfo = parseAuthRequest(storedDataJson);
+		oauthReqInfo = parseTrustedJson<AuthRequest>(storedDataJson);
 	} catch (_e) {
 		throw new OAuthError("server_error", "Invalid state data", 500);
 	}
@@ -835,12 +835,10 @@ async function getApprovedClientsFromCookie(
 	}
 }
 
-// JSON.parse returns `any`, which is incompatible with the no-explicit-any /
-// consistent-type-assertions lint rules. The function return type narrows it
-// without an inline assertion expression. The KV-stored payload is written by
-// `createOAuthState` and round-tripped through `JSON.stringify`, so the shape
-// is trusted by construction.
-const parseAuthRequest = (json: string): AuthRequest => JSON.parse(json);
+// Parses JSON whose shape is guaranteed by construction (e.g. our own
+// `JSON.stringify` round-tripped through KV). Use only at trusted boundaries
+// — not for untrusted input, which must be validated.
+const parseTrustedJson = <T>(json: string): T => JSON.parse(json);
 
 async function signData(data: string, secret: string): Promise<string> {
 	const key = await importKey(secret);
