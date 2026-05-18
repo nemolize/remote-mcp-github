@@ -3,6 +3,8 @@
 
 import type { AuthRequest, ClientInfo } from "@cloudflare/workers-oauth-provider";
 
+import { isNonEmpty } from "./utils.js";
+
 /**
  * OAuth 2.1 compliant error class.
  * Represents errors that occur during OAuth operations with standardized error codes and descriptions.
@@ -462,29 +464,20 @@ export function renderApprovalDialog(request: Request, options: ApprovalDialogOp
 
 	const encodedState = btoa(JSON.stringify(state));
 
-	const sanitizeIfPresent = (s: string | undefined | null): string =>
-		s != null && s !== "" ? sanitizeText(s) : "";
+	const sanitizeIfPresent = (s: string | undefined | null, fallback = ""): string =>
+		isNonEmpty(s) ? sanitizeText(s) : fallback;
+	const sanitizeUrlIfPresent = (s: string | undefined | null): string =>
+		isNonEmpty(s) ? sanitizeText(sanitizeUrl(s)) : "";
 
 	const serverName = sanitizeText(server.name);
-	const clientName =
-		client?.clientName != null && client.clientName !== ""
-			? sanitizeText(client.clientName)
-			: "Unknown MCP Client";
+	const clientName = sanitizeIfPresent(client?.clientName, "Unknown MCP Client");
 	const serverDescription = sanitizeIfPresent(server.description);
 
 	// Validate URLs then HTML-escape for safe use in attributes
-	const logoUrl =
-		server.logo != null && server.logo !== "" ? sanitizeText(sanitizeUrl(server.logo)) : "";
-	const clientUri =
-		client?.clientUri != null && client.clientUri !== ""
-			? sanitizeText(sanitizeUrl(client.clientUri))
-			: "";
-	const policyUri =
-		client?.policyUri != null && client.policyUri !== ""
-			? sanitizeText(sanitizeUrl(client.policyUri))
-			: "";
-	const tosUri =
-		client?.tosUri != null && client.tosUri !== "" ? sanitizeText(sanitizeUrl(client.tosUri)) : "";
+	const logoUrl = sanitizeUrlIfPresent(server.logo);
+	const clientUri = sanitizeUrlIfPresent(client?.clientUri);
+	const policyUri = sanitizeUrlIfPresent(client?.policyUri);
+	const tosUri = sanitizeUrlIfPresent(client?.tosUri);
 
 	const contacts =
 		client?.contacts != null && client.contacts.length > 0
