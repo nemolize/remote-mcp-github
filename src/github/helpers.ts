@@ -1,5 +1,6 @@
 import type { Octokit } from "octokit";
 import { z } from "zod";
+
 import { logRateLimit } from "../mcp/response.js";
 
 export const ContentEncodingSchema = z
@@ -10,9 +11,7 @@ export const ContentEncodingSchema = z
 
 export const FileModeSchema = z
 	.enum(["100644", "100755", "120000"])
-	.describe(
-		"Git file mode. 100644=regular, 100755=executable, 120000=symlink.",
-	);
+	.describe("Git file mode. 100644=regular, 100755=executable, 120000=symlink.");
 
 export const encodeBase64Utf8 = (text: string): string => {
 	const bytes = new TextEncoder().encode(text);

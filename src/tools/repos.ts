@@ -1,12 +1,10 @@
-import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+
 import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
 
-export const registerRepoTools = (
-	server: McpServer,
-	client: OctokitFactory,
-): void => {
+export const registerRepoTools = (server: McpServer, client: OctokitFactory): void => {
 	server.tool(
 		"list_my_repos",
 		"List repositories owned by or accessible to the authenticated GitHub user. Use when the user asks to see, browse, enumerate, or find their own repositories. Returns repo full name, visibility, description, URL, star count, and last-update timestamp.",
@@ -41,7 +39,7 @@ export const registerRepoTools = (
 				if (data.length === 0) return text("(no repositories found)");
 				const lines = data.map((r) => {
 					const flag = r.private ? "🔒 private" : "🌐 public";
-					const desc = r.description ? ` — ${r.description}` : "";
+					const desc = r.description != null && r.description !== "" ? ` — ${r.description}` : "";
 					return `- **${r.full_name}** (${flag})${desc}\n  - ${r.html_url} | ⭐ ${r.stargazers_count} | updated ${r.updated_at}`;
 				});
 				return text(truncate(`# Repositories (${data.length})\n\n${lines.join("\n")}`));

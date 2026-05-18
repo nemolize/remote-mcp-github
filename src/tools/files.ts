@@ -1,25 +1,17 @@
-import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+
 import {
 	ContentEncodingSchema,
 	encodeBase64Utf8,
 	FileModeSchema,
 	getBranchHeadSha,
 } from "../github/helpers.js";
-import {
-	errorResult,
-	logRateLimit,
-	text,
-	truncate,
-	wrapTool,
-} from "../mcp/response.js";
+import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
-export const registerFileTools = (
-	server: McpServer,
-	client: OctokitFactory,
-): void => {
+export const registerFileTools = (server: McpServer, client: OctokitFactory): void => {
 	server.tool(
 		"get_file_content",
 		"Fetch the raw content of a file from a GitHub repository at a given path and optional ref (branch, tag, or commit SHA). Use when the user asks to read, view, or inspect a specific file in a repo. Returns a fenced code block with the file's text content.",
@@ -40,12 +32,11 @@ export const registerFileTools = (
 					ref,
 				});
 				logRateLimit(headers);
+				const refSuffix = ref != null && ref !== "" ? `@${ref}` : "";
 				if (Array.isArray(data)) {
-					const entries = data.map(
-						(e) => `- ${e.type === "dir" ? "📁" : "📄"} ${e.name}`,
-					);
+					const entries = data.map((e) => `- ${e.type === "dir" ? "📁" : "📄"} ${e.name}`);
 					return text(
-						`# Directory listing: ${owner}/${repo}/${path}${ref ? `@${ref}` : ""}\n\n${entries.join("\n")}`,
+						`# Directory listing: ${owner}/${repo}/${path}${refSuffix}\n\n${entries.join("\n")}`,
 					);
 				}
 				if (data.type !== "file" || !("content" in data) || data.content == null) {
@@ -54,7 +45,7 @@ export const registerFileTools = (
 				const decoded = atob(data.content.replace(/\n/g, ""));
 				return text(
 					truncate(
-						`# ${owner}/${repo}/${path}${ref ? `@${ref}` : ""} (${data.size} bytes)\n\n\`\`\`\n${decoded}\n\`\`\``,
+						`# ${owner}/${repo}/${path}${refSuffix} (${data.size} bytes)\n\n\`\`\`\n${decoded}\n\`\`\``,
 					),
 				);
 			}),
@@ -100,13 +91,12 @@ export const registerFileTools = (
 					sha = existing.data.sha;
 				} catch (e: unknown) {
 					const status =
-						e != null && typeof e === "object" && "status" in e
-							? (e as { status: number }).status
+						e != null && typeof e === "object" && "status" in e && typeof e.status === "number"
+							? e.status
 							: undefined;
 					if (status !== 404) throw e;
 				}
-				const encoded =
-					encoding === "base64" ? content : encodeBase64Utf8(content);
+				const encoded = encoding === "base64" ? content : encodeBase64Utf8(content);
 				const { data, headers } = await octo.rest.repos.createOrUpdateFileContents({
 					owner,
 					repo,
@@ -117,7 +107,7 @@ export const registerFileTools = (
 					sha,
 				});
 				logRateLimit(headers);
-				const action = sha ? "updated" : "created";
+				const action = sha != null ? "updated" : "created";
 				return text(
 					`# File ${action}\n\n- \`${path}\` on \`${branch}\` (encoding=${encoding})\n- commit: \`${data.commit.sha?.slice(0, 7)}\` — ${data.commit.html_url}\n- file: ${data.content?.html_url ?? "(n/a)"}`,
 				);

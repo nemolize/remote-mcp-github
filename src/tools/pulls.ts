@@ -1,18 +1,12 @@
-import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+
 import { resolveDefaultBranch } from "../github/helpers.js";
 import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
-import {
-	CrossRepoHeadPattern,
-	RepoTarget,
-	SameRepoBranchPattern,
-} from "./common.js";
+import { CrossRepoHeadPattern, RepoTarget, SameRepoBranchPattern } from "./common.js";
 
-export const registerPullTools = (
-	server: McpServer,
-	client: OctokitFactory,
-): void => {
+export const registerPullTools = (server: McpServer, client: OctokitFactory): void => {
 	server.tool(
 		"get_pr_diff",
 		"Fetch the unified diff of a pull request. Use when the user asks to review, summarise, or inspect the changes in a specific PR. Returns the diff as a fenced code block (truncated for very large PRs).",
@@ -29,11 +23,15 @@ export const registerPullTools = (
 					mediaType: { format: "diff" },
 				});
 				logRateLimit(response.headers);
-				const diff = response.data as unknown as string;
+				// `mediaType: { format: "diff" }` makes Octokit return the raw diff text,
+				// but the generated TS types still claim a structured PR object.
+				const raw: unknown = response.data;
+				if (typeof raw !== "string") {
+					return errorResult("Expected raw diff response from GitHub.");
+				}
+				const diff = raw;
 				return text(
-					truncate(
-						`# Diff for ${owner}/${repo}#${pull_number}\n\n\`\`\`diff\n${diff}\n\`\`\``,
-					),
+					truncate(`# Diff for ${owner}/${repo}#${pull_number}\n\n\`\`\`diff\n${diff}\n\`\`\``),
 				);
 			}),
 	);
@@ -58,10 +56,7 @@ export const registerPullTools = (
 			cross_repo_head: z
 				.string()
 				.min(1)
-				.regex(
-					CrossRepoHeadPattern,
-					"Cross-repo head must be of form 'owner:branch'.",
-				)
+				.regex(CrossRepoHeadPattern, "Cross-repo head must be of form 'owner:branch'.")
 				.optional()
 				.describe(
 					"For cross-repo (fork) PRs only. Format: 'owner:branch'. Mutually exclusive with `head`.",
@@ -89,7 +84,8 @@ export const registerPullTools = (
 			maintainer_can_modify,
 		}) =>
 			wrapTool(async () => {
-				if (head == null && cross_repo_head == null) {
+				const effectiveHead = cross_repo_head ?? head;
+				if (effectiveHead == null) {
 					return errorResult(
 						"Provide either `head` (same-repo branch) or `cross_repo_head` ('owner:branch' for fork PRs).",
 					);
@@ -99,7 +95,6 @@ export const registerPullTools = (
 						"`head` and `cross_repo_head` are mutually exclusive; pass exactly one.",
 					);
 				}
-				const effectiveHead = (cross_repo_head ?? head) as string;
 				const octo = client();
 				const target = base ?? (await resolveDefaultBranch(octo, owner, repo));
 				const { data, headers } = await octo.rest.pulls.create({
@@ -113,7 +108,7 @@ export const registerPullTools = (
 					maintainer_can_modify,
 				});
 				logRateLimit(headers);
-				const flag = data.draft ? " (draft)" : "";
+				const flag = data.draft === true ? " (draft)" : "";
 				return text(
 					`# Pull request opened${flag}\n\n- **${data.title}** (#${data.number}) — \`${effectiveHead}\` → \`${target}\`\n- ${data.html_url}`,
 				);
@@ -141,12 +136,9 @@ export const registerPullTools = (
 		},
 		async ({ owner, repo, pull_number, reviewers, team_reviewers }) =>
 			wrapTool(async () => {
-				const reviewerCount =
-					(reviewers?.length ?? 0) + (team_reviewers?.length ?? 0);
+				const reviewerCount = (reviewers?.length ?? 0) + (team_reviewers?.length ?? 0);
 				if (reviewerCount === 0) {
-					return errorResult(
-						"At least one of `reviewers` or `team_reviewers` must be non-empty.",
-					);
+					return errorResult("At least one of `reviewers` or `team_reviewers` must be non-empty.");
 				}
 				const octo = client();
 				const { data, headers } = await octo.rest.pulls.requestReviewers({

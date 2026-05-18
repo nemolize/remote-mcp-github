@@ -26,7 +26,7 @@ export function getUpstreamAuthorizeUrl({
 	upstream.searchParams.set("client_id", client_id);
 	upstream.searchParams.set("redirect_uri", redirect_uri);
 	upstream.searchParams.set("scope", scope);
-	if (state) upstream.searchParams.set("state", state);
+	if (state != null && state !== "") upstream.searchParams.set("state", state);
 	upstream.searchParams.set("response_type", "code");
 	return upstream.href;
 }
@@ -56,7 +56,7 @@ export async function fetchUpstreamAuthToken({
 	redirect_uri: string;
 	client_id: string;
 }): Promise<[string, null] | [null, Response]> {
-	if (!code) {
+	if (code == null || code === "") {
 		return [null, new Response("Missing code", { status: 400 })];
 	}
 
@@ -72,8 +72,8 @@ export async function fetchUpstreamAuthToken({
 		return [null, new Response("Failed to fetch access token", { status: 500 })];
 	}
 	const body = await resp.formData();
-	const accessToken = body.get("access_token") as string;
-	if (!accessToken) {
+	const accessToken = body.get("access_token");
+	if (typeof accessToken !== "string" || accessToken === "") {
 		return [null, new Response("Missing access token", { status: 400 })];
 	}
 	return [accessToken, null];

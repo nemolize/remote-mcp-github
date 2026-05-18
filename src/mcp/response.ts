@@ -20,16 +20,17 @@ export const errorResult = (message: string): ToolResult => ({
 	isError: true,
 });
 
-export const wrapTool = async (
-	fn: () => Promise<ToolResult>,
-): Promise<ToolResult> => {
+export const wrapTool = async (fn: () => Promise<ToolResult>): Promise<ToolResult> => {
 	try {
 		return await fn();
 	} catch (e: unknown) {
 		const message = e instanceof Error ? e.message : String(e);
 		const status =
-			e != null && typeof e === "object" && "status" in e
-				? ` (HTTP ${(e as { status: number }).status})`
+			e != null &&
+			typeof e === "object" &&
+			"status" in e &&
+			(typeof e.status === "number" || typeof e.status === "string")
+				? ` (HTTP ${e.status})`
 				: "";
 		return errorResult(`${message}${status}`);
 	}
@@ -44,11 +45,7 @@ export const logRateLimit = (
 	const limit = get("x-ratelimit-limit");
 	const reset = get("x-ratelimit-reset");
 	if (remaining != null) {
-		const resetIso = reset
-			? new Date(Number(reset) * 1000).toISOString()
-			: "unknown";
-		console.log(
-			`[github-ratelimit] ${remaining}/${limit} remaining, resets at ${resetIso}`,
-		);
+		const resetIso = reset != null ? new Date(Number(reset) * 1000).toISOString() : "unknown";
+		console.log(`[github-ratelimit] ${remaining}/${limit} remaining, resets at ${resetIso}`);
 	}
 };

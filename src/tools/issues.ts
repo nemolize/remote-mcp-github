@@ -1,13 +1,11 @@
-import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+
 import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
-export const registerIssueTools = (
-	server: McpServer,
-	client: OctokitFactory,
-): void => {
+export const registerIssueTools = (server: McpServer, client: OctokitFactory): void => {
 	server.tool(
 		"search_issues",
 		"Search issues and pull requests inside a specific repository. Use when the user asks to find issues/PRs matching a query, filter by state, or look up bugs/features in a repo. Returns title, number, state, author, and URL for each match.",
@@ -15,9 +13,7 @@ export const registerIssueTools = (
 			...RepoTarget,
 			query: z
 				.string()
-				.describe(
-					"Search keywords (GitHub search syntax). Repo qualifier is added automatically.",
-				),
+				.describe("Search keywords (GitHub search syntax). Repo qualifier is added automatically."),
 			state: z
 				.enum(["open", "closed", "all"])
 				.optional()
@@ -62,10 +58,7 @@ export const registerIssueTools = (
 				.array(z.string())
 				.optional()
 				.describe("Labels to attach (must already exist in the repo)."),
-			assignees: z
-				.array(z.string())
-				.optional()
-				.describe("GitHub usernames to assign."),
+			assignees: z.array(z.string()).optional().describe("GitHub usernames to assign."),
 		},
 		async ({ owner, repo, title, body, labels, assignees }) =>
 			wrapTool(async () => {
@@ -78,9 +71,7 @@ export const registerIssueTools = (
 					assignees,
 				});
 				logRateLimit(headers);
-				return text(
-					`# Issue created\n\n- **${data.title}** (#${data.number})\n- ${data.html_url}`,
-				);
+				return text(`# Issue created\n\n- **${data.title}** (#${data.number})\n- ${data.html_url}`);
 			}),
 	);
 
@@ -89,11 +80,7 @@ export const registerIssueTools = (
 		"Add a comment to an existing issue or pull request. Use when the user asks to comment on, reply to, or annotate an issue/PR. PRs accept comments via the same endpoint as issues. Returns the new comment's URL.",
 		{
 			...RepoTarget,
-			issue_number: z
-				.number()
-				.int()
-				.positive()
-				.describe("Issue or PR number to comment on."),
+			issue_number: z.number().int().positive().describe("Issue or PR number to comment on."),
 			body: z.string().min(1).describe("Comment body (Markdown supported)."),
 		},
 		async ({ owner, repo, issue_number, body }) =>

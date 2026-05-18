@@ -1,6 +1,7 @@
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
+
 import { GitHubHandler } from "./github-handler";
 import { registerTools } from "./tools";
 
@@ -20,7 +21,12 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
 	});
 
 	async init(): Promise<void> {
-		registerTools(this.server, () => this.props!.accessToken);
+		registerTools(this.server, () => {
+			if (this.props == null) {
+				throw new Error("OAuth props are not available; agent is not authenticated.");
+			}
+			return this.props.accessToken;
+		});
 	}
 }
 
@@ -32,6 +38,10 @@ const corsOptions = {
 	maxAge: 86400,
 };
 
+const defaultHandler: ExportedHandler<Env> = {
+	fetch: (request, env, ctx) => GitHubHandler.fetch(request, env, ctx),
+};
+
 export default new OAuthProvider({
 	apiHandlers: {
 		"/mcp": MyMCP.serve("/mcp", { corsOptions }),
@@ -39,6 +49,6 @@ export default new OAuthProvider({
 	},
 	authorizeEndpoint: "/authorize",
 	clientRegistrationEndpoint: "/register",
-	defaultHandler: GitHubHandler as never,
+	defaultHandler,
 	tokenEndpoint: "/token",
 });
