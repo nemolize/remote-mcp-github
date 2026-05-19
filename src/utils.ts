@@ -1,5 +1,10 @@
 export const isNonEmpty = (s: string | null | undefined): s is string => s != null && s !== "";
 
+export const isHttpStatus = (e: unknown, status: number): boolean => {
+	if (e == null || typeof e !== "object" || !("status" in e)) return false;
+	return e.status === status || e.status === String(status);
+};
+
 /**
  * Constructs an authorization URL for an upstream service.
  *

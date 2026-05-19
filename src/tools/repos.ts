@@ -42,9 +42,9 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no repositories found)");
 				const lines = data.map((r) => {
-					const flag = r.private ? "🔒 private" : "🌐 public";
+					const flag = r.private ? "private" : "public";
 					const desc = isNonEmpty(r.description) ? ` — ${r.description}` : "";
-					return `- **${r.full_name}** (${flag})${desc}\n  - ${r.html_url} | ⭐ ${r.stargazers_count} | updated ${r.updated_at}`;
+					return `- **${r.full_name}** (${flag})${desc}\n  - ${r.html_url} | ${r.stargazers_count} stars | updated ${r.updated_at}`;
 				});
 				return text(truncate(`# Repositories (${data.length})\n\n${lines.join("\n")}`));
 			}),

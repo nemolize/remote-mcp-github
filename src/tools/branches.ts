@@ -2,11 +2,59 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { getBranchHeadSha, resolveDefaultBranch } from "../github/helpers.js";
-import { errorResult, logRateLimit, text, wrapTool } from "../mcp/response.js";
+import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget, SameRepoBranchPattern } from "./common.js";
 
 export const registerBranchTools = (server: McpServer, client: OctokitFactory): void => {
+	server.registerTool(
+		"list_branches",
+		{
+			description:
+				"List branches in a repository. Use when the user asks to see, enumerate, or browse the branches of a repo. Returns one bullet per branch with name, head SHA (short), and protected flag.",
+			inputSchema: {
+				...RepoTarget,
+				protected: z.boolean().optional().describe("Filter to protected branches only."),
+				per_page: z
+					.number()
+					.int()
+					.min(1)
+					.max(100)
+					.optional()
+					.default(30)
+					.describe("Results per page (1-100)."),
+				page: z
+					.number()
+					.int()
+					.min(1)
+					.optional()
+					.describe("Page number (1-indexed). Defaults to 1."),
+			},
+		},
+		async ({ owner, repo, protected: protectedOnly, per_page, page }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.repos.listBranches({
+					owner,
+					repo,
+					protected: protectedOnly,
+					per_page,
+					page,
+				});
+				logRateLimit(headers);
+				if (data.length === 0) return text("(no branches found)");
+				const lines = data.map((b) => {
+					const flag = b.protected ? "protected" : "unprotected";
+					return `- **${b.name}** (${flag}) — \`${b.commit.sha.slice(0, 7)}\``;
+				});
+				const hasMore = (headers.link ?? "").includes('rel="next"');
+				const pageNum = page ?? 1;
+				const header = hasMore
+					? `# Branches in ${owner}/${repo} (page ${pageNum}, ${data.length} shown; more available — pass next \`page\` or raise \`per_page\` up to 100)`
+					: `# Branches in ${owner}/${repo} (${data.length})`;
+				return text(truncate(`${header}\n\n${lines.join("\n")}`));
+			}),
+	);
+
 	server.registerTool(
 		"create_branch",
 		{

@@ -5,7 +5,9 @@ import {
 	ContentEncodingSchema,
 	encodeBase64Utf8,
 	FileModeSchema,
+	fileShaError,
 	getBranchHeadSha,
+	resolveFileSha,
 } from "../github/helpers.js";
 import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import { isNonEmpty } from "../utils.js";
@@ -38,7 +40,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				logRateLimit(headers);
 				const refSuffix = isNonEmpty(ref) ? `@${ref}` : "";
 				if (Array.isArray(data)) {
-					const entries = data.map((e) => `- ${e.type === "dir" ? "📁" : "📄"} ${e.name}`);
+					const entries = data.map((e) => `- ${e.type === "dir" ? "[dir]" : "[file]"} ${e.name}`);
 					return text(
 						`# Directory listing: ${owner}/${repo}/${path}${refSuffix}\n\n${entries.join("\n")}`,
 					);
@@ -76,33 +78,11 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 		async ({ owner, repo, branch, path, content, encoding, message }) =>
 			wrapTool(async () => {
 				const octo = client();
-				let sha: string | undefined;
-				try {
-					const existing = await octo.rest.repos.getContent({
-						owner,
-						repo,
-						path,
-						ref: branch,
-					});
-					logRateLimit(existing.headers);
-					if (Array.isArray(existing.data)) {
-						return errorResult(
-							`Path \`${path}\` resolves to a directory; commit_file targets a single regular file.`,
-						);
-					}
-					if (existing.data.type !== "file") {
-						return errorResult(
-							`Path \`${path}\` is a ${existing.data.type}, not a regular file; refusing to overwrite via commit_file.`,
-						);
-					}
-					sha = existing.data.sha;
-				} catch (e: unknown) {
-					const status =
-						e != null && typeof e === "object" && "status" in e && typeof e.status === "number"
-							? e.status
-							: undefined;
-					if (status !== 404) throw e;
+				const resolved = await resolveFileSha(octo, owner, repo, path, branch);
+				if (resolved.kind === "directory" || resolved.kind === "non-file") {
+					return fileShaError(resolved, "commit_file", "overwrite", path);
 				}
+				const sha = resolved.kind === "found" ? resolved.sha : undefined;
 				const encoded = encoding === "base64" ? content : encodeBase64Utf8(content);
 				const { data, headers } = await octo.rest.repos.createOrUpdateFileContents({
 					owner,
@@ -116,7 +96,50 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				logRateLimit(headers);
 				const action = sha != null ? "updated" : "created";
 				return text(
-					`# File ${action}\n\n- \`${path}\` on \`${branch}\` (encoding=${encoding})\n- commit: \`${data.commit.sha?.slice(0, 7)}\` — ${data.commit.html_url}\n- file: ${data.content?.html_url ?? "(n/a)"}`,
+					`# File ${action}\n\n- \`${path}\` on \`${branch}\` (encoding=${encoding})\n- commit: \`${data.commit.sha?.slice(0, 7) ?? "(unknown)"}\` — ${data.commit.html_url}\n- file: ${data.content?.html_url ?? "(n/a)"}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"delete_file",
+		{
+			description:
+				"Delete a single file on a branch in one commit. Use when the user asks to remove, drop, or delete a file from a repo. Auto-fetches the file's blob SHA before delete (mirroring commit_file). Returns the new commit SHA and URL.",
+			inputSchema: {
+				...RepoTarget,
+				branch: z
+					.string()
+					.min(1)
+					.describe("Branch to commit the deletion to (must already exist)."),
+				path: z.string().min(1).describe("File path within the repo."),
+				message: z.string().min(1).describe("Commit message."),
+			},
+		},
+		async ({ owner, repo, branch, path, message }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const resolved = await resolveFileSha(octo, owner, repo, path, branch);
+				if (resolved.kind === "directory" || resolved.kind === "non-file") {
+					return fileShaError(resolved, "delete_file", "delete", path);
+				}
+				if (resolved.kind === "missing") {
+					return errorResult(
+						`Could not locate \`${path}\` on branch \`${branch}\` (file may not exist, or the branch / repository may be unreachable); nothing to delete.`,
+					);
+				}
+				const sha = resolved.sha;
+				const { data, headers } = await octo.rest.repos.deleteFile({
+					owner,
+					repo,
+					path,
+					branch,
+					message,
+					sha,
+				});
+				logRateLimit(headers);
+				return text(
+					`# File deleted\n\n- \`${path}\` on \`${branch}\`\n- commit: \`${data.commit.sha?.slice(0, 7) ?? "(unknown)"}\` — ${data.commit.html_url}`,
 				);
 			}),
 	);
