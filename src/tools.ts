@@ -32,28 +32,31 @@ export const registerTools = (
 
 	// ─── Read tools ────────────────────────────────────────────────────────────
 
-	server.tool(
+	server.registerTool(
 		"list_my_repos",
-		"List repositories owned by or accessible to the authenticated GitHub user. Use when the user asks to see, browse, enumerate, or find their own repositories. Returns repo full name, visibility, description, URL, star count, and last-update timestamp.",
 		{
-			visibility: z
-				.enum(["all", "public", "private"])
-				.optional()
-				.default("all")
-				.describe("Filter by visibility."),
-			sort: z
-				.enum(["created", "updated", "pushed", "full_name"])
-				.optional()
-				.default("updated")
-				.describe("Sort field."),
-			per_page: z
-				.number()
-				.int()
-				.min(1)
-				.max(100)
-				.optional()
-				.default(30)
-				.describe("Results per page (1-100)."),
+			description:
+				"List repositories owned by or accessible to the authenticated GitHub user. Use when the user asks to see, browse, enumerate, or find their own repositories. Returns repo full name, visibility, description, URL, star count, and last-update timestamp.",
+			inputSchema: {
+				visibility: z
+					.enum(["all", "public", "private"])
+					.optional()
+					.default("all")
+					.describe("Filter by visibility."),
+				sort: z
+					.enum(["created", "updated", "pushed", "full_name"])
+					.optional()
+					.default("updated")
+					.describe("Sort field."),
+				per_page: z
+					.number()
+					.int()
+					.min(1)
+					.max(100)
+					.optional()
+					.default(30)
+					.describe("Results per page (1-100)."),
+			},
 		},
 		async ({ visibility, sort, per_page }) =>
 			wrapTool(async () => {
@@ -73,22 +76,25 @@ export const registerTools = (
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"search_issues",
-		"Search issues and pull requests inside a specific repository. Use when the user asks to find issues/PRs matching a query, filter by state, or look up bugs/features in a repo. Returns title, number, state, author, and URL for each match.",
 		{
-			...RepoTarget,
-			query: z
-				.string()
-				.describe(
-					"Search keywords (GitHub search syntax). Repo qualifier is added automatically.",
-				),
-			state: z
-				.enum(["open", "closed", "all"])
-				.optional()
-				.default("open")
-				.describe("Issue/PR state filter."),
-			per_page: z.number().int().min(1).max(50).optional().default(20),
+			description:
+				"Search issues and pull requests inside a specific repository. Use when the user asks to find issues/PRs matching a query, filter by state, or look up bugs/features in a repo. Returns title, number, state, author, and URL for each match.",
+			inputSchema: {
+				...RepoTarget,
+				query: z
+					.string()
+					.describe(
+						"Search keywords (GitHub search syntax). Repo qualifier is added automatically.",
+					),
+				state: z
+					.enum(["open", "closed", "all"])
+					.optional()
+					.default("open")
+					.describe("Issue/PR state filter."),
+				per_page: z.number().int().min(1).max(50).optional().default(20),
+			},
 		},
 		async ({ owner, repo, query, state, per_page }) =>
 			wrapTool(async () => {
@@ -116,16 +122,19 @@ export const registerTools = (
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"get_file_content",
-		"Fetch the raw content of a file from a GitHub repository at a given path and optional ref (branch, tag, or commit SHA). Use when the user asks to read, view, or inspect a specific file in a repo. Returns a fenced code block with the file's text content.",
 		{
-			...RepoTarget,
-			path: z.string().describe("File path within the repo (e.g. 'src/index.ts')."),
-			ref: z
-				.string()
-				.optional()
-				.describe("Branch, tag, or commit SHA. Defaults to the repo's default branch."),
+			description:
+				"Fetch the raw content of a file from a GitHub repository at a given path and optional ref (branch, tag, or commit SHA). Use when the user asks to read, view, or inspect a specific file in a repo. Returns a fenced code block with the file's text content.",
+			inputSchema: {
+				...RepoTarget,
+				path: z.string().describe("File path within the repo (e.g. 'src/index.ts')."),
+				ref: z
+					.string()
+					.optional()
+					.describe("Branch, tag, or commit SHA. Defaults to the repo's default branch."),
+			},
 		},
 		async ({ owner, repo, path, ref }) =>
 			wrapTool(async () => {
@@ -156,12 +165,15 @@ export const registerTools = (
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"get_pr_diff",
-		"Fetch the unified diff of a pull request. Use when the user asks to review, summarise, or inspect the changes in a specific PR. Returns the diff as a fenced code block (truncated for very large PRs).",
 		{
-			...RepoTarget,
-			pull_number: z.number().int().positive().describe("Pull request number."),
+			description:
+				"Fetch the unified diff of a pull request. Use when the user asks to review, summarise, or inspect the changes in a specific PR. Returns the diff as a fenced code block (truncated for very large PRs).",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+			},
 		},
 		async ({ owner, repo, pull_number }) =>
 			wrapTool(async () => {
@@ -181,16 +193,19 @@ export const registerTools = (
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"search_code",
-		"Search source code across GitHub (or scoped to a specific repository / owner). Use when the user asks to find usages, patterns, or function definitions in code. Returns file path, repo, and a permalink for each match.",
 		{
-			query: z
-				.string()
-				.describe(
-					"GitHub code-search query. Combine with qualifiers like 'repo:owner/name', 'language:ts', 'path:src/**'.",
-				),
-			per_page: z.number().int().min(1).max(50).optional().default(20),
+			description:
+				"Search source code across GitHub (or scoped to a specific repository / owner). Use when the user asks to find usages, patterns, or function definitions in code. Returns file path, repo, and a permalink for each match.",
+			inputSchema: {
+				query: z
+					.string()
+					.describe(
+						"GitHub code-search query. Combine with qualifiers like 'repo:owner/name', 'language:ts', 'path:src/**'.",
+					),
+				per_page: z.number().int().min(1).max(50).optional().default(20),
+			},
 		},
 		async ({ query, per_page }) =>
 			wrapTool(async () => {
@@ -219,20 +234,23 @@ export const registerTools = (
 	// create_branch → commit_file → commit_files → create_pull_request →
 	// request_pr_review → create_issue → add_comment.
 
-	server.tool(
+	server.registerTool(
 		"create_branch",
-		"Create a new branch in a repository, pointing at the tip of a base branch (default: the repo's default branch). Use when the user asks to branch off, start a new feature branch, or fork the current state. Returns the new ref name and SHA.",
 		{
-			...RepoTarget,
-			branch: z
-				.string()
-				.min(1)
-				.regex(SameRepoBranchPattern, "Use a same-repo branch name.")
-				.describe("New branch name (without 'refs/heads/' prefix)."),
-			from: z
-				.string()
-				.optional()
-				.describe("Base branch name to branch from. Defaults to the repo's default branch."),
+			description:
+				"Create a new branch in a repository, pointing at the tip of a base branch (default: the repo's default branch). Use when the user asks to branch off, start a new feature branch, or fork the current state. Returns the new ref name and SHA.",
+			inputSchema: {
+				...RepoTarget,
+				branch: z
+					.string()
+					.min(1)
+					.regex(SameRepoBranchPattern, "Use a same-repo branch name.")
+					.describe("New branch name (without 'refs/heads/' prefix)."),
+				from: z
+					.string()
+					.optional()
+					.describe("Base branch name to branch from. Defaults to the repo's default branch."),
+			},
 		},
 		async ({ owner, repo, branch, from }) =>
 			wrapTool(async () => {
@@ -252,16 +270,19 @@ export const registerTools = (
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"delete_branch",
-		"Delete a branch from a repository. Use when the user asks to delete, remove, or clean up a branch. Refuses to delete the repo's default branch. Returns the deleted branch name and the SHA it pointed at (useful if the caller needs to recreate the ref).",
 		{
-			...RepoTarget,
-			branch: z
-				.string()
-				.min(1)
-				.regex(SameRepoBranchPattern, "Use a same-repo branch name.")
-				.describe("Branch name to delete (without 'refs/heads/' prefix)."),
+			description:
+				"Delete a branch from a repository. Use when the user asks to delete, remove, or clean up a branch. Refuses to delete the repo's default branch. Returns the deleted branch name and the SHA it pointed at (useful if the caller needs to recreate the ref).",
+			inputSchema: {
+				...RepoTarget,
+				branch: z
+					.string()
+					.min(1)
+					.regex(SameRepoBranchPattern, "Use a same-repo branch name.")
+					.describe("Branch name to delete (without 'refs/heads/' prefix)."),
+			},
 		},
 		async ({ owner, repo, branch }) =>
 			wrapTool(async () => {
@@ -285,20 +306,23 @@ export const registerTools = (
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"commit_file",
-		"Create or update a single file on a branch in one commit. Use when the user asks to add, edit, or replace one file. `encoding` defaults to 'utf-8'; pass 'base64' when sending pre-encoded binary bytes. Returns the new commit SHA and file URL.",
 		{
-			...RepoTarget,
-			branch: z.string().min(1).describe("Branch to commit to (must already exist)."),
-			path: z.string().min(1).describe("File path within the repo."),
-			content: z
-				.string()
-				.describe(
-					"File content; encoding determined by `encoding` (default 'utf-8'). Pass pre-base64'd bytes only when `encoding: 'base64'`.",
-				),
-			encoding: ContentEncodingSchema.optional().default("utf-8"),
-			message: z.string().min(1).describe("Commit message."),
+			description:
+				"Create or update a single file on a branch in one commit. Use when the user asks to add, edit, or replace one file. `encoding` defaults to 'utf-8'; pass 'base64' when sending pre-encoded binary bytes. Returns the new commit SHA and file URL.",
+			inputSchema: {
+				...RepoTarget,
+				branch: z.string().min(1).describe("Branch to commit to (must already exist)."),
+				path: z.string().min(1).describe("File path within the repo."),
+				content: z
+					.string()
+					.describe(
+						"File content; encoding determined by `encoding` (default 'utf-8'). Pass pre-base64'd bytes only when `encoding: 'base64'`.",
+					),
+				encoding: ContentEncodingSchema.optional().default("utf-8"),
+				message: z.string().min(1).describe("Commit message."),
+			},
 		},
 		async ({ owner, repo, branch, path, content, encoding, message }) =>
 			wrapTool(async () => {
@@ -349,28 +373,31 @@ export const registerTools = (
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"commit_files",
-		"Create or update multiple files on a branch in a single commit via the Git Tree API. Use when the user asks to commit several files at once. Per-file `mode` (default 100644; 100755 for executables, 120000 for symlinks) and `encoding` (default utf-8; base64 for binary). Returns the new commit SHA and URL.",
 		{
-			...RepoTarget,
-			branch: z.string().min(1).describe("Branch to commit to (must already exist)."),
-			message: z.string().min(1).describe("Commit message."),
-			files: z
-				.array(
-					z.object({
-						path: z.string().min(1).describe("File path within the repo."),
-						content: z
-							.string()
-							.describe(
-								"File content; encoding is determined by per-file `encoding` (default 'utf-8').",
-							),
-						encoding: ContentEncodingSchema.optional().default("utf-8"),
-						mode: FileModeSchema.optional().default("100644"),
-					}),
-				)
-				.min(1)
-				.describe("Files to create or update in this commit."),
+			description:
+				"Create or update multiple files on a branch in a single commit via the Git Tree API. Use when the user asks to commit several files at once. Per-file `mode` (default 100644; 100755 for executables, 120000 for symlinks) and `encoding` (default utf-8; base64 for binary). Returns the new commit SHA and URL.",
+			inputSchema: {
+				...RepoTarget,
+				branch: z.string().min(1).describe("Branch to commit to (must already exist)."),
+				message: z.string().min(1).describe("Commit message."),
+				files: z
+					.array(
+						z.object({
+							path: z.string().min(1).describe("File path within the repo."),
+							content: z
+								.string()
+								.describe(
+									"File content; encoding is determined by per-file `encoding` (default 'utf-8').",
+								),
+							encoding: ContentEncodingSchema.optional().default("utf-8"),
+							mode: FileModeSchema.optional().default("100644"),
+						}),
+					)
+					.min(1)
+					.describe("Files to create or update in this commit."),
+			},
 		},
 		async ({ owner, repo, branch, message, files }) =>
 			wrapTool(async () => {
@@ -438,44 +465,47 @@ export const registerTools = (
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"create_pull_request",
-		"Open a new pull request in a repository. Use when the user asks to open, file, or create a PR. `head` is a branch in the target repo by default; for cross-repo (fork) PRs, set `cross_repo_head: 'owner:branch'` instead. `base` defaults to the repo's default branch.",
 		{
-			...RepoTarget,
-			title: z.string().min(1).describe("Pull request title."),
-			head: z
-				.string()
-				.min(1)
-				.regex(
-					SameRepoBranchPattern,
-					"Use cross_repo_head for 'owner:branch' form (cross-repo PRs).",
-				)
-				.optional()
-				.describe(
-					"Branch in the target repo containing your changes. Required unless cross_repo_head is set.",
-				),
-			cross_repo_head: z
-				.string()
-				.min(1)
-				.regex(
-					CrossRepoHeadPattern,
-					"Cross-repo head must be of form 'owner:branch'.",
-				)
-				.optional()
-				.describe(
-					"For cross-repo (fork) PRs only. Format: 'owner:branch'. Mutually exclusive with `head`.",
-				),
-			base: z
-				.string()
-				.optional()
-				.describe("Branch to merge into. Defaults to the repo's default branch."),
-			body: z.string().optional().describe("PR description (Markdown supported)."),
-			draft: z.boolean().optional().describe("Create as a draft PR."),
-			maintainer_can_modify: z
-				.boolean()
-				.optional()
-				.describe("Allow maintainers to edit the PR branch (cross-repo PRs)."),
+			description:
+				"Open a new pull request in a repository. Use when the user asks to open, file, or create a PR. `head` is a branch in the target repo by default; for cross-repo (fork) PRs, set `cross_repo_head: 'owner:branch'` instead. `base` defaults to the repo's default branch.",
+			inputSchema: {
+				...RepoTarget,
+				title: z.string().min(1).describe("Pull request title."),
+				head: z
+					.string()
+					.min(1)
+					.regex(
+						SameRepoBranchPattern,
+						"Use cross_repo_head for 'owner:branch' form (cross-repo PRs).",
+					)
+					.optional()
+					.describe(
+						"Branch in the target repo containing your changes. Required unless cross_repo_head is set.",
+					),
+				cross_repo_head: z
+					.string()
+					.min(1)
+					.regex(
+						CrossRepoHeadPattern,
+						"Cross-repo head must be of form 'owner:branch'.",
+					)
+					.optional()
+					.describe(
+						"For cross-repo (fork) PRs only. Format: 'owner:branch'. Mutually exclusive with `head`.",
+					),
+				base: z
+					.string()
+					.optional()
+					.describe("Branch to merge into. Defaults to the repo's default branch."),
+				body: z.string().optional().describe("PR description (Markdown supported)."),
+				draft: z.boolean().optional().describe("Create as a draft PR."),
+				maintainer_can_modify: z
+					.boolean()
+					.optional()
+					.describe("Allow maintainers to edit the PR branch (cross-repo PRs)."),
+			},
 		},
 		async ({
 			owner,
@@ -520,24 +550,27 @@ export const registerTools = (
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"request_pr_review",
-		"Request reviewers (users and/or teams) on an existing pull request. Use when the user asks to assign, request, or add reviewers to a PR. At least one of `reviewers` or `team_reviewers` must be non-empty. Returns the PR URL and the list of requested reviewers.",
 		{
-			...RepoTarget,
-			pull_number: z.number().int().positive().describe("Pull request number."),
-			reviewers: z
-				.array(z.string())
-				.optional()
-				.describe(
-					"GitHub usernames to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
-				),
-			team_reviewers: z
-				.array(z.string())
-				.optional()
-				.describe(
-					"Team slugs (within the repo's org) to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
-				),
+			description:
+				"Request reviewers (users and/or teams) on an existing pull request. Use when the user asks to assign, request, or add reviewers to a PR. At least one of `reviewers` or `team_reviewers` must be non-empty. Returns the PR URL and the list of requested reviewers.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				reviewers: z
+					.array(z.string())
+					.optional()
+					.describe(
+						"GitHub usernames to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
+					),
+				team_reviewers: z
+					.array(z.string())
+					.optional()
+					.describe(
+						"Team slugs (within the repo's org) to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
+					),
+			},
 		},
 		async ({ owner, repo, pull_number, reviewers, team_reviewers }) =>
 			wrapTool(async () => {
@@ -567,21 +600,24 @@ export const registerTools = (
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"create_issue",
-		"Create a new GitHub issue in the specified repository. Use when the user explicitly asks to file, open, or create an issue. Requires title; body, labels, and assignees are optional. Returns the created issue's number and URL.",
 		{
-			...RepoTarget,
-			title: z.string().min(1).describe("Issue title."),
-			body: z.string().optional().describe("Issue body (Markdown supported)."),
-			labels: z
-				.array(z.string())
-				.optional()
-				.describe("Labels to attach (must already exist in the repo)."),
-			assignees: z
-				.array(z.string())
-				.optional()
-				.describe("GitHub usernames to assign."),
+			description:
+				"Create a new GitHub issue in the specified repository. Use when the user explicitly asks to file, open, or create an issue. Requires title; body, labels, and assignees are optional. Returns the created issue's number and URL.",
+			inputSchema: {
+				...RepoTarget,
+				title: z.string().min(1).describe("Issue title."),
+				body: z.string().optional().describe("Issue body (Markdown supported)."),
+				labels: z
+					.array(z.string())
+					.optional()
+					.describe("Labels to attach (must already exist in the repo)."),
+				assignees: z
+					.array(z.string())
+					.optional()
+					.describe("GitHub usernames to assign."),
+			},
 		},
 		async ({ owner, repo, title, body, labels, assignees }) =>
 			wrapTool(async () => {
@@ -600,17 +636,20 @@ export const registerTools = (
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"add_comment",
-		"Add a comment to an existing issue or pull request. Use when the user asks to comment on, reply to, or annotate an issue/PR. PRs accept comments via the same endpoint as issues. Returns the new comment's URL.",
 		{
-			...RepoTarget,
-			issue_number: z
-				.number()
-				.int()
-				.positive()
-				.describe("Issue or PR number to comment on."),
-			body: z.string().min(1).describe("Comment body (Markdown supported)."),
+			description:
+				"Add a comment to an existing issue or pull request. Use when the user asks to comment on, reply to, or annotate an issue/PR. PRs accept comments via the same endpoint as issues. Returns the new comment's URL.",
+			inputSchema: {
+				...RepoTarget,
+				issue_number: z
+					.number()
+					.int()
+					.positive()
+					.describe("Issue or PR number to comment on."),
+				body: z.string().min(1).describe("Comment body (Markdown supported)."),
+			},
 		},
 		async ({ owner, repo, issue_number, body }) =>
 			wrapTool(async () => {
