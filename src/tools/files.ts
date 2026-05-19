@@ -138,7 +138,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				}
 				if (resolved.kind === "missing") {
 					return errorResult(
-						`Path \`${path}\` does not exist on branch \`${branch}\`; nothing to delete.`,
+						`Could not locate \`${path}\` on branch \`${branch}\` (file may not exist, or the branch / repository may be unreachable); nothing to delete.`,
 					);
 				}
 				const sha = resolved.sha;
