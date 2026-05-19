@@ -122,6 +122,71 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 	);
 
 	server.registerTool(
+		"delete_file",
+		{
+			description:
+				"Delete a single file on a branch in one commit. Use when the user asks to remove, drop, or delete a file from a repo. Auto-fetches the file's blob SHA before delete (mirroring commit_file). Returns the new commit SHA and URL.",
+			inputSchema: {
+				...RepoTarget,
+				branch: z
+					.string()
+					.min(1)
+					.describe("Branch to commit the deletion to (must already exist)."),
+				path: z.string().min(1).describe("File path within the repo."),
+				message: z.string().min(1).describe("Commit message."),
+			},
+		},
+		async ({ owner, repo, branch, path, message }) =>
+			wrapTool(async () => {
+				const octo = client();
+				let sha: string;
+				try {
+					const existing = await octo.rest.repos.getContent({
+						owner,
+						repo,
+						path,
+						ref: branch,
+					});
+					logRateLimit(existing.headers);
+					if (Array.isArray(existing.data)) {
+						return errorResult(
+							`Path \`${path}\` resolves to a directory; delete_file targets a single regular file.`,
+						);
+					}
+					if (existing.data.type !== "file") {
+						return errorResult(
+							`Path \`${path}\` is a ${existing.data.type}, not a regular file; refusing to delete via delete_file.`,
+						);
+					}
+					sha = existing.data.sha;
+				} catch (e: unknown) {
+					const status =
+						e != null && typeof e === "object" && "status" in e && typeof e.status === "number"
+							? e.status
+							: undefined;
+					if (status === 404) {
+						return errorResult(
+							`Path \`${path}\` does not exist on branch \`${branch}\`; nothing to delete.`,
+						);
+					}
+					throw e;
+				}
+				const { data, headers } = await octo.rest.repos.deleteFile({
+					owner,
+					repo,
+					path,
+					branch,
+					message,
+					sha,
+				});
+				logRateLimit(headers);
+				return text(
+					`# File deleted\n\n- \`${path}\` on \`${branch}\`\n- commit: \`${data.commit.sha?.slice(0, 7)}\` — ${data.commit.html_url}`,
+				);
+			}),
+	);
+
+	server.registerTool(
 		"commit_files",
 		{
 			description:

@@ -22,6 +22,7 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `delete_branch`       | write | Delete a branch (default branch refused)                                                       |
 | `commit_file`         | write | Create or update a single file on a branch in one commit                                       |
 | `commit_files`        | write | Create or update multiple files on a branch in one commit (Tree API, per-file mode / encoding) |
+| `delete_file`         | write | Delete a single file on a branch in one commit (auto-SHA lookup like `commit_file`)            |
 | `create_pull_request` | write | Open a PR (same-repo `head` by default; `cross_repo_head` for fork PRs)                        |
 | `request_pr_review`   | write | Request reviewers (users and/or teams) on a PR                                                 |
 | `create_issue`        | write | Title + body + labels + assignees                                                              |
