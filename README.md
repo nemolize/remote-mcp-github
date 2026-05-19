@@ -141,7 +141,7 @@ pnpm test         # one-shot run
 pnpm test:watch   # watch mode
 ```
 
-CI runs `pnpm test` as a dedicated `Test` job on every PR.
+Cross-cutting tests live under top-level `test/`. Tests that exercise a single module can also be co-located as `*.test.ts` next to the source. CI runs `pnpm test` as a dedicated `Test` job on every PR.
 
 ## OAuth scopes
 
