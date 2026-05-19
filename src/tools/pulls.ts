@@ -7,12 +7,15 @@ import type { OctokitFactory } from "./common.js";
 import { CrossRepoHeadPattern, RepoTarget, SameRepoBranchPattern } from "./common.js";
 
 export const registerPullTools = (server: McpServer, client: OctokitFactory): void => {
-	server.tool(
+	server.registerTool(
 		"get_pr_diff",
-		"Fetch the unified diff of a pull request. Use when the user asks to review, summarise, or inspect the changes in a specific PR. Returns the diff as a fenced code block (truncated for very large PRs).",
 		{
-			...RepoTarget,
-			pull_number: z.number().int().positive().describe("Pull request number."),
+			description:
+				"Fetch the unified diff of a pull request. Use when the user asks to review, summarise, or inspect the changes in a specific PR. Returns the diff as a fenced code block (truncated for very large PRs).",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+			},
 		},
 		async ({ owner, repo, pull_number }) =>
 			wrapTool(async () => {
@@ -36,41 +39,44 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"create_pull_request",
-		"Open a new pull request in a repository. Use when the user asks to open, file, or create a PR. `head` is a branch in the target repo by default; for cross-repo (fork) PRs, set `cross_repo_head: 'owner:branch'` instead. `base` defaults to the repo's default branch.",
 		{
-			...RepoTarget,
-			title: z.string().min(1).describe("Pull request title."),
-			head: z
-				.string()
-				.min(1)
-				.regex(
-					SameRepoBranchPattern,
-					"Use cross_repo_head for 'owner:branch' form (cross-repo PRs).",
-				)
-				.optional()
-				.describe(
-					"Branch in the target repo containing your changes. Required unless cross_repo_head is set.",
-				),
-			cross_repo_head: z
-				.string()
-				.min(1)
-				.regex(CrossRepoHeadPattern, "Cross-repo head must be of form 'owner:branch'.")
-				.optional()
-				.describe(
-					"For cross-repo (fork) PRs only. Format: 'owner:branch'. Mutually exclusive with `head`.",
-				),
-			base: z
-				.string()
-				.optional()
-				.describe("Branch to merge into. Defaults to the repo's default branch."),
-			body: z.string().optional().describe("PR description (Markdown supported)."),
-			draft: z.boolean().optional().describe("Create as a draft PR."),
-			maintainer_can_modify: z
-				.boolean()
-				.optional()
-				.describe("Allow maintainers to edit the PR branch (cross-repo PRs)."),
+			description:
+				"Open a new pull request in a repository. Use when the user asks to open, file, or create a PR. `head` is a branch in the target repo by default; for cross-repo (fork) PRs, set `cross_repo_head: 'owner:branch'` instead. `base` defaults to the repo's default branch.",
+			inputSchema: {
+				...RepoTarget,
+				title: z.string().min(1).describe("Pull request title."),
+				head: z
+					.string()
+					.min(1)
+					.regex(
+						SameRepoBranchPattern,
+						"Use cross_repo_head for 'owner:branch' form (cross-repo PRs).",
+					)
+					.optional()
+					.describe(
+						"Branch in the target repo containing your changes. Required unless cross_repo_head is set.",
+					),
+				cross_repo_head: z
+					.string()
+					.min(1)
+					.regex(CrossRepoHeadPattern, "Cross-repo head must be of form 'owner:branch'.")
+					.optional()
+					.describe(
+						"For cross-repo (fork) PRs only. Format: 'owner:branch'. Mutually exclusive with `head`.",
+					),
+				base: z
+					.string()
+					.optional()
+					.describe("Branch to merge into. Defaults to the repo's default branch."),
+				body: z.string().optional().describe("PR description (Markdown supported)."),
+				draft: z.boolean().optional().describe("Create as a draft PR."),
+				maintainer_can_modify: z
+					.boolean()
+					.optional()
+					.describe("Allow maintainers to edit the PR branch (cross-repo PRs)."),
+			},
 		},
 		async ({
 			owner,
@@ -115,24 +121,27 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"request_pr_review",
-		"Request reviewers (users and/or teams) on an existing pull request. Use when the user asks to assign, request, or add reviewers to a PR. At least one of `reviewers` or `team_reviewers` must be non-empty. Returns the PR URL and the list of requested reviewers.",
 		{
-			...RepoTarget,
-			pull_number: z.number().int().positive().describe("Pull request number."),
-			reviewers: z
-				.array(z.string())
-				.optional()
-				.describe(
-					"GitHub usernames to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
-				),
-			team_reviewers: z
-				.array(z.string())
-				.optional()
-				.describe(
-					"Team slugs (within the repo's org) to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
-				),
+			description:
+				"Request reviewers (users and/or teams) on an existing pull request. Use when the user asks to assign, request, or add reviewers to a PR. At least one of `reviewers` or `team_reviewers` must be non-empty. Returns the PR URL and the list of requested reviewers.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				reviewers: z
+					.array(z.string())
+					.optional()
+					.describe(
+						"GitHub usernames to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
+					),
+				team_reviewers: z
+					.array(z.string())
+					.optional()
+					.describe(
+						"Team slugs (within the repo's org) to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
+					),
+			},
 		},
 		async ({ owner, repo, pull_number, reviewers, team_reviewers }) =>
 			wrapTool(async () => {

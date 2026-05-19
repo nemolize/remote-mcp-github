@@ -6,20 +6,25 @@ import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
 export const registerIssueTools = (server: McpServer, client: OctokitFactory): void => {
-	server.tool(
+	server.registerTool(
 		"search_issues",
-		"Search issues and pull requests inside a specific repository. Use when the user asks to find issues/PRs matching a query, filter by state, or look up bugs/features in a repo. Returns title, number, state, author, and URL for each match.",
 		{
-			...RepoTarget,
-			query: z
-				.string()
-				.describe("Search keywords (GitHub search syntax). Repo qualifier is added automatically."),
-			state: z
-				.enum(["open", "closed", "all"])
-				.optional()
-				.default("open")
-				.describe("Issue/PR state filter."),
-			per_page: z.number().int().min(1).max(50).optional().default(20),
+			description:
+				"Search issues and pull requests inside a specific repository. Use when the user asks to find issues/PRs matching a query, filter by state, or look up bugs/features in a repo. Returns title, number, state, author, and URL for each match.",
+			inputSchema: {
+				...RepoTarget,
+				query: z
+					.string()
+					.describe(
+						"Search keywords (GitHub search syntax). Repo qualifier is added automatically.",
+					),
+				state: z
+					.enum(["open", "closed", "all"])
+					.optional()
+					.default("open")
+					.describe("Issue/PR state filter."),
+				per_page: z.number().int().min(1).max(50).optional().default(20),
+			},
 		},
 		async ({ owner, repo, query, state, per_page }) =>
 			wrapTool(async () => {
@@ -47,18 +52,21 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"create_issue",
-		"Create a new GitHub issue in the specified repository. Use when the user explicitly asks to file, open, or create an issue. Requires title; body, labels, and assignees are optional. Returns the created issue's number and URL.",
 		{
-			...RepoTarget,
-			title: z.string().min(1).describe("Issue title."),
-			body: z.string().optional().describe("Issue body (Markdown supported)."),
-			labels: z
-				.array(z.string())
-				.optional()
-				.describe("Labels to attach (must already exist in the repo)."),
-			assignees: z.array(z.string()).optional().describe("GitHub usernames to assign."),
+			description:
+				"Create a new GitHub issue in the specified repository. Use when the user explicitly asks to file, open, or create an issue. Requires title; body, labels, and assignees are optional. Returns the created issue's number and URL.",
+			inputSchema: {
+				...RepoTarget,
+				title: z.string().min(1).describe("Issue title."),
+				body: z.string().optional().describe("Issue body (Markdown supported)."),
+				labels: z
+					.array(z.string())
+					.optional()
+					.describe("Labels to attach (must already exist in the repo)."),
+				assignees: z.array(z.string()).optional().describe("GitHub usernames to assign."),
+			},
 		},
 		async ({ owner, repo, title, body, labels, assignees }) =>
 			wrapTool(async () => {
@@ -75,13 +83,16 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"add_comment",
-		"Add a comment to an existing issue or pull request. Use when the user asks to comment on, reply to, or annotate an issue/PR. PRs accept comments via the same endpoint as issues. Returns the new comment's URL.",
 		{
-			...RepoTarget,
-			issue_number: z.number().int().positive().describe("Issue or PR number to comment on."),
-			body: z.string().min(1).describe("Comment body (Markdown supported)."),
+			description:
+				"Add a comment to an existing issue or pull request. Use when the user asks to comment on, reply to, or annotate an issue/PR. PRs accept comments via the same endpoint as issues. Returns the new comment's URL.",
+			inputSchema: {
+				...RepoTarget,
+				issue_number: z.number().int().positive().describe("Issue or PR number to comment on."),
+				body: z.string().min(1).describe("Comment body (Markdown supported)."),
+			},
 		},
 		async ({ owner, repo, issue_number, body }) =>
 			wrapTool(async () => {
