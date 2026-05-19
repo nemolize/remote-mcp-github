@@ -17,6 +17,7 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `get_file_content`    | read  | Raw file contents at a path + ref (directory listings supported)                               |
 | `get_pr_diff`         | read  | Unified diff for a pull request                                                                |
 | `search_code`         | read  | Code search across GitHub                                                                      |
+| `list_branches`       | read  | List branches in a repo (name, head SHA, protected flag)                                       |
 | `create_branch`       | write | Branch from a base (or the repo's default)                                                     |
 | `delete_branch`       | write | Delete a branch (default branch refused)                                                       |
 | `commit_file`         | write | Create or update a single file on a branch in one commit                                       |
