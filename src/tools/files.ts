@@ -102,7 +102,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				logRateLimit(headers);
 				const action = sha != null ? "updated" : "created";
 				return text(
-					`# File ${action}\n\n- \`${path}\` on \`${branch}\` (encoding=${encoding})\n- commit: \`${data.commit.sha?.slice(0, 7)}\` — ${data.commit.html_url}\n- file: ${data.content?.html_url ?? "(n/a)"}`,
+					`# File ${action}\n\n- \`${path}\` on \`${branch}\` (encoding=${encoding})\n- commit: \`${data.commit.sha?.slice(0, 7) ?? "(unknown)"}\` — ${data.commit.html_url}\n- file: ${data.content?.html_url ?? "(n/a)"}`,
 				);
 			}),
 	);
@@ -152,7 +152,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				});
 				logRateLimit(headers);
 				return text(
-					`# File deleted\n\n- \`${path}\` on \`${branch}\`\n- commit: \`${data.commit.sha?.slice(0, 7)}\` — ${data.commit.html_url}`,
+					`# File deleted\n\n- \`${path}\` on \`${branch}\`\n- commit: \`${data.commit.sha?.slice(0, 7) ?? "(unknown)"}\` — ${data.commit.html_url}`,
 				);
 			}),
 	);
