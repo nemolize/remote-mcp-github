@@ -5,6 +5,7 @@ import {
 	ContentEncodingSchema,
 	encodeBase64Utf8,
 	FileModeSchema,
+	fileShaError,
 	getBranchHeadSha,
 	resolveFileSha,
 } from "../github/helpers.js";
@@ -78,15 +79,8 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 			wrapTool(async () => {
 				const octo = client();
 				const resolved = await resolveFileSha(octo, owner, repo, path, branch);
-				if (resolved.kind === "directory") {
-					return errorResult(
-						`Path \`${path}\` resolves to a directory; commit_file targets a single regular file.`,
-					);
-				}
-				if (resolved.kind === "non-file") {
-					return errorResult(
-						`Path \`${path}\` is a ${resolved.type}, not a regular file; refusing to overwrite via commit_file.`,
-					);
+				if (resolved.kind === "directory" || resolved.kind === "non-file") {
+					return fileShaError(resolved, "commit_file", "overwrite", path);
 				}
 				const sha = resolved.kind === "found" ? resolved.sha : undefined;
 				const encoded = encoding === "base64" ? content : encodeBase64Utf8(content);
@@ -126,15 +120,8 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 			wrapTool(async () => {
 				const octo = client();
 				const resolved = await resolveFileSha(octo, owner, repo, path, branch);
-				if (resolved.kind === "directory") {
-					return errorResult(
-						`Path \`${path}\` resolves to a directory; delete_file targets a single regular file.`,
-					);
-				}
-				if (resolved.kind === "non-file") {
-					return errorResult(
-						`Path \`${path}\` is a ${resolved.type}, not a regular file; refusing to delete via delete_file.`,
-					);
+				if (resolved.kind === "directory" || resolved.kind === "non-file") {
+					return fileShaError(resolved, "delete_file", "delete", path);
 				}
 				if (resolved.kind === "missing") {
 					return errorResult(

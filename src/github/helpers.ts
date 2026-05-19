@@ -1,7 +1,7 @@
 import type { Octokit } from "octokit";
 import { z } from "zod";
 
-import { logRateLimit } from "../mcp/response.js";
+import { errorResult, logRateLimit, type ToolResult } from "../mcp/response.js";
 import { isHttpStatus } from "../utils.js";
 
 export const ContentEncodingSchema = z
@@ -72,4 +72,23 @@ export const resolveFileSha = async (
 		if (isHttpStatus(e, 404)) return { kind: "missing" };
 		throw e;
 	}
+};
+
+// Builds the error response for the two `ResolvedFileSha` variants that always
+// reject a file-mutation tool (directory paths and non-file blobs). Each caller
+// passes its own tool name and verb so the message stays caller-specific.
+export const fileShaError = (
+	resolved: Extract<ResolvedFileSha, { kind: "directory" | "non-file" }>,
+	toolName: string,
+	verb: string,
+	path: string,
+): ToolResult => {
+	if (resolved.kind === "directory") {
+		return errorResult(
+			`Path \`${path}\` resolves to a directory; ${toolName} targets a single regular file.`,
+		);
+	}
+	return errorResult(
+		`Path \`${path}\` is a ${resolved.type}, not a regular file; refusing to ${verb} via ${toolName}.`,
+	);
 };
