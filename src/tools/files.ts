@@ -8,7 +8,7 @@ import {
 	getBranchHeadSha,
 } from "../github/helpers.js";
 import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
-import { isNonEmpty } from "../utils.js";
+import { isHttpStatus, isNonEmpty } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
@@ -97,11 +97,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					}
 					sha = existing.data.sha;
 				} catch (e: unknown) {
-					const status =
-						e != null && typeof e === "object" && "status" in e && typeof e.status === "number"
-							? e.status
-							: undefined;
-					if (status !== 404) throw e;
+					if (!isHttpStatus(e, 404)) throw e;
 				}
 				const encoded = encoding === "base64" ? content : encodeBase64Utf8(content);
 				const { data, headers } = await octo.rest.repos.createOrUpdateFileContents({
@@ -160,11 +156,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					}
 					sha = existing.data.sha;
 				} catch (e: unknown) {
-					const status =
-						e != null && typeof e === "object" && "status" in e && typeof e.status === "number"
-							? e.status
-							: undefined;
-					if (status === 404) {
+					if (isHttpStatus(e, 404)) {
 						return errorResult(
 							`Path \`${path}\` does not exist on branch \`${branch}\`; nothing to delete.`,
 						);
