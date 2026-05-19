@@ -7,20 +7,23 @@ import type { OctokitFactory } from "./common.js";
 import { RepoTarget, SameRepoBranchPattern } from "./common.js";
 
 export const registerBranchTools = (server: McpServer, client: OctokitFactory): void => {
-	server.tool(
+	server.registerTool(
 		"create_branch",
-		"Create a new branch in a repository, pointing at the tip of a base branch (default: the repo's default branch). Use when the user asks to branch off, start a new feature branch, or fork the current state. Returns the new ref name and SHA.",
 		{
-			...RepoTarget,
-			branch: z
-				.string()
-				.min(1)
-				.regex(SameRepoBranchPattern, "Use a same-repo branch name.")
-				.describe("New branch name (without 'refs/heads/' prefix)."),
-			from: z
-				.string()
-				.optional()
-				.describe("Base branch name to branch from. Defaults to the repo's default branch."),
+			description:
+				"Create a new branch in a repository, pointing at the tip of a base branch (default: the repo's default branch). Use when the user asks to branch off, start a new feature branch, or fork the current state. Returns the new ref name and SHA.",
+			inputSchema: {
+				...RepoTarget,
+				branch: z
+					.string()
+					.min(1)
+					.regex(SameRepoBranchPattern, "Use a same-repo branch name.")
+					.describe("New branch name (without 'refs/heads/' prefix)."),
+				from: z
+					.string()
+					.optional()
+					.describe("Base branch name to branch from. Defaults to the repo's default branch."),
+			},
 		},
 		async ({ owner, repo, branch, from }) =>
 			wrapTool(async () => {
@@ -40,16 +43,19 @@ export const registerBranchTools = (server: McpServer, client: OctokitFactory): 
 			}),
 	);
 
-	server.tool(
+	server.registerTool(
 		"delete_branch",
-		"Delete a branch from a repository. Use when the user asks to delete, remove, or clean up a branch. Refuses to delete the repo's default branch. Returns the deleted branch name and the SHA it pointed at (useful if the caller needs to recreate the ref).",
 		{
-			...RepoTarget,
-			branch: z
-				.string()
-				.min(1)
-				.regex(SameRepoBranchPattern, "Use a same-repo branch name.")
-				.describe("Branch name to delete (without 'refs/heads/' prefix)."),
+			description:
+				"Delete a branch from a repository. Use when the user asks to delete, remove, or clean up a branch. Refuses to delete the repo's default branch. Returns the deleted branch name and the SHA it pointed at (useful if the caller needs to recreate the ref).",
+			inputSchema: {
+				...RepoTarget,
+				branch: z
+					.string()
+					.min(1)
+					.regex(SameRepoBranchPattern, "Use a same-repo branch name.")
+					.describe("Branch name to delete (without 'refs/heads/' prefix)."),
+			},
 		},
 		async ({ owner, repo, branch }) =>
 			wrapTool(async () => {

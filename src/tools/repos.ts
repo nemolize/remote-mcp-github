@@ -6,28 +6,31 @@ import { isNonEmpty } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 
 export const registerRepoTools = (server: McpServer, client: OctokitFactory): void => {
-	server.tool(
+	server.registerTool(
 		"list_my_repos",
-		"List repositories owned by or accessible to the authenticated GitHub user. Use when the user asks to see, browse, enumerate, or find their own repositories. Returns repo full name, visibility, description, URL, star count, and last-update timestamp.",
 		{
-			visibility: z
-				.enum(["all", "public", "private"])
-				.optional()
-				.default("all")
-				.describe("Filter by visibility."),
-			sort: z
-				.enum(["created", "updated", "pushed", "full_name"])
-				.optional()
-				.default("updated")
-				.describe("Sort field."),
-			per_page: z
-				.number()
-				.int()
-				.min(1)
-				.max(100)
-				.optional()
-				.default(30)
-				.describe("Results per page (1-100)."),
+			description:
+				"List repositories owned by or accessible to the authenticated GitHub user. Use when the user asks to see, browse, enumerate, or find their own repositories. Returns repo full name, visibility, description, URL, star count, and last-update timestamp.",
+			inputSchema: {
+				visibility: z
+					.enum(["all", "public", "private"])
+					.optional()
+					.default("all")
+					.describe("Filter by visibility."),
+				sort: z
+					.enum(["created", "updated", "pushed", "full_name"])
+					.optional()
+					.default("updated")
+					.describe("Sort field."),
+				per_page: z
+					.number()
+					.int()
+					.min(1)
+					.max(100)
+					.optional()
+					.default(30)
+					.describe("Results per page (1-100)."),
+			},
 		},
 		async ({ visibility, sort, per_page }) =>
 			wrapTool(async () => {

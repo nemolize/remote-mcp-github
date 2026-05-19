@@ -38,9 +38,7 @@ export default tseslint.config(
 		files: ["src/**/*.ts"],
 		languageOptions: { parserOptions: { project: true } },
 		rules: {
-			// Downgraded to "warn" until #3 (server.tool → registerTool migration) lands.
-			// Once #3 is in, escalate this back to "error".
-			"@typescript-eslint/no-deprecated": "warn",
+			"@typescript-eslint/no-deprecated": "error",
 			"@typescript-eslint/strict-boolean-expressions": "error",
 		},
 	},
