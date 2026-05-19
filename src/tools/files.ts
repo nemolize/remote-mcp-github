@@ -6,9 +6,10 @@ import {
 	encodeBase64Utf8,
 	FileModeSchema,
 	getBranchHeadSha,
+	resolveFileSha,
 } from "../github/helpers.js";
 import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
-import { isHttpStatus, isNonEmpty } from "../utils.js";
+import { isNonEmpty } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
@@ -76,29 +77,18 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 		async ({ owner, repo, branch, path, content, encoding, message }) =>
 			wrapTool(async () => {
 				const octo = client();
-				let sha: string | undefined;
-				try {
-					const existing = await octo.rest.repos.getContent({
-						owner,
-						repo,
-						path,
-						ref: branch,
-					});
-					logRateLimit(existing.headers);
-					if (Array.isArray(existing.data)) {
-						return errorResult(
-							`Path \`${path}\` resolves to a directory; commit_file targets a single regular file.`,
-						);
-					}
-					if (existing.data.type !== "file") {
-						return errorResult(
-							`Path \`${path}\` is a ${existing.data.type}, not a regular file; refusing to overwrite via commit_file.`,
-						);
-					}
-					sha = existing.data.sha;
-				} catch (e: unknown) {
-					if (!isHttpStatus(e, 404)) throw e;
+				const resolved = await resolveFileSha(octo, owner, repo, path, branch);
+				if (resolved.kind === "directory") {
+					return errorResult(
+						`Path \`${path}\` resolves to a directory; commit_file targets a single regular file.`,
+					);
 				}
+				if (resolved.kind === "non-file") {
+					return errorResult(
+						`Path \`${path}\` is a ${resolved.type}, not a regular file; refusing to overwrite via commit_file.`,
+					);
+				}
+				const sha = resolved.kind === "found" ? resolved.sha : undefined;
 				const encoded = encoding === "base64" ? content : encodeBase64Utf8(content);
 				const { data, headers } = await octo.rest.repos.createOrUpdateFileContents({
 					owner,
@@ -135,34 +125,23 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 		async ({ owner, repo, branch, path, message }) =>
 			wrapTool(async () => {
 				const octo = client();
-				let sha: string;
-				try {
-					const existing = await octo.rest.repos.getContent({
-						owner,
-						repo,
-						path,
-						ref: branch,
-					});
-					logRateLimit(existing.headers);
-					if (Array.isArray(existing.data)) {
-						return errorResult(
-							`Path \`${path}\` resolves to a directory; delete_file targets a single regular file.`,
-						);
-					}
-					if (existing.data.type !== "file") {
-						return errorResult(
-							`Path \`${path}\` is a ${existing.data.type}, not a regular file; refusing to delete via delete_file.`,
-						);
-					}
-					sha = existing.data.sha;
-				} catch (e: unknown) {
-					if (isHttpStatus(e, 404)) {
-						return errorResult(
-							`Path \`${path}\` does not exist on branch \`${branch}\`; nothing to delete.`,
-						);
-					}
-					throw e;
+				const resolved = await resolveFileSha(octo, owner, repo, path, branch);
+				if (resolved.kind === "directory") {
+					return errorResult(
+						`Path \`${path}\` resolves to a directory; delete_file targets a single regular file.`,
+					);
 				}
+				if (resolved.kind === "non-file") {
+					return errorResult(
+						`Path \`${path}\` is a ${resolved.type}, not a regular file; refusing to delete via delete_file.`,
+					);
+				}
+				if (resolved.kind === "missing") {
+					return errorResult(
+						`Path \`${path}\` does not exist on branch \`${branch}\`; nothing to delete.`,
+					);
+				}
+				const sha = resolved.sha;
 				const { data, headers } = await octo.rest.repos.deleteFile({
 					owner,
 					repo,
