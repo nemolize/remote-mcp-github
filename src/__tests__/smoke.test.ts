@@ -6,8 +6,9 @@ describe("smoke", () => {
 	});
 
 	it("executes inside the Cloudflare Workers pool", () => {
-		const id = crypto.randomUUID();
-		expect(typeof id).toBe("string");
-		expect(id).toMatch(/^[0-9a-f-]+$/);
+		// WebSocketPair and caches.default are Workers-runtime-only globals;
+		// asserting them ensures we did not silently fall back to a Node pool.
+		expect(typeof WebSocketPair).toBe("function");
+		expect(typeof caches.default).toBe("object");
 	});
 });
