@@ -132,6 +132,17 @@ pnpm fix      # eslint --fix && prettier --write
 
 CI runs each sub-check (`lint:eslint`, `lint:typecheck`, `lint:prettier`) as a separate matrix job for clearer status reporting; locally, `pnpm lint` is the one-shot equivalent and `pnpm fix` auto-resolves formatting and any autofixable ESLint findings before opening a PR.
 
+## Testing
+
+Tests run with [Vitest](https://vitest.dev/) via [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/), so they execute inside the real Workers runtime (`workerd`) backed by Miniflare — not Node.
+
+```bash
+pnpm test         # one-shot run
+pnpm test:watch   # watch mode
+```
+
+CI runs `pnpm test` as a dedicated `Test` job on every PR.
+
 ## OAuth scopes
 
 The server requests `read:user repo` from GitHub. The `repo` portion is what enables private-repo visibility for read tools and the create/comment/branch capabilities of the write tools. To run the read tools only against public repositories, change `src/github-handler.ts` to `read:user public_repo`.
