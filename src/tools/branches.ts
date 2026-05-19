@@ -23,15 +23,22 @@ export const registerBranchTools = (server: McpServer, client: OctokitFactory): 
 					.optional()
 					.default(30)
 					.describe("Results per page (1-100)."),
+				page: z
+					.number()
+					.int()
+					.min(1)
+					.optional()
+					.describe("Page number (1-indexed). Defaults to 1."),
 			},
 		},
-		async ({ owner, repo, protected: protectedOnly, per_page }) =>
+		async ({ owner, repo, protected: protectedOnly, per_page, page }) =>
 			wrapTool(async () => {
 				const { data, headers } = await client().rest.repos.listBranches({
 					owner,
 					repo,
 					protected: protectedOnly,
 					per_page,
+					page,
 				});
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no branches found)");
@@ -39,9 +46,12 @@ export const registerBranchTools = (server: McpServer, client: OctokitFactory): 
 					const flag = b.protected ? "🔒 protected" : "🌐 unprotected";
 					return `- **${b.name}** (${flag}) — \`${b.commit.sha.slice(0, 7)}\``;
 				});
-				return text(
-					truncate(`# Branches in ${owner}/${repo} (${data.length})\n\n${lines.join("\n")}`),
-				);
+				const hasMore = (headers.link ?? "").includes('rel="next"');
+				const pageNum = page ?? 1;
+				const header = hasMore
+					? `# Branches in ${owner}/${repo} (page ${pageNum}, ${data.length} shown; more available — pass next \`page\` or raise \`per_page\` up to 100)`
+					: `# Branches in ${owner}/${repo} (${data.length})`;
+				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
 	);
 
