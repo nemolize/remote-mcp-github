@@ -46,6 +46,9 @@ export const getBranchHeadSha = async (
 	return data.object.sha;
 };
 
+// Only `non-file` carries a payload (the actual content type from GitHub) so
+// callers can include it in their error message; the other variants are
+// fully determined by `kind` alone.
 export type ResolvedFileSha =
 	| { kind: "found"; sha: string }
 	| { kind: "missing" }
