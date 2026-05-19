@@ -40,7 +40,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				logRateLimit(headers);
 				const refSuffix = isNonEmpty(ref) ? `@${ref}` : "";
 				if (Array.isArray(data)) {
-					const entries = data.map((e) => `- ${e.type === "dir" ? "📁" : "📄"} ${e.name}`);
+					const entries = data.map((e) => `- ${e.type === "dir" ? "[dir]" : "[file]"} ${e.name}`);
 					return text(
 						`# Directory listing: ${owner}/${repo}/${path}${refSuffix}\n\n${entries.join("\n")}`,
 					);

@@ -43,7 +43,7 @@ export const registerBranchTools = (server: McpServer, client: OctokitFactory): 
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no branches found)");
 				const lines = data.map((b) => {
-					const flag = b.protected ? "🔒 protected" : "🌐 unprotected";
+					const flag = b.protected ? "protected" : "unprotected";
 					return `- **${b.name}** (${flag}) — \`${b.commit.sha.slice(0, 7)}\``;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
