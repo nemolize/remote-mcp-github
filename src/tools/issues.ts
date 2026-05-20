@@ -24,9 +24,17 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					.default("open")
 					.describe("Issue/PR state filter."),
 				per_page: z.number().int().min(1).max(50).optional().default(20),
+				page: z
+					.number()
+					.int()
+					.min(1)
+					.optional()
+					.describe(
+						"Page number (1-indexed). Defaults to 1. GitHub caps search at 1000 reachable results.",
+					),
 			},
 		},
-		async ({ owner, repo, query, state, per_page }) =>
+		async ({ owner, repo, query, state, per_page, page }) =>
 			wrapTool(async () => {
 				const qualifier =
 					state === "all" ? `repo:${owner}/${repo}` : `repo:${owner}/${repo} state:${state}`;
@@ -34,6 +42,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 				const { data, headers } = await client().rest.search.issuesAndPullRequests({
 					q,
 					per_page,
+					page,
 				});
 				logRateLimit(headers);
 				if (data.total_count === 0)
@@ -42,13 +51,15 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					const kind = i.pull_request ? "PR" : "Issue";
 					return `- [${kind} #${i.number}] **${i.title}** (${i.state}) by @${i.user?.login}\n  - ${i.html_url}`;
 				});
-				return text(
-					truncate(
-						`# Search results for \`${q}\` (showing ${data.items.length} of ${data.total_count})\n\n${lines.join(
-							"\n",
-						)}`,
-					),
-				);
+				const pageNum = page ?? 1;
+				// GitHub's Search API caps reachable results at 1000; pageNum * per_page
+				// against that cap (not total_count alone) avoids a false "more" hint
+				// on the final page when items.length happens to be less than total_count.
+				const hasMore = pageNum * per_page < Math.min(data.total_count, 1000);
+				const header = hasMore
+					? `# Search results for \`${q}\` (page ${pageNum}, showing ${data.items.length} of ${data.total_count}; pass next \`page\` for more)`
+					: `# Search results for \`${q}\` (showing ${data.items.length} of ${data.total_count})`;
+				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
 	);
 
