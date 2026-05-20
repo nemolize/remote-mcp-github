@@ -89,7 +89,7 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 					`- URL: ${data.html_url}`,
 					`- Default branch: \`${data.default_branch}\``,
 					`- Language: ${data.language ?? "(unknown)"}`,
-					`- Stars: ${data.stargazers_count} | Forks: ${data.forks_count} | Open issues: ${data.open_issues_count}`,
+					`- Stars: ${data.stargazers_count} | Forks: ${data.forks_count} | Open issues+PRs: ${data.open_issues_count}`,
 					`- has_issues: ${data.has_issues} | has_wiki: ${data.has_wiki} | has_projects: ${data.has_projects} | has_discussions: ${data.has_discussions ?? false}`,
 					`- Pushed: ${data.pushed_at} | Updated: ${data.updated_at} | Created: ${data.created_at}`,
 				];
