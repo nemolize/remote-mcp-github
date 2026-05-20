@@ -50,7 +50,7 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no repositories found)");
 				const lines = data.map((r) => {
-					const flag = r.private ? "private" : "public";
+					const flag = r.visibility ?? (r.private ? "private" : "public");
 					const desc = isNonEmpty(r.description) ? ` — ${r.description}` : "";
 					return `- **${r.full_name}** (${flag})${desc}\n  - ${r.html_url} | ${r.stargazers_count} stars | updated ${r.updated_at}`;
 				});
@@ -74,7 +74,7 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 			wrapTool(async () => {
 				const { data, headers } = await client().rest.repos.get({ owner, repo });
 				logRateLimit(headers);
-				const visibility = data.private ? "private" : "public";
+				const visibility = data.visibility ?? (data.private ? "private" : "public");
 				const flags = [
 					data.archived ? "archived" : null,
 					data.fork ? "fork" : null,
@@ -178,7 +178,7 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 				if (data.total_count === 0)
 					return text(`# Repo search\n\nNo repositories matched \`${query}\`.`);
 				const lines = data.items.map((r) => {
-					const flag = r.private ? "private" : "public";
+					const flag = r.visibility ?? (r.private ? "private" : "public");
 					const desc = isNonEmpty(r.description) ? ` — ${r.description}` : "";
 					const lang = isNonEmpty(r.language) ? ` | ${r.language}` : "";
 					return `- **${r.full_name}** (${flag})${desc}\n  - ${r.html_url} | ${r.stargazers_count} stars${lang} | updated ${r.updated_at}`;
