@@ -288,11 +288,15 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 				labels: z
 					.array(z.string())
 					.optional()
-					.describe("Replaces the existing label set. Use `add_labels` to append instead."),
+					.describe(
+						"Replaces the entire label set; omit to leave unchanged, pass `[]` to clear all labels.",
+					),
 				assignees: z
 					.array(z.string())
 					.optional()
-					.describe("Replaces the existing assignee set. Use `add_assignees` to append instead."),
+					.describe(
+						"Replaces the entire assignee set; omit to leave unchanged, pass `[]` to clear all assignees.",
+					),
 				milestone: z
 					.number()
 					.int()
@@ -398,7 +402,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 		"add_assignees",
 		{
 			description:
-				"Append assignees to an issue or PR without restating the existing set. Use when the user asks to add, assign, or attach reviewers/assignees — and existing assignees should be preserved. Returns the full updated assignee list.",
+				"Append assignees to an issue or PR without restating the existing set. Use when the user asks to add or assign people — and existing assignees should be preserved. For requesting PR reviewers, use `request_pr_review` instead. Returns the full updated assignee list.",
 			inputSchema: {
 				...RepoTarget,
 				issue_number: z
