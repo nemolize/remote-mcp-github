@@ -30,14 +30,21 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 					.optional()
 					.default(30)
 					.describe("Results per page (1-100)."),
+				page: z
+					.number()
+					.int()
+					.min(1)
+					.optional()
+					.describe("Page number (1-indexed). Defaults to 1."),
 			},
 		},
-		async ({ visibility, sort, per_page }) =>
+		async ({ visibility, sort, per_page, page }) =>
 			wrapTool(async () => {
 				const { data, headers } = await client().rest.repos.listForAuthenticatedUser({
 					visibility,
 					sort,
 					per_page,
+					page,
 				});
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no repositories found)");
@@ -46,7 +53,12 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 					const desc = isNonEmpty(r.description) ? ` — ${r.description}` : "";
 					return `- **${r.full_name}** (${flag})${desc}\n  - ${r.html_url} | ${r.stargazers_count} stars | updated ${r.updated_at}`;
 				});
-				return text(truncate(`# Repositories (${data.length})\n\n${lines.join("\n")}`));
+				const hasMore = (headers.link ?? "").includes('rel="next"');
+				const pageNum = page ?? 1;
+				const header = hasMore
+					? `# Repositories (page ${pageNum}, ${data.length} shown; more available — pass next \`page\` or raise \`per_page\` up to 100)`
+					: `# Repositories (${data.length})`;
+				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
 	);
 };
