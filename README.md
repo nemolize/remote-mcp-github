@@ -17,6 +17,9 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `get_authenticated_user` | read  | Identity bound to the current OAuth token (login, profile, repo counts)                          |
 | `search_repositories`    | read  | Cross-GitHub repo search (uses GitHub search qualifiers like `org:`, `user:<login>`, `stars:>N`) |
 | `search_issues`          | read  | Issue / PR search inside a specific repo                                                         |
+| `get_issue`              | read  | Single issue / PR detail (title, body, state, labels, assignees, milestone)                      |
+| `list_issue_comments`    | read  | Conversation comments on an issue or PR                                                          |
+| `list_labels`            | read  | Labels defined in the repo (companion read for `add_labels` / `update_issue`)                    |
 | `get_file_content`       | read  | Raw file contents at a path + ref (directory listings supported)                                 |
 | `get_pr_diff`            | read  | Unified diff for a pull request                                                                  |
 | `search_code`            | read  | Code search across GitHub                                                                        |
@@ -29,6 +32,11 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `create_pull_request`    | write | Open a PR (same-repo `head` by default; `cross_repo_head` for fork PRs)                          |
 | `request_pr_review`      | write | Request reviewers (users and/or teams) on a PR                                                   |
 | `create_issue`           | write | Title + body + labels + assignees                                                                |
+| `update_issue`           | write | Edit title / body / state / labels / assignees / milestone (labels and assignees replace)        |
+| `add_labels`             | write | Append labels to an issue or PR without restating the existing set                               |
+| `remove_label`           | write | Remove a single label from an issue or PR                                                        |
+| `add_assignees`          | write | Append assignees to an issue or PR without restating the existing set                            |
+| `remove_assignees`       | write | Remove specific assignees from an issue or PR                                                    |
 | `add_comment`            | write | Comment on an issue or PR                                                                        |
 
 Both `/mcp` (Streamable HTTP) and `/sse` endpoints are exposed; Claude.ai currently uses `/sse`.
