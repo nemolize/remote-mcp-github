@@ -165,7 +165,13 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					const author = c.user ? `@${c.user.login}` : "(unknown)";
 					const body = (c.body ?? "").replace(/\s+/g, " ").trim();
 					const preview = body.length > 200 ? `${body.slice(0, 200)}…` : body;
-					return `- ${author} at ${c.created_at} — ${c.html_url}\n  - ${preview.length > 0 ? preview : "(empty)"}`;
+					// Show `updated_at` — that's what `since` filters by; the created timestamp
+					// is appended only when the comment has been edited.
+					const ts =
+						c.updated_at !== c.created_at
+							? `${c.updated_at} (created ${c.created_at})`
+							: c.created_at;
+					return `- ${author} — ${ts} — ${c.html_url}\n  - ${preview.length > 0 ? preview : "(empty)"}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
 				const pageNum = page ?? 1;
