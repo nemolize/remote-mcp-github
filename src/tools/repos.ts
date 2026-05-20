@@ -125,7 +125,10 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 					`- Profile: ${data.html_url}`,
 					`- Public repos: ${data.public_repos} | Public gists: ${data.public_gists}`,
 					data.total_private_repos != null
-						? `- Total private repos: ${data.total_private_repos} | Owned private: ${data.owned_private_repos ?? "?"}`
+						? `- Total private repos: ${data.total_private_repos}`
+						: null,
+					data.owned_private_repos != null
+						? `- Owned private repos: ${data.owned_private_repos}`
 						: null,
 					`- Followers: ${data.followers} | Following: ${data.following}`,
 					`- Created: ${data.created_at}`,
