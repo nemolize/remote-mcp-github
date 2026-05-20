@@ -23,6 +23,8 @@ If the answer is "this is obvious from the code" or "this is a single-PR mechani
 status: { proposed | accepted | rejected | deprecated | superseded by ADR-NNNN }
 date: { YYYY-MM-DD }
 decision-makers: { names or roles }
+consulted: { subject-matter experts — `none` if none }
+informed: { stakeholders — `none` if none }
 ---
 ```
 

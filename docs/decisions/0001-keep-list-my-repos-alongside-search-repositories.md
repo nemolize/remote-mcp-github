@@ -2,13 +2,15 @@
 status: accepted
 date: 2026-05-20
 decision-makers: nemolize
+consulted: none
+informed: future contributors via this ADR
 ---
 
 # Keep `list_my_repos` alongside `search_repositories`
 
 ## Context and Problem Statement
 
-When implementing the three repo / user metadata tools from #13, `search_repositories` (`rest.search.repos`) gains the ability to express `user:@me` queries — which on the surface overlaps with the existing `list_my_repos` (`rest.repos.listForAuthenticatedUser`). The question is whether `list_my_repos` should be deprecated, renamed, or kept as-is.
+When implementing the three repo / user metadata tools from #13, `search_repositories` (`rest.search.repos`) gains the ability to express `user:<login>` queries — which on the surface overlaps with the existing `list_my_repos` (`rest.repos.listForAuthenticatedUser`). The question is whether `list_my_repos` should be deprecated, renamed, or kept as-is. (Note: the original issue framing used `user:@me`, but the GitHub Search API does not resolve `@me` — callers must pass the actual login. This does not change the trade-offs evaluated below.)
 
 The official `github/github-mcp-server` reference implementation does not ship a `list_my_repos`-style sugar tool — it expects clients to construct `user:<login>` search queries — which gave the deprecation option a "shape-conformity" argument worth weighing.
 
@@ -24,13 +26,13 @@ The official `github/github-mcp-server` reference implementation does not ship a
 
 1. **Keep `list_my_repos` as-is** alongside the new `search_repositories`.
 2. **Rename** `list_my_repos` → `list_authenticated_user_repos` to match the dropped-sugar style of other tool names.
-3. **Deprecate / remove** `list_my_repos`; advise callers to use `search_repositories` with `user:@me`.
+3. **Deprecate / remove** `list_my_repos`; advise callers to use `search_repositories` with `user:<login>` (the login fetched via `get_authenticated_user`).
 
 ## Decision Outcome
 
 **Chosen option: 1 — Keep `list_my_repos` as-is.**
 
-`search_repositories user:@me` is **not** a clean superset of `list_my_repos`. The Search API and the authenticated-user listing endpoint diverge on multiple practical axes (see comparison below), each of which produces a felt regression for at least one common LLM-driven use case. Keeping both tools costs one tool slot in the surface but preserves correctness and ergonomics where it matters.
+`search_repositories user:<login>` is **not** a clean superset of `list_my_repos`. The Search API and the authenticated-user listing endpoint diverge on multiple practical axes (see comparison below), each of which produces a felt regression for at least one common LLM-driven use case. Keeping both tools costs one tool slot in the surface but preserves correctness and ergonomics where it matters.
 
 Renaming (option 2) was rejected because it would break LLM-prompt continuity ("list my repos" maps naturally to `list_my_repos`) without addressing any of the functional concerns that drove option 3 — pure cosmetic churn.
 
