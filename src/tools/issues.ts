@@ -5,6 +5,11 @@ import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
+const formatNameList = (names: string[], wrap: "code" | "at"): string => {
+	if (names.length === 0) return "(none)";
+	return names.map((n) => (wrap === "code" ? `\`${n}\`` : `@${n}`)).join(", ");
+};
+
 export const registerIssueTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"search_issues",
@@ -82,10 +87,10 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 				});
 				logRateLimit(headers);
 				const kind = data.pull_request ? "PR" : "Issue";
-				const labels = data.labels
+				const labelNames = data.labels
 					.map((l) => (typeof l === "string" ? l : (l.name ?? "")))
 					.filter((n) => n.length > 0);
-				const assignees = (data.assignees ?? []).map((a) => `@${a.login}`);
+				const assigneeLogins = (data.assignees ?? []).map((a) => a.login);
 				const milestone = data.milestone ? data.milestone.title : "(none)";
 				const author = data.user ? `@${data.user.login}` : "(unknown)";
 				const body = data.body != null && data.body.length > 0 ? data.body : "_(no body)_";
@@ -94,8 +99,8 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					"",
 					`- state: **${data.state}**${data.state_reason != null ? ` (${data.state_reason})` : ""}`,
 					`- author: ${author}`,
-					`- labels: ${labels.length > 0 ? labels.map((l) => `\`${l}\``).join(", ") : "(none)"}`,
-					`- assignees: ${assignees.length > 0 ? assignees.join(", ") : "(none)"}`,
+					`- labels: ${formatNameList(labelNames, "code")}`,
+					`- assignees: ${formatNameList(assigneeLogins, "at")}`,
 					`- milestone: ${milestone}`,
 					`- created: ${data.created_at}`,
 					`- updated: ${data.updated_at}`,
@@ -360,9 +365,9 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					labels,
 				});
 				logRateLimit(headers);
-				const names = data.map((l) => `\`${l.name}\``);
+				const names = data.map((l) => l.name);
 				return text(
-					`# Labels added\n\n- on #${issue_number}\n- labels now: ${names.length > 0 ? names.join(", ") : "(none)"}`,
+					`# Labels added\n\n- on #${issue_number}\n- labels now: ${formatNameList(names, "code")}`,
 				);
 			}),
 	);
@@ -391,9 +396,9 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					name,
 				});
 				logRateLimit(headers);
-				const names = data.map((l) => `\`${l.name}\``);
+				const names = data.map((l) => l.name);
 				return text(
-					`# Label removed\n\n- removed \`${name}\` from #${issue_number}\n- labels now: ${names.length > 0 ? names.join(", ") : "(none)"}`,
+					`# Label removed\n\n- removed \`${name}\` from #${issue_number}\n- labels now: ${formatNameList(names, "code")}`,
 				);
 			}),
 	);
@@ -422,9 +427,9 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					assignees,
 				});
 				logRateLimit(headers);
-				const names = (data.assignees ?? []).map((a) => `@${a.login}`);
+				const logins = (data.assignees ?? []).map((a) => a.login);
 				return text(
-					`# Assignees added\n\n- on #${issue_number}\n- assignees now: ${names.length > 0 ? names.join(", ") : "(none)"}`,
+					`# Assignees added\n\n- on #${issue_number}\n- assignees now: ${formatNameList(logins, "at")}`,
 				);
 			}),
 	);
@@ -453,9 +458,9 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					assignees,
 				});
 				logRateLimit(headers);
-				const names = (data.assignees ?? []).map((a) => `@${a.login}`);
+				const logins = (data.assignees ?? []).map((a) => a.login);
 				return text(
-					`# Assignees removed\n\n- from #${issue_number}\n- assignees now: ${names.length > 0 ? names.join(", ") : "(none)"}`,
+					`# Assignees removed\n\n- from #${issue_number}\n- assignees now: ${formatNameList(logins, "at")}`,
 				);
 			}),
 	);
