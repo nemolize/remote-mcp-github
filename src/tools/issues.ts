@@ -93,7 +93,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 				const assigneeLogins = (data.assignees ?? []).map((a) => a.login);
 				const milestone = data.milestone ? data.milestone.title : "(none)";
 				const author = data.user ? `@${data.user.login}` : "(unknown)";
-				const body = data.body != null && data.body.length > 0 ? data.body : "_(no body)_";
+				const body = data.body != null && data.body.length > 0 ? data.body : "(no body)";
 				const lines = [
 					`# ${kind} #${data.number}: ${data.title}`,
 					"",
@@ -158,11 +158,14 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 				});
 				logRateLimit(headers);
 				if (data.length === 0) return text(`# Comments on #${issue_number}\n\n(no comments found)`);
+				// Each comment is rendered as a one-line preview (whitespace collapsed, 200-char cap);
+				// the full-body rendering used by get_issue would blow up the list output. Callers
+				// who need the full text should fetch the issue or the individual comment.
 				const lines = data.map((c) => {
 					const author = c.user ? `@${c.user.login}` : "(unknown)";
 					const body = (c.body ?? "").replace(/\s+/g, " ").trim();
 					const preview = body.length > 200 ? `${body.slice(0, 200)}…` : body;
-					return `- ${author} at ${c.created_at} — ${c.html_url}\n  - ${preview.length > 0 ? preview : "_(empty)_"}`;
+					return `- ${author} at ${c.created_at} — ${c.html_url}\n  - ${preview.length > 0 ? preview : "(empty)"}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
 				const pageNum = page ?? 1;
