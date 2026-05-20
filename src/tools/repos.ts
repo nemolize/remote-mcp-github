@@ -107,7 +107,7 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 		"get_authenticated_user",
 		{
 			description:
-				"Return the GitHub identity bound to the current OAuth token (login, name, public profile fields, repo counts). Use when the user asks 'who am I?' or when other tools need the authenticated login to construct a query (e.g. `user:@me` searches).",
+				"Return the GitHub identity bound to the current OAuth token (login, name, public profile fields, repo counts). Use when the user asks 'who am I?' or when other tools need the authenticated user's login to construct a `user:<login>` search qualifier (the GitHub Search API does not resolve `@me` — pass the actual login from this tool's response).",
 			inputSchema: {},
 		},
 		async () =>
@@ -138,13 +138,13 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 		"search_repositories",
 		{
 			description:
-				"Search repositories across GitHub using the Search API. Use when the user asks to find repos beyond their own (e.g. collaborator-only access, public org repos, popular projects). Supports GitHub search qualifiers like `org:foo`, `user:@me`, `language:ts`, `stars:>100`, `fork:true`.",
+				"Search repositories across GitHub using the Search API. Use when the user asks to find repos beyond their own (e.g. collaborator-only access, public org repos, popular projects). Supports GitHub search qualifiers like `org:foo`, `user:<login>`, `language:ts`, `stars:>100`, `fork:true`. For 'my own repos' intents, call `get_authenticated_user` first to retrieve the login (the Search API does not resolve `@me`).",
 			inputSchema: {
 				query: z
 					.string()
 					.min(1)
 					.describe(
-						"GitHub repo-search query. Combine with qualifiers like 'org:foo language:ts stars:>100', or 'user:@me' for the authenticated user.",
+						"GitHub repo-search query. Combine with qualifiers like 'org:foo language:ts stars:>100' or 'user:<login>'.",
 					),
 				sort: z
 					.enum(["stars", "forks", "help-wanted-issues", "updated"])
