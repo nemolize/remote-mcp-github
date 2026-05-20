@@ -284,12 +284,20 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 				...RepoTarget,
 				issue_number: z.number().int().positive().describe("Issue number to update."),
 				title: z.string().min(1).optional().describe("New issue title."),
-				body: z.string().optional().describe("New issue body (Markdown supported)."),
+				body: z
+					.string()
+					.optional()
+					.describe(
+						"New issue body (Markdown supported); omit to leave unchanged, pass an empty string to clear.",
+					),
 				state: z.enum(["open", "closed"]).optional().describe("New issue state."),
 				state_reason: z
-					.enum(["completed", "not_planned", "reopened"])
+					.enum(["completed", "not_planned", "duplicate", "reopened"])
+					.nullable()
 					.optional()
-					.describe("Reason for the state change (used when closing or reopening)."),
+					.describe(
+						"Reason for the state change (used when closing or reopening); pass null to clear an existing reason.",
+					),
 				labels: z
 					.array(z.string())
 					.optional()
