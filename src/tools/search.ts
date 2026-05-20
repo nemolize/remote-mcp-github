@@ -40,7 +40,10 @@ export const registerSearchTools = (server: McpServer, client: OctokitFactory): 
 					(i) => `- **${i.repository.full_name}** — \`${i.path}\`\n  - ${i.html_url}`,
 				);
 				const pageNum = page ?? 1;
-				const hasMore = data.items.length < data.total_count;
+				// GitHub's Search API caps reachable results at 1000; pageNum * per_page
+				// against that cap (not total_count alone) avoids a false "more" hint
+				// on the final page when items.length happens to be less than total_count.
+				const hasMore = pageNum * per_page < Math.min(data.total_count, 1000);
 				const header = hasMore
 					? `# Code search results for \`${query}\` (page ${pageNum}, showing ${data.items.length} of ${data.total_count}; pass next \`page\` for more)`
 					: `# Code search results for \`${query}\` (showing ${data.items.length} of ${data.total_count})`;

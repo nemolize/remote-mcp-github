@@ -52,7 +52,10 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					return `- [${kind} #${i.number}] **${i.title}** (${i.state}) by @${i.user?.login}\n  - ${i.html_url}`;
 				});
 				const pageNum = page ?? 1;
-				const hasMore = data.items.length < data.total_count;
+				// GitHub's Search API caps reachable results at 1000; pageNum * per_page
+				// against that cap (not total_count alone) avoids a false "more" hint
+				// on the final page when items.length happens to be less than total_count.
+				const hasMore = pageNum * per_page < Math.min(data.total_count, 1000);
 				const header = hasMore
 					? `# Search results for \`${q}\` (page ${pageNum}, showing ${data.items.length} of ${data.total_count}; pass next \`page\` for more)`
 					: `# Search results for \`${q}\` (showing ${data.items.length} of ${data.total_count})`;
