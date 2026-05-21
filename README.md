@@ -156,6 +156,23 @@ pnpm test:watch   # watch mode
 
 Cross-cutting tests live under top-level `test/`. Tests that exercise a single module can also be co-located as `*.test.ts` next to the source. CI runs `pnpm test` as a dedicated `Test` job on every PR.
 
+### Manual OAuth E2E
+
+`scripts/e2e/oauth-e2e.mjs` drives the full OAuth 2.1 + PKCE handshake against a locally-running server and then exercises a few read tools over the Streamable HTTP MCP transport, asserting on the rendered Markdown. It is **manual** — approving the GitHub consent in a browser window is the one non-scripted step — and is deliberately not wired into CI.
+
+```bash
+pnpm dev                # in one shell
+pnpm run e2e:oauth      # in another; opens an authorize URL, waits for ?code=...
+```
+
+Defaults assert against `nemolize/remote-mcp-github` so the maintainer can run it with no setup. Forks override via env:
+
+```bash
+EXPECTED_OWNER=acme EXPECTED_REPO=widget EXPECTED_LOGIN=acmebot pnpm run e2e:oauth
+```
+
+Other knobs: `MCP_BASE` (default `http://localhost:8788`), `CALLBACK_PORT` (default `9876`), `TIMEOUT_MS` (default `300000`).
+
 ## OAuth scopes
 
 The server requests `read:user repo` from GitHub. The `repo` portion is what enables private-repo visibility for read tools and the create/comment/branch capabilities of the write tools. To run the read tools only against public repositories, change `src/github-handler.ts` to `read:user public_repo`.
