@@ -156,13 +156,15 @@ pnpm test:watch   # watch mode
 
 Cross-cutting tests live under top-level `test/`. Tests that exercise a single module can also be co-located as `*.test.ts` next to the source. CI runs `pnpm test` as a dedicated `Test` job on every PR.
 
+The suite includes `test/mcp-e2e.test.js`, a transport-level E2E that drives `/register` → `/authorize` → `/token` and exercises `/mcp initialize` + `tools/list` against the real OAuth provider. To avoid a GitHub round-trip in CI, the test pool swaps in `test/_fixtures/fake-github-handler.ts` via the `buildOAuthProvider` factory in `src/index.ts`; tool execution against real GitHub is covered separately by the manual harness below.
+
 ### Manual OAuth E2E
 
 `scripts/e2e/oauth-e2e.mjs` drives the full OAuth 2.1 + PKCE handshake against a locally-running server and then exercises a few read tools over the Streamable HTTP MCP transport, asserting on the rendered Markdown. It is **manual** — approving the GitHub consent in a browser window is the one non-scripted step — and is deliberately not wired into CI.
 
 ```bash
 pnpm dev                # in one shell
-pnpm run e2e:oauth      # in another; opens an authorize URL, waits for ?code=...
+pnpm run e2e:oauth      # in another; prints an authorize URL (open it manually), then waits for ?code=...
 ```
 
 Defaults assert against `nemolize/remote-mcp-github` so the maintainer can run it with no setup. Forks override via env:
