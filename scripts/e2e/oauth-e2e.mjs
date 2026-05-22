@@ -22,21 +22,31 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 
-const MCP_BASE = process.env.MCP_BASE ?? "http://localhost:8788";
-const CALLBACK_PORT = Number(process.env.CALLBACK_PORT ?? 9876);
-const CALLBACK_URL = `http://localhost:${CALLBACK_PORT}/callback`;
-const EXPECTED_OWNER = process.env.EXPECTED_OWNER ?? "nemolize";
-const EXPECTED_REPO = process.env.EXPECTED_REPO ?? "remote-mcp-github";
-const EXPECTED_LOGIN = process.env.EXPECTED_LOGIN ?? "nemolize";
-const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 300_000);
-
-const b64url = (buf) =>
-	Buffer.from(buf).toString("base64").replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-
 const die = (msg) => {
 	console.error(`✗ ${msg}`);
 	process.exit(1);
 };
+
+const intEnv = (name, fallback, { min, max } = {}) => {
+	const raw = process.env[name];
+	if (raw == null || raw === "") return fallback;
+	const n = Number(raw);
+	if (!Number.isInteger(n)) die(`${name}=${raw} is not an integer`);
+	if (min != null && n < min) die(`${name}=${n} must be >= ${min}`);
+	if (max != null && n > max) die(`${name}=${n} must be <= ${max}`);
+	return n;
+};
+
+const MCP_BASE = process.env.MCP_BASE ?? "http://localhost:8788";
+const CALLBACK_PORT = intEnv("CALLBACK_PORT", 9876, { min: 1, max: 65535 });
+const CALLBACK_URL = `http://localhost:${CALLBACK_PORT}/callback`;
+const EXPECTED_OWNER = process.env.EXPECTED_OWNER ?? "nemolize";
+const EXPECTED_REPO = process.env.EXPECTED_REPO ?? "remote-mcp-github";
+const EXPECTED_LOGIN = process.env.EXPECTED_LOGIN ?? "nemolize";
+const TIMEOUT_MS = intEnv("TIMEOUT_MS", 300_000, { min: 1 });
+
+const b64url = (buf) =>
+	Buffer.from(buf).toString("base64").replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 
 const expectLine = (haystack, needle) => {
 	if (!haystack.split("\n").includes(needle)) {
@@ -78,6 +88,12 @@ const registerClient = async () => {
 
 const waitForCode = (expectedState) =>
 	new Promise((resolve, reject) => {
+		let timer;
+		const finish = (fn, value) => {
+			clearTimeout(timer);
+			server.close();
+			fn(value);
+		};
 		const server = createServer((req, res) => {
 			const url = new URL(req.url ?? "/", CALLBACK_URL);
 			if (url.pathname !== "/callback") {
@@ -88,28 +104,25 @@ const waitForCode = (expectedState) =>
 			const state = url.searchParams.get("state");
 			if (state !== expectedState) {
 				res.writeHead(400).end("state mismatch");
-				server.close();
-				reject(new Error(`state mismatch: got ${state}, expected ${expectedState}`));
+				finish(reject, new Error(`state mismatch: got ${state}, expected ${expectedState}`));
 				return;
 			}
 			if (code == null) {
 				const err = url.searchParams.get("error") ?? "(no code, no error)";
 				res.writeHead(400).end(`error: ${err}`);
-				server.close();
-				reject(new Error(`OAuth error: ${err}`));
+				finish(reject, new Error(`OAuth error: ${err}`));
 				return;
 			}
 			res
 				.writeHead(200, { "content-type": "text/html; charset=utf-8" })
 				.end("<h1>OK</h1><p>You can close this tab.</p>");
-			server.close();
-			resolve(code);
+			finish(resolve, code);
 		});
-		const timer = setTimeout(() => {
-			server.close();
-			reject(new Error(`timed out after ${TIMEOUT_MS}ms waiting for OAuth callback`));
-		}, TIMEOUT_MS);
-		timer.unref();
+		server.on("error", (err) => finish(reject, err));
+		timer = setTimeout(
+			() => finish(reject, new Error(`timed out after ${TIMEOUT_MS}ms waiting for OAuth callback`)),
+			TIMEOUT_MS,
+		);
 		server.listen(CALLBACK_PORT);
 	});
 
