@@ -17,6 +17,7 @@
 		"fix:prettier": "prettier --write .",
 		"test": "vitest run",
 		"test:watch": "vitest",
+		"e2e:oauth": "node scripts/e2e/oauth-e2e.mjs",
 		"prepare": "lefthook install"
 	},
 	"dependencies": {

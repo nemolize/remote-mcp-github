@@ -4,15 +4,7 @@ import { McpAgent } from "agents/mcp";
 
 import { GitHubHandler } from "./github-handler";
 import { registerTools } from "./tools";
-
-// Context produced by the GitHub OAuth flow, encrypted via COOKIE_ENCRYPTION_KEY
-// and exposed to the MCP agent as `this.props`.
-type Props = {
-	login: string;
-	name: string;
-	email: string;
-	accessToken: string;
-};
+import type { Props } from "./utils";
 
 export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
 	server = new McpServer({
@@ -38,17 +30,20 @@ const corsOptions = {
 	maxAge: 86400,
 };
 
-const defaultHandler: ExportedHandler<Env> = {
-	fetch: (request, env, ctx) => GitHubHandler.fetch(request, env, ctx),
-};
+// Factory so tests can swap in a fake auth handler while keeping the rest of
+// the OAuth/MCP wiring identical to production.
+export const buildOAuthProvider = (defaultHandler: ExportedHandler<Env>) =>
+	new OAuthProvider({
+		apiHandlers: {
+			"/mcp": MyMCP.serve("/mcp", { corsOptions }),
+			"/sse": MyMCP.serveSSE("/sse", { corsOptions }),
+		},
+		authorizeEndpoint: "/authorize",
+		clientRegistrationEndpoint: "/register",
+		defaultHandler,
+		tokenEndpoint: "/token",
+	});
 
-export default new OAuthProvider({
-	apiHandlers: {
-		"/mcp": MyMCP.serve("/mcp", { corsOptions }),
-		"/sse": MyMCP.serveSSE("/sse", { corsOptions }),
-	},
-	authorizeEndpoint: "/authorize",
-	clientRegistrationEndpoint: "/register",
-	defaultHandler,
-	tokenEndpoint: "/token",
+export default buildOAuthProvider({
+	fetch: (request, env, ctx) => GitHubHandler.fetch(request, env, ctx),
 });
