@@ -5,6 +5,7 @@ import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import { isNonEmpty } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
+import { searchHeader } from "./search-helpers.js";
 
 export const registerRepoTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
@@ -183,14 +184,14 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 					const lang = isNonEmpty(r.language) ? ` | ${r.language}` : "";
 					return `- **${r.full_name}** (${flag})${desc}\n  - ${r.html_url} | ${r.stargazers_count} stars${lang} | updated ${r.updated_at}`;
 				});
-				const pageNum = page ?? 1;
-				// GitHub's Search API caps reachable results at 1000; pageNum * per_page
-				// against that cap (not total_count alone) avoids a false "more" hint
-				// on the final page when items.length happens to be less than total_count.
-				const hasMore = pageNum * per_page < Math.min(data.total_count, 1000);
-				const header = hasMore
-					? `# Repo search results for \`${query}\` (page ${pageNum}, showing ${data.items.length} of ${data.total_count}; pass next \`page\` for more)`
-					: `# Repo search results for \`${query}\` (showing ${data.items.length} of ${data.total_count})`;
+				const header = searchHeader({
+					label: "Repo search results",
+					query,
+					page,
+					perPage: per_page,
+					totalCount: data.total_count,
+					shownCount: data.items.length,
+				});
 				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
 	);
