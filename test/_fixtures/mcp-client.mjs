@@ -25,6 +25,10 @@ export const parseMcpBody = async (resp) => {
 };
 
 export const makeMcpClient = ({ fetch: fetchImpl, baseUrl, bearer }) => {
+	// Tolerate baseUrl values that include a trailing slash (e.g. MCP_BASE=…:8788/)
+	// so callers don't have to remember; `${base}/mcp` would otherwise emit `//mcp`,
+	// which some servers and intermediaries route distinctly.
+	const mcpUrl = `${baseUrl.replace(/\/+$/, "")}/mcp`;
 	let sessionId = null;
 	let id = 0;
 	const call = async (method, params) => {
@@ -35,7 +39,7 @@ export const makeMcpClient = ({ fetch: fetchImpl, baseUrl, bearer }) => {
 			accept: "application/json, text/event-stream",
 		};
 		if (sessionId != null) headers["mcp-session-id"] = sessionId;
-		const r = await fetchImpl(`${baseUrl}/mcp`, {
+		const r = await fetchImpl(mcpUrl, {
 			method: "POST",
 			headers,
 			body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
