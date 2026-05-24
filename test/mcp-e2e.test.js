@@ -1,6 +1,8 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
+import { makeMcpClient } from "./_fixtures/mcp-client.mjs";
+
 const randomBytes = (len) => {
 	const a = new Uint8Array(len);
 	crypto.getRandomValues(a);
@@ -86,47 +88,6 @@ const issueBearer = async () => {
 	return tokenBody.access_token;
 };
 
-// Streamable HTTP MCP responses come back as either JSON or SSE. The SDK
-// emits SSE for `initialize` / `tools/*`, so parse the first `data:` frame.
-const parseMcpBody = async (resp) => {
-	const ct = resp.headers.get("content-type") ?? "";
-	const raw = await resp.text();
-	if (ct.includes("application/json")) return JSON.parse(raw);
-	for (const block of raw.split(/\r?\n\r?\n/)) {
-		for (const line of block.split(/\r?\n/)) {
-			if (!line.startsWith("data:")) continue;
-			const data = line.slice(5).trimStart();
-			if (data.length > 0 && data !== "[DONE]") return JSON.parse(data);
-		}
-	}
-	throw new Error(`unparseable /mcp response (ct=${ct}):\n${raw}`);
-};
-
-const makeMcp = (bearer) => {
-	let sessionId = null;
-	let id = 0;
-	return async (method, params) => {
-		id += 1;
-		const headers = {
-			authorization: `Bearer ${bearer}`,
-			"content-type": "application/json",
-			accept: "application/json, text/event-stream",
-		};
-		if (sessionId != null) headers["mcp-session-id"] = sessionId;
-		const r = await SELF.fetch(`${ORIGIN}/mcp`, {
-			method: "POST",
-			headers,
-			body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-		});
-		const respSession = r.headers.get("mcp-session-id");
-		if (respSession != null && sessionId == null) sessionId = respSession;
-		expect(r.status, `${method} HTTP status`).toBeLessThan(400);
-		const body = await parseMcpBody(r);
-		expect(body.error, `${method} error: ${JSON.stringify(body.error)}`).toBeUndefined();
-		return { result: body.result, sessionId };
-	};
-};
-
 describe("MCP transport E2E", () => {
 	it("publishes OAuth authorization-server metadata", async () => {
 		const r = await SELF.fetch(`${ORIGIN}/.well-known/oauth-authorization-server`);
@@ -148,17 +109,17 @@ describe("MCP transport E2E", () => {
 
 	it("completes OAuth + initialize + tools/list end-to-end", async () => {
 		const bearer = await issueBearer();
-		const call = makeMcp(bearer);
-
-		const init = await call("initialize", {
-			protocolVersion: "2024-11-05",
-			capabilities: {},
-			clientInfo: { name: "mcp-e2e", version: "0" },
+		const mcp = makeMcpClient({
+			fetch: SELF.fetch.bind(SELF),
+			baseUrl: ORIGIN,
+			bearer,
 		});
-		expect(init.sessionId, "server must return Mcp-Session-Id").toBeTruthy();
-		expect(init.result.serverInfo?.name).toBe("remote-mcp-github");
 
-		const { result: tools } = await call("tools/list", {});
+		const init = await mcp.initialize({ clientInfo: { name: "mcp-e2e", version: "0" } });
+		expect(mcp.sessionId, "server must return Mcp-Session-Id").toBeTruthy();
+		expect(init.serverInfo?.name).toBe("remote-mcp-github");
+
+		const tools = await mcp.call("tools/list", {});
 		const names = (tools.tools ?? []).map((t) => t.name);
 		// Count floor catches "tools silently dropped from registration"; spot-checks
 		// catch "this specific tool stopped registering". The exact inventory lives
