@@ -22,6 +22,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 
+import { makeMcpClient } from "../../test/_fixtures/mcp-client.mjs";
+
 const die = (msg) => {
 	console.error(`✗ ${msg}`);
 	process.exit(1);
@@ -146,56 +148,6 @@ const exchangeToken = async ({ code, clientId, verifier }) => {
 	return body.access_token;
 };
 
-// The Streamable HTTP transport may answer with either application/json or
-// text/event-stream. Both wrap a single JSON-RPC message we care about.
-const parseMcpBody = async (r) => {
-	const ct = r.headers.get("content-type") ?? "";
-	const raw = await r.text();
-	if (ct.includes("application/json")) return JSON.parse(raw);
-	for (const block of raw.split(/\r?\n\r?\n/)) {
-		for (const line of block.split(/\r?\n/)) {
-			if (!line.startsWith("data:")) continue;
-			const data = line.slice(5).trimStart();
-			if (data.length > 0 && data !== "[DONE]") return JSON.parse(data);
-		}
-	}
-	die(`/mcp response was neither JSON nor a parseable SSE frame:\n${raw}`);
-};
-
-const makeMcpClient = (bearer) => {
-	let sessionId = null;
-	let id = 0;
-	const call = async (method, params) => {
-		id += 1;
-		const headers = {
-			authorization: `Bearer ${bearer}`,
-			"content-type": "application/json",
-			accept: "application/json, text/event-stream",
-		};
-		if (sessionId != null) headers["mcp-session-id"] = sessionId;
-		const r = await fetch(`${MCP_BASE}/mcp`, {
-			method: "POST",
-			headers,
-			body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-		});
-		const respSession = r.headers.get("mcp-session-id");
-		if (respSession != null && sessionId == null) sessionId = respSession;
-		if (!r.ok) die(`/mcp ${method} returned ${r.status}: ${await r.text()}`);
-		const body = await parseMcpBody(r);
-		if (body.error != null) die(`/mcp ${method} error: ${JSON.stringify(body.error)}`);
-		return body.result;
-	};
-	const initialize = async () => {
-		await call("initialize", {
-			protocolVersion: "2024-11-05",
-			capabilities: {},
-			clientInfo: { name: "remote-mcp-github-smoke", version: "0" },
-		});
-		if (sessionId == null) die("server did not return Mcp-Session-Id on initialize");
-	};
-	return { call, initialize };
-};
-
 const toolText = (result) => {
 	const piece = result?.content?.find((c) => c.type === "text")?.text;
 	if (typeof piece !== "string") {
@@ -233,9 +185,9 @@ const main = async () => {
 	console.log("[4/7] exchanging code at /token");
 	const bearer = await exchangeToken({ code, clientId, verifier });
 
-	const mcp = makeMcpClient(bearer);
+	const mcp = makeMcpClient({ fetch, baseUrl: MCP_BASE, bearer });
 	console.log("[5/7] initialize");
-	await mcp.initialize();
+	await mcp.initialize({ clientInfo: { name: "remote-mcp-github-smoke", version: "0" } });
 
 	console.log("[6/7] tools/list");
 	const tools = await mcp.call("tools/list", {});
