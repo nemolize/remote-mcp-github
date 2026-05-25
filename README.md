@@ -6,6 +6,37 @@ Connect this server in `Claude.ai → Settings → Connectors → Add custom con
 
 > A public instance maintained by the author is deployed at `https://remote-mcp-github.nemolize.workers.dev`. It is offered on a best-effort basis with no uptime or quota guarantees; self-host (the steps below) for anything you depend on.
 
+## Why this server
+
+Several GitHub MCP servers exist, alongside GitHub's own `gh` CLI. This server's niche: responses are **curated and bounded for an LLM consumer** — each tool returns the fields that matter and truncates large payloads (diffs, file contents) at the boundary, so a single response can't overrun the model's context window — and every call runs under the user's own GitHub OAuth identity. (Output is serialized as Markdown rather than JSON; that is a deliberate format trade-off, not a strict win — see **Differentiators** below.)
+
+The table below compares coverage by **feature area** against the two most common alternatives. It stays deliberately coarse-grained — the [tool table](#whats-included) is the source of truth for which tools exist right now, and `gh`'s coverage is documented in the [GitHub CLI manual](https://cli.github.com/manual/). Legend: ✅ first-class · ⚠️ only via a lower-level escape hatch (`gh api`, local `git`) · ❌ absent.
+
+| Feature area                                                  | This server                                                                   | Official `mcp__github__*` | `gh` CLI                         |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------- | -------------------------------- |
+| Repo metadata & discovery                                     | ✅                                                                            | ✅                        | ✅                               |
+| Issue read / triage / lifecycle (labels, assignees, comments) | ✅                                                                            | ✅                        | ✅                               |
+| Code & repo search                                            | ✅                                                                            | ✅                        | ✅                               |
+| File content read + remote commit (single & multi-file)       | ✅                                                                            | ✅                        | ⚠️ `gh api` only                 |
+| Branch list / create / delete                                 | ✅                                                                            | ✅                        | ⚠️ `gh api` / local `git`        |
+| PR open / diff / request reviewers                            | ✅                                                                            | ✅                        | ✅                               |
+| PR read detail / merge / update lifecycle                     | ❌ → planned ([#15](https://github.com/nemolize/remote-mcp-github/issues/15)) | ✅                        | ✅                               |
+| PR reviews & review comments (read + reply)                   | ❌ → planned ([#15](https://github.com/nemolize/remote-mcp-github/issues/15)) | ✅                        | ⚠️ partial (`gh api` for inline) |
+| **PR review thread resolve / unresolve**                      | ❌ → planned ([#39](https://github.com/nemolize/remote-mcp-github/issues/39)) | ❌                        | ⚠️ `gh api graphql` only         |
+| Commit history (list / show / compare)                        | ❌ → planned ([#11](https://github.com/nemolize/remote-mcp-github/issues/11)) | ✅                        | ⚠️ `gh api` only                 |
+| Workflow / Actions (CI status, logs, rerun)                   | ❌ → planned ([#8](https://github.com/nemolize/remote-mcp-github/issues/8))   | ✅                        | ✅                               |
+| Releases & tags                                               | ❌                                                                            | ✅                        | ✅                               |
+| Repo admin (create / fork / delete)                           | ❌                                                                            | ✅                        | ✅                               |
+| Security scanning (secret / code / Dependabot)                | ❌                                                                            | ✅                        | ⚠️ `gh api` only                 |
+| Local working-tree ops (clone, checkout, …)                   | ❌ — out of scope (remote-only)                                               | ❌                        | ✅                               |
+
+Also outside this server's scope today: notifications, Copilot delegation, gists, and projects — reach for the official server or `gh` for those.
+
+**Differentiators** — where a focused server earns its place next to the official one:
+
+- **Context-bounded, curated output.** Each tool returns the fields that matter and truncates large payloads (diffs, file contents) at the boundary, so the model spends fewer tokens per call and a single response never overruns the context window. Output is serialized as Markdown — a deliberate format trade-off: denser and closer to how the model consumes the result, at the cost of the unambiguous structure raw JSON gives a programmatic caller. The official server returns JSON.
+- **PR review thread resolve / unresolve** ([#39](https://github.com/nemolize/remote-mcp-github/issues/39), planned). Neither the official MCP nor this server can resolve a review thread today, so resolution flows fall back to `gh api graphql`. This is the gap that motivated the table — closing it is the clearest near-term differentiator.
+
 ## What's included
 
 All tools respond in Markdown (not raw JSON) so the model can read them efficiently, and large payloads (diff, file content) are truncated at the boundary.
