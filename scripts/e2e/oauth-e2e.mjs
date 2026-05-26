@@ -237,6 +237,12 @@ const main = async () => {
 	);
 	expectIncludes(searchText, `**${EXPECTED_OWNER}/${EXPECTED_REPO}**`);
 
+	// list_commits and get_commit render *short* (7-char) SHAs, so assertions
+	// normalise the configured SHAs accordingly — this keeps them correct even
+	// when EXPECTED_*_SHA is overridden with a full 40-char SHA.
+	const shortBase = EXPECTED_BASE_SHA.slice(0, 7);
+	const shortHead = EXPECTED_HEAD_SHA.slice(0, 7);
+
 	// list_commits starting from the second commit reaches exactly it and the
 	// initial commit — a stable two-entry window.
 	const listText = toolText(
@@ -245,8 +251,8 @@ const main = async () => {
 			arguments: { owner: EXPECTED_OWNER, repo: EXPECTED_REPO, sha: EXPECTED_HEAD_SHA },
 		}),
 	);
-	expectIncludes(listText, `\`${EXPECTED_HEAD_SHA}\``);
-	expectIncludes(listText, `\`${EXPECTED_BASE_SHA}\``);
+	expectIncludes(listText, `\`${shortHead}\``);
+	expectIncludes(listText, `\`${shortBase}\``);
 
 	const commitText = toolText(
 		await mcp.call("tools/call", {
@@ -254,10 +260,7 @@ const main = async () => {
 			arguments: { owner: EXPECTED_OWNER, repo: EXPECTED_REPO, ref: EXPECTED_HEAD_SHA },
 		}),
 	);
-	expectIncludes(
-		commitText,
-		`# Commit \`${EXPECTED_HEAD_SHA}\` in ${EXPECTED_OWNER}/${EXPECTED_REPO}`,
-	);
+	expectIncludes(commitText, `# Commit \`${shortHead}\` in ${EXPECTED_OWNER}/${EXPECTED_REPO}`);
 
 	// head is exactly one commit ahead of base → deterministic ahead/behind shape.
 	const compareText = toolText(
