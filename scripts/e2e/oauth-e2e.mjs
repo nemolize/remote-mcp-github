@@ -17,6 +17,9 @@
 //   EXPECTED_OWNER  owner used for get_repo (default nemolize)
 //   EXPECTED_REPO   repo  used for get_repo (default remote-mcp-github)
 //   EXPECTED_LOGIN  login asserted on get_authenticated_user (default nemolize)
+//   EXPECTED_BASE_SHA / EXPECTED_HEAD_SHA  commit pair for the commit-tool
+//                   assertions; head must be exactly one commit ahead of base
+//                   (defaults: the repo's first two commits)
 //   TIMEOUT_MS      how long to wait for the OAuth callback (default 300000)
 
 import { createHash, randomBytes } from "node:crypto";
@@ -45,6 +48,11 @@ const CALLBACK_URL = `http://localhost:${CALLBACK_PORT}/callback`;
 const EXPECTED_OWNER = process.env.EXPECTED_OWNER ?? "nemolize";
 const EXPECTED_REPO = process.env.EXPECTED_REPO ?? "remote-mcp-github";
 const EXPECTED_LOGIN = process.env.EXPECTED_LOGIN ?? "nemolize";
+// Two stable historical commits used by the commit-tool assertions: the initial
+// commit and the one immediately after it. The head is exactly one commit ahead
+// of the base, so compare_commits returns a deterministic ahead/behind shape.
+const EXPECTED_BASE_SHA = process.env.EXPECTED_BASE_SHA ?? "39e54ea";
+const EXPECTED_HEAD_SHA = process.env.EXPECTED_HEAD_SHA ?? "375de47";
 const TIMEOUT_MS = intEnv("TIMEOUT_MS", 300_000, { min: 1 });
 
 const b64url = (buf) =>
@@ -192,7 +200,14 @@ const main = async () => {
 	console.log("[6/7] tools/list");
 	const tools = await mcp.call("tools/list", {});
 	const names = (tools.tools ?? []).map((t) => t.name);
-	for (const required of ["get_repo", "get_authenticated_user", "search_repositories"]) {
+	for (const required of [
+		"get_repo",
+		"get_authenticated_user",
+		"search_repositories",
+		"list_commits",
+		"get_commit",
+		"compare_commits",
+	]) {
 		if (!names.includes(required)) die(`tools/list missing ${required}`);
 	}
 
@@ -221,6 +236,49 @@ const main = async () => {
 		}),
 	);
 	expectIncludes(searchText, `**${EXPECTED_OWNER}/${EXPECTED_REPO}**`);
+
+	// list_commits and get_commit render *short* (7-char) SHAs, so assertions
+	// normalise the configured SHAs accordingly — this keeps them correct even
+	// when EXPECTED_*_SHA is overridden with a full 40-char SHA.
+	const shortBase = EXPECTED_BASE_SHA.slice(0, 7);
+	const shortHead = EXPECTED_HEAD_SHA.slice(0, 7);
+
+	// list_commits starting from the second commit reaches exactly it and the
+	// initial commit — a stable two-entry window.
+	const listText = toolText(
+		await mcp.call("tools/call", {
+			name: "list_commits",
+			arguments: { owner: EXPECTED_OWNER, repo: EXPECTED_REPO, sha: EXPECTED_HEAD_SHA },
+		}),
+	);
+	expectIncludes(listText, `\`${shortHead}\``);
+	expectIncludes(listText, `\`${shortBase}\``);
+
+	const commitText = toolText(
+		await mcp.call("tools/call", {
+			name: "get_commit",
+			arguments: { owner: EXPECTED_OWNER, repo: EXPECTED_REPO, ref: EXPECTED_HEAD_SHA },
+		}),
+	);
+	expectIncludes(commitText, `# Commit \`${shortHead}\` in ${EXPECTED_OWNER}/${EXPECTED_REPO}`);
+
+	// head is exactly one commit ahead of base → deterministic ahead/behind shape.
+	const compareText = toolText(
+		await mcp.call("tools/call", {
+			name: "compare_commits",
+			arguments: {
+				owner: EXPECTED_OWNER,
+				repo: EXPECTED_REPO,
+				base: EXPECTED_BASE_SHA,
+				head: EXPECTED_HEAD_SHA,
+			},
+		}),
+	);
+	expectIncludes(
+		compareText,
+		`# Compare \`${EXPECTED_BASE_SHA}...${EXPECTED_HEAD_SHA}\` in ${EXPECTED_OWNER}/${EXPECTED_REPO}`,
+	);
+	expectIncludes(compareText, "- status: ahead (ahead 1, behind 0)");
 
 	console.log("✓ all assertions passed");
 };

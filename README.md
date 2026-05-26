@@ -23,7 +23,7 @@ The table below compares coverage by **feature area** against the two most commo
 | PR read detail / merge / update lifecycle                     | ❌ → planned ([#15](https://github.com/nemolize/remote-mcp-github/issues/15)) | ✅                        | ✅                               |
 | PR reviews & review comments (read + reply)                   | ❌ → planned ([#15](https://github.com/nemolize/remote-mcp-github/issues/15)) | ✅                        | ⚠️ partial (`gh api` for inline) |
 | **PR review thread resolve / unresolve**                      | ❌ → planned ([#39](https://github.com/nemolize/remote-mcp-github/issues/39)) | ❌                        | ⚠️ `gh api graphql` only         |
-| Commit history (list / show / compare)                        | ❌ → planned ([#11](https://github.com/nemolize/remote-mcp-github/issues/11)) | ✅                        | ⚠️ `gh api` only                 |
+| Commit history (list / show / compare)                        | ✅                                                                            | ✅                        | ⚠️ `gh api` only                 |
 | Workflow / Actions (CI status, logs, rerun)                   | ❌ → planned ([#8](https://github.com/nemolize/remote-mcp-github/issues/8))   | ✅                        | ✅                               |
 | Releases & tags                                               | ❌                                                                            | ✅                        | ✅                               |
 | Repo admin (create / fork / delete)                           | ❌                                                                            | ✅                        | ✅                               |
@@ -52,6 +52,9 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `list_issue_comments`    | read  | Conversation comments on an issue or PR                                                          |
 | `list_labels`            | read  | Labels defined in the repo (companion read for `add_labels` / `update_issue`)                    |
 | `get_file_content`       | read  | Raw file contents at a path + ref (directory listings supported)                                 |
+| `list_commits`           | read  | Commit history (git log) filtered by branch / path / author / date window                        |
+| `get_commit`             | read  | Single commit detail — message, author, parents, per-file stats, diff                            |
+| `compare_commits`        | read  | Diff between two refs (ahead / behind counts, merge base, per-file stats, diff)                  |
 | `get_pr_diff`            | read  | Unified diff for a pull request                                                                  |
 | `search_code`            | read  | Code search across GitHub                                                                        |
 | `list_branches`          | read  | List branches in a repo (name, head SHA, protected flag)                                         |
