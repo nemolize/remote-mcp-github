@@ -250,6 +250,132 @@ describe("registerCommitTools", () => {
 		expect(body).not.toContain("## Diff");
 	});
 
+	it("list_commits forwards filter params to Octokit", async () => {
+		const { handlers, server } = captureHandlers();
+		let captured;
+		const octokit = stubOctokit({
+			listCommits: async (params) => {
+				captured = params;
+				return { data: [], headers: {} };
+			},
+		});
+		registerCommitTools(server, () => octokit);
+
+		await invoke(handlers, "list_commits", {
+			owner: "o",
+			repo: "r",
+			sha: "release",
+			path: "src/x.ts",
+			author: "alice",
+			since: "2026-01-01T00:00:00Z",
+			until: "2026-02-01T00:00:00Z",
+			per_page: 50,
+			page: 2,
+		});
+		expect(captured).toMatchObject({
+			owner: "o",
+			repo: "r",
+			sha: "release",
+			path: "src/x.ts",
+			author: "alice",
+			since: "2026-01-01T00:00:00Z",
+			until: "2026-02-01T00:00:00Z",
+			per_page: 50,
+			page: 2,
+		});
+	});
+
+	it("compare_commits renders (none) when merge_base_commit is absent (unrelated histories)", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit({
+			compareCommitsWithBasehead: async () => ({
+				data: {
+					status: "diverged",
+					ahead_by: 5,
+					behind_by: 5,
+					total_commits: 10,
+					merge_base_commit: undefined,
+					files: [],
+					html_url: "https://example.test/compare",
+				},
+				headers: {},
+			}),
+		});
+		registerCommitTools(server, () => octokit);
+
+		const result = await invoke(handlers, "compare_commits", {
+			owner: "o",
+			repo: "r",
+			base: "a",
+			head: "b",
+		});
+		expect(result.isError).toBeUndefined();
+		expect(result.content[0].text).toContain("- merge base: `(none)`");
+	});
+
+	it("get_commit warns when GitHub caps the file list at 300 entries", async () => {
+		const { handlers, server } = captureHandlers();
+		const files = Array.from({ length: 300 }, (_, i) => ({
+			filename: `f${i}.ts`,
+			status: "modified",
+			additions: 1,
+			deletions: 0,
+		}));
+		const octokit = stubOctokit({
+			getCommit: async () => ({
+				data: {
+					sha: "capped00abc",
+					commit: { message: "big", author: { name: "n", date: "2026-01-01T00:00:00Z" } },
+					author: null,
+					parents: [],
+					stats: { additions: 300, deletions: 0 },
+					files,
+					html_url: "https://example.test/c",
+				},
+				headers: {},
+			}),
+		});
+		registerCommitTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_commit", { owner: "o", repo: "r", ref: "capped" });
+		// The note sits in the header, so it survives truncation even though the
+		// 300-entry file list overflows the response cap.
+		expect(result.content[0].text).toContain("GitHub caps the file list at 300 entries");
+	});
+
+	it("compare_commits warns when GitHub caps the file list at 300 entries", async () => {
+		const { handlers, server } = captureHandlers();
+		const files = Array.from({ length: 300 }, (_, i) => ({
+			filename: `f${i}.ts`,
+			status: "modified",
+			additions: 1,
+			deletions: 0,
+		}));
+		const octokit = stubOctokit({
+			compareCommitsWithBasehead: async () => ({
+				data: {
+					status: "ahead",
+					ahead_by: 300,
+					behind_by: 0,
+					total_commits: 300,
+					merge_base_commit: { sha: "base0000" },
+					files,
+					html_url: "https://example.test/compare",
+				},
+				headers: {},
+			}),
+		});
+		registerCommitTools(server, () => octokit);
+
+		const result = await invoke(handlers, "compare_commits", {
+			owner: "o",
+			repo: "r",
+			base: "a",
+			head: "b",
+		});
+		expect(result.content[0].text).toContain("GitHub caps the file list at 300 entries");
+	});
+
 	it("get_commit surfaces Octokit errors via wrapTool (isError = true)", async () => {
 		const { handlers, server } = captureHandlers();
 		const octokit = stubOctokit({

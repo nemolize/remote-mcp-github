@@ -42,6 +42,18 @@ const formatPatches = (files: DiffFile[] | undefined): string => {
 	return blocks.join("\n\n");
 };
 
+// Both `getCommit` and `compareCommits*` return at most this many file entries;
+// past it GitHub silently drops the rest. Surface that explicitly so the model
+// does not treat a capped list as complete.
+const GITHUB_FILE_CAP = 300;
+
+// Returned as a header bullet (not appended after the file list) so it survives
+// the response-level truncate() even when a 300-entry file list overflows the cap.
+const truncatedFilesNote = (files: DiffFile[] | undefined): string | null =>
+	files != null && files.length >= GITHUB_FILE_CAP
+		? `⚠️ GitHub caps the file list at ${GITHUB_FILE_CAP} entries; more files may exist but are not shown. Use \`get_file_content\` or a narrower range to inspect the rest.`
+		: null;
+
 export const registerCommitTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"list_commits",
@@ -134,6 +146,7 @@ export const registerCommitTools = (server: McpServer, client: OctokitFactory): 
 					stats != null
 						? `${data.files?.length ?? 0} files changed, +${stats.additions ?? 0}/-${stats.deletions ?? 0}`
 						: `${data.files?.length ?? 0} files changed`;
+				const filesNote = truncatedFilesNote(data.files);
 				const lines = [
 					`# Commit \`${short}\` in ${owner}/${repo}`,
 					"",
@@ -142,6 +155,7 @@ export const registerCommitTools = (server: McpServer, client: OctokitFactory): 
 					`- author: ${who}, ${when}`,
 					`- parents: ${parents.length > 0 ? parents : "(none)"}`,
 					`- ${statsLine}`,
+					...(filesNote != null ? [`- ${filesNote}`] : []),
 					`- ${data.html_url}`,
 					"",
 					"## Files",
@@ -176,13 +190,18 @@ export const registerCommitTools = (server: McpServer, client: OctokitFactory): 
 					basehead: `${base}...${head}`,
 				});
 				logRateLimit(headers);
-				const mergeBase = data.merge_base_commit.sha.slice(0, 7);
+				// `merge_base_commit` is absent when the two refs share no common
+				// ancestor (unrelated histories) — guard so that surfaces as a clear
+				// value rather than a `Cannot read properties of undefined` crash.
+				const mergeBase = data.merge_base_commit?.sha?.slice(0, 7) ?? "(none)";
+				const filesNote = truncatedFilesNote(data.files);
 				const lines = [
 					`# Compare \`${base}...${head}\` in ${owner}/${repo}`,
 					"",
 					`- status: ${data.status} (ahead ${data.ahead_by}, behind ${data.behind_by})`,
 					`- merge base: \`${mergeBase}\``,
 					`- ${data.total_commits} commits`,
+					...(filesNote != null ? [`- ${filesNote}`] : []),
 					`- ${data.html_url}`,
 					"",
 					"## Files",
