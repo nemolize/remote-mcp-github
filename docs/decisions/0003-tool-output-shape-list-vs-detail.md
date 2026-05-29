@@ -14,7 +14,7 @@ Repo-surface tools render the same entity (a GitHub repository) in two different
 
 ## Decision Drivers
 
-- LLM legibility — a stable visual cue for "this is one of N" vs "this is *the* entity" reduces selector ambiguity.
+- LLM legibility — a stable visual cue for "this is one of N" vs "this is _the_ entity" reduces selector ambiguity.
 - Scan density on list views — long lists must stay readable without per-item heading noise.
 - Discoverability of detail metadata — `get_*` is the natural place for a richer field surface.
 - Consistency with established CLI patterns the model has been trained against (`git log` vs `git show`, `kubectl get` vs `kubectl describe`).
@@ -52,13 +52,13 @@ Options 2 and 3 each remove information that the current shapes carry for free:
 
 - Good, because every entity appears in the same shape regardless of view.
 - Bad, because list character count balloons proportionally to row count; long-tail pagination becomes more expensive.
-- Bad, because the model loses the immediate "this is *one of N*" cue from row density.
+- Bad, because the model loses the immediate "this is _one of N_" cue from row density.
 - Bad, because it requires rewriting every list tool's renderer and updating any consumer that assumes the current bullet shape.
 
 ### Option 3: Simplify detail views to bullet-only
 
 - Good, because every entity appears in the same shape regardless of view.
-- Bad, because detail views lose the heading that anchors "this is *the* entity"; the description and supplementary fields lose their natural home.
+- Bad, because detail views lose the heading that anchors "this is _the_ entity"; the description and supplementary fields lose their natural home.
 - Bad, because optional-field handling (`Forked from`, `Homepage`, `License`, `Total private repos`) becomes a denser bullet pile without the structural separator a heading provides.
 - Bad, because it requires touching every `get_*` renderer.
 
@@ -77,4 +77,4 @@ Options 2 and 3 each remove information that the current shapes carry for free:
 ## More Information
 
 - Issue #31 — surfaced this as a `/team-review` defer on #27.
-- ADR 0001 — `list_my_repos` vs `search_repositories` decision (separate axis: tool *coverage*, not output shape).
+- ADR 0001 — `list_my_repos` vs `search_repositories` decision (separate axis: tool _coverage_, not output shape).
