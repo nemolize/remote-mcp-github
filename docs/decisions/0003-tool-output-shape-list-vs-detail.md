@@ -10,7 +10,7 @@ informed: future contributors via this ADR
 
 ## Context and Problem Statement
 
-Repo-surface tools render the same entity (a GitHub repository) in two different Markdown shapes — `list_my_repos` produces bullet-only rows, while `get_repo` opens with a `#` heading, a blockquote description, and bulleted metadata. The same split exists across the wider tool surface (`search_issues` vs `get_issue`, `search_repositories` vs `get_repo`, `list_commits` vs `get_commit`). The question is whether this asymmetry should be removed for consistency, or kept as an intentional list-vs-detail convention.
+Repo-surface tools render the same entity (a GitHub repository) in two different Markdown shapes — `list_my_repos` opens with a `# <Label>` heading naming the collection (e.g. `# Repositories (3)`) followed by one bullet per repo, while `get_repo` opens with a `# <Entity>` heading naming the repo itself, plus a blockquote description and richer bulleted metadata. Both shapes carry a `#` heading; what differs is whether the heading names the _collection_ or the _single entity_, and how much per-entity metadata the body holds. The same split exists across the wider tool surface (`search_issues` vs `get_issue`, `search_repositories` vs `get_repo`, `list_commits` vs `get_commit`). The question is whether this asymmetry should be removed for consistency, or kept as an intentional list-vs-detail convention.
 
 ## Decision Drivers
 
@@ -24,7 +24,7 @@ Repo-surface tools render the same entity (a GitHub repository) in two different
 
 1. **Keep the list-vs-detail asymmetry** and document it as a project-wide tool-output convention.
 2. **Promote list rows to richer per-item rendering** — each list entry gets its own `### <entity>` block with multi-line metadata.
-3. **Simplify detail views to bullet-only** — `get_*` drops the `#` heading and blockquote in favour of the same bullet shape as the list views.
+3. **Simplify detail views to list shape** — `get_*` drops the entity `#` heading and blockquote, rendering the entity as a single labelled bullet row like the list views.
 
 ## Decision Outcome
 
@@ -55,7 +55,7 @@ Options 2 and 3 each remove information that the current shapes carry for free:
 - Bad, because the model loses the immediate "this is _one of N_" cue from row density.
 - Bad, because it requires rewriting every list tool's renderer and updating any consumer that assumes the current bullet shape.
 
-### Option 3: Simplify detail views to bullet-only
+### Option 3: Simplify detail views to list shape
 
 - Good, because every entity appears in the same shape regardless of view.
 - Bad, because detail views lose the heading that anchors "this is _the_ entity"; the description and supplementary fields lose their natural home.
@@ -71,7 +71,7 @@ Options 2 and 3 each remove information that the current shapes carry for free:
 ## Confirmation
 
 - `src/tools.ts` carries a short pointer comment naming this convention and linking to this ADR, so the rule is visible at the registration entry point.
-- A re-read of any list tool (`list_my_repos`, `search_issues`, `search_repositories`, `list_commits`, `list_branches`, `list_issue_comments`) shows bullet-only rows.
+- A re-read of any list tool (`list_my_repos`, `search_issues`, `search_repositories`, `list_commits`, `list_branches`, `list_issue_comments`) shows a `# <Label>` header naming the collection followed by one bullet per row.
 - A re-read of any detail tool (`get_repo`, `get_issue`, `get_commit`, `get_authenticated_user`) shows the `#` heading + bullet metadata shape.
 
 ## More Information
