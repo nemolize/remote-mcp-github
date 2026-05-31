@@ -7,6 +7,7 @@ import type { OctokitFactory } from "./common.js";
 import {
 	CrossRepoHeadPattern,
 	MAX_TEXT_FIELD_LENGTH,
+	maxCharsMessage,
 	RepoTarget,
 	SameRepoBranchPattern,
 } from "./common.js";
@@ -77,10 +78,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					.describe("Branch to merge into. Defaults to the repo's default branch."),
 				body: z
 					.string()
-					.max(
-						MAX_TEXT_FIELD_LENGTH,
-						`PR description exceeds the ${MAX_TEXT_FIELD_LENGTH}-character limit.`,
-					)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("PR description", MAX_TEXT_FIELD_LENGTH))
 					.optional()
 					.describe("PR description (Markdown supported)."),
 				draft: z.boolean().optional().describe("Create as a draft PR."),

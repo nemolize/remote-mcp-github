@@ -16,6 +16,8 @@ import {
 	MAX_FILE_CONTENT_LENGTH,
 	MAX_FILES_PER_COMMIT,
 	MAX_TEXT_FIELD_LENGTH,
+	MAX_TOTAL_COMMIT_CONTENT_LENGTH,
+	maxCharsMessage,
 	RepoTarget,
 } from "./common.js";
 
@@ -73,10 +75,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				path: z.string().min(1).describe("File path within the repo."),
 				content: z
 					.string()
-					.max(
-						MAX_FILE_CONTENT_LENGTH,
-						`File content exceeds the ${MAX_FILE_CONTENT_LENGTH}-character limit.`,
-					)
+					.max(MAX_FILE_CONTENT_LENGTH, maxCharsMessage("File content", MAX_FILE_CONTENT_LENGTH))
 					.describe(
 						"File content; encoding determined by `encoding` (default 'utf-8'). Pass pre-base64'd bytes only when `encoding: 'base64'`.",
 					),
@@ -84,10 +83,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				message: z
 					.string()
 					.min(1)
-					.max(
-						MAX_TEXT_FIELD_LENGTH,
-						`Commit message exceeds the ${MAX_TEXT_FIELD_LENGTH}-character limit.`,
-					)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Commit message", MAX_TEXT_FIELD_LENGTH))
 					.describe("Commit message."),
 			},
 		},
@@ -132,10 +128,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				message: z
 					.string()
 					.min(1)
-					.max(
-						MAX_TEXT_FIELD_LENGTH,
-						`Commit message exceeds the ${MAX_TEXT_FIELD_LENGTH}-character limit.`,
-					)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Commit message", MAX_TEXT_FIELD_LENGTH))
 					.describe("Commit message."),
 			},
 		},
@@ -178,10 +171,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				message: z
 					.string()
 					.min(1)
-					.max(
-						MAX_TEXT_FIELD_LENGTH,
-						`Commit message exceeds the ${MAX_TEXT_FIELD_LENGTH}-character limit.`,
-					)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Commit message", MAX_TEXT_FIELD_LENGTH))
 					.describe("Commit message."),
 				files: z
 					.array(
@@ -191,7 +181,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 								.string()
 								.max(
 									MAX_FILE_CONTENT_LENGTH,
-									`File content exceeds the ${MAX_FILE_CONTENT_LENGTH}-character limit.`,
+									maxCharsMessage("File content", MAX_FILE_CONTENT_LENGTH),
 								)
 								.describe(
 									"File content; encoding is determined by per-file `encoding` (default 'utf-8').",
@@ -211,6 +201,17 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 		async ({ owner, repo, branch, message, files }) =>
 			wrapTool(async () => {
 				const octo = client();
+				// Per-file content is capped by the schema, but the file count alone does not
+				// bound the sum - guard the aggregate before any API call.
+				const totalContentLength = files.reduce((sum, f) => sum + f.content.length, 0);
+				if (totalContentLength > MAX_TOTAL_COMMIT_CONTENT_LENGTH) {
+					return errorResult(
+						maxCharsMessage(
+							"Combined file content for this commit",
+							MAX_TOTAL_COMMIT_CONTENT_LENGTH,
+						),
+					);
+				}
 				const parentSha = await getBranchHeadSha(octo, owner, repo, branch);
 				const parentCommit = await octo.rest.git.getCommit({
 					owner,

@@ -5,6 +5,7 @@ import {
 	MAX_FILE_CONTENT_LENGTH,
 	MAX_FILES_PER_COMMIT,
 	MAX_TEXT_FIELD_LENGTH,
+	MAX_TOTAL_COMMIT_CONTENT_LENGTH,
 } from "../src/tools/common.js";
 import { registerFileTools } from "../src/tools/files.js";
 import { registerIssueTools } from "../src/tools/issues.js";
@@ -22,6 +23,20 @@ const captureSchemas = (register) => {
 	};
 	register(server, () => ({}));
 	return schemas;
+};
+
+// The aggregate-content cap lives in the commit_files handler (not the schema),
+// so it needs handler capture. The octokit stub throws on any REST call to prove
+// the guard short-circuits before reaching the GitHub API.
+const captureHandlers = (register, client) => {
+	const handlers = new Map();
+	const server = {
+		registerTool: (name, _config, handler) => {
+			handlers.set(name, handler);
+		},
+	};
+	register(server, client);
+	return handlers;
 };
 
 const fileSchemas = captureSchemas(registerFileTools);
@@ -98,6 +113,33 @@ describe("input size caps", () => {
 			files: [{ path: "a.txt", content: overLimit(MAX_FILE_CONTENT_LENGTH) }],
 		});
 		expect(result.success).toBe(false);
+	});
+
+	it("commit_files rejects aggregate content over the total cap before any API call", async () => {
+		const throwingOctokit = {
+			rest: {
+				git: {
+					getCommit: () => {
+						throw new Error("octokit should not be called when the aggregate cap is exceeded");
+					},
+				},
+			},
+		};
+		const handlers = captureHandlers(registerFileTools, () => throwingOctokit);
+		// Each file is at the per-file cap (passes schema); enough files to exceed the total.
+		const fileCount = Math.floor(MAX_TOTAL_COMMIT_CONTENT_LENGTH / MAX_FILE_CONTENT_LENGTH) + 1;
+		const files = Array.from({ length: fileCount }, (_, i) => ({
+			path: `f${i}.txt`,
+			content: atLimit(MAX_FILE_CONTENT_LENGTH),
+		}));
+		const result = await handlers.get("commit_files")({
+			...repo,
+			branch: "main",
+			message: "m",
+			files,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Combined file content");
 	});
 
 	it("create_issue rejects an oversized body", () => {
