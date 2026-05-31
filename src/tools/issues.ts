@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
-import { RepoTarget } from "./common.js";
+import { MAX_TEXT_FIELD_LENGTH, RepoTarget } from "./common.js";
 import { searchHeader } from "./search-helpers.js";
 
 const formatNameList = (names: string[], wrap: "code" | "at"): string => {
@@ -238,7 +238,14 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 			inputSchema: {
 				...RepoTarget,
 				title: z.string().min(1).describe("Issue title."),
-				body: z.string().optional().describe("Issue body (Markdown supported)."),
+				body: z
+					.string()
+					.max(
+						MAX_TEXT_FIELD_LENGTH,
+						`Issue body exceeds the ${MAX_TEXT_FIELD_LENGTH}-character limit.`,
+					)
+					.optional()
+					.describe("Issue body (Markdown supported)."),
 				labels: z
 					.array(z.string())
 					.optional()
@@ -269,7 +276,14 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 			inputSchema: {
 				...RepoTarget,
 				issue_number: z.number().int().positive().describe("Issue or PR number to comment on."),
-				body: z.string().min(1).describe("Comment body (Markdown supported)."),
+				body: z
+					.string()
+					.min(1)
+					.max(
+						MAX_TEXT_FIELD_LENGTH,
+						`Comment body exceeds the ${MAX_TEXT_FIELD_LENGTH}-character limit.`,
+					)
+					.describe("Comment body (Markdown supported)."),
 			},
 		},
 		async ({ owner, repo, issue_number, body }) =>
@@ -296,6 +310,10 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 				title: z.string().min(1).optional().describe("New issue title."),
 				body: z
 					.string()
+					.max(
+						MAX_TEXT_FIELD_LENGTH,
+						`Issue body exceeds the ${MAX_TEXT_FIELD_LENGTH}-character limit.`,
+					)
 					.optional()
 					.describe(
 						"New issue body (Markdown supported); omit to leave unchanged, pass an empty string to clear.",

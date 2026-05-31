@@ -4,7 +4,12 @@ import { z } from "zod";
 import { resolveDefaultBranch } from "../github/helpers.js";
 import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
-import { CrossRepoHeadPattern, RepoTarget, SameRepoBranchPattern } from "./common.js";
+import {
+	CrossRepoHeadPattern,
+	MAX_TEXT_FIELD_LENGTH,
+	RepoTarget,
+	SameRepoBranchPattern,
+} from "./common.js";
 
 export const registerPullTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
@@ -70,7 +75,14 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					.string()
 					.optional()
 					.describe("Branch to merge into. Defaults to the repo's default branch."),
-				body: z.string().optional().describe("PR description (Markdown supported)."),
+				body: z
+					.string()
+					.max(
+						MAX_TEXT_FIELD_LENGTH,
+						`PR description exceeds the ${MAX_TEXT_FIELD_LENGTH}-character limit.`,
+					)
+					.optional()
+					.describe("PR description (Markdown supported)."),
 				draft: z.boolean().optional().describe("Create as a draft PR."),
 				maintainer_can_modify: z
 					.boolean()
