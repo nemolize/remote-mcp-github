@@ -19,14 +19,12 @@ export const CrossRepoHeadPattern = /^[A-Za-z0-9._-]+:[A-Za-z0-9._/-]+$/;
  * clear validation error instead.
  */
 // Character-count caps on individual string fields.
-// File content is bounded by the Workers isolate memory envelope (128 MiB),
-// not by a product requirement: a single file flows through UTF-16 storage +
-// UTF-8 + base64 + JSON body + fetch bytes, so peak memory is roughly 10x the
-// character count. Reserving headroom for the runtime and concurrent requests
-// puts the safe ceiling near ~6M chars; 5M leaves margin. Raising this toward
-// tens of MiB would risk OOMing the isolate. GitHub's own write ceiling is far
-// higher (the Contents API PUT accepts up to ~50-100 MiB), so memory — not
-// GitHub — is the binding constraint here.
+// Per-file content cap. This is a logical bound, not the memory backstop — the
+// platform body limit (above) is what actually guards the isolate. Sized to
+// stay well within the Workers isolate memory budget once the content is
+// expanded through base64 / JSON encoding on the way to GitHub, with headroom
+// for the runtime and concurrent requests. It is not a GitHub mirror: GitHub's
+// own write limit is far higher.
 export const MAX_FILE_CONTENT_LENGTH = 5_000_000;
 // Mirrors GitHub's own limit: issue / PR bodies and comments are capped at
 // 65,536 characters (the API returns 422 "Body is too long" above that), so
@@ -34,22 +32,20 @@ export const MAX_FILE_CONTENT_LENGTH = 5_000_000;
 // margin. Commit messages share this constant but have no realistic need for
 // more. Memory is irrelevant here (~128 KiB).
 export const MAX_TEXT_FIELD_LENGTH = 64_000;
-// Item-count cap on the `commit_files` array. Calibrated to GitHub's secondary
-// rate limit of 100 concurrent requests (shared REST + GraphQL): the handler
-// fires one createBlob per base64 file via Promise.all, so the concurrent peak
-// equals the file count. Raising this above 100 would require concurrency
-// throttling + points-per-minute pacing (POST = 5 pts, 900/min cap) + 403/429
-// backoff, not just a larger number. utf-8 files are inlined into a single
-// createTree call, so they don't add per-file requests.
+// Item-count cap on the `commit_files` array. The handler fires one createBlob
+// per base64 file via Promise.all, so the concurrent request peak equals the
+// file count. 100 sits at GitHub's shared concurrent-request ceiling, leaving
+// no margin, so raising it would need request throttling + backoff, not just a
+// larger number. utf-8 files are inlined into one createTree call and add no
+// per-file requests.
 export const MAX_FILES_PER_COMMIT = 100;
 /**
  * Aggregate character-count cap on a single multi-file commit, set equal to the
- * per-file cap. `commit_files` accepts up to MAX_FILES_PER_COMMIT files, so
- * without this the combined payload could reach
- * MAX_FILE_CONTENT_LENGTH * MAX_FILES_PER_COMMIT (~500M chars). Capping the sum
- * at the per-file ceiling means a multi-file commit can't peak higher in memory
- * than a single max-size file write — which matters because the 128 MiB isolate
- * is shared across concurrent requests (see MAX_FILE_CONTENT_LENGTH).
+ * per-file cap so the multi-file path is no looser a logical bound than a
+ * single-file write. `commit_files` accepts up to MAX_FILES_PER_COMMIT files,
+ * so without this the combined payload could pass per-file validation while the
+ * sum is far larger. Like the per-file cap, this is a logical bound enforced in
+ * the handler — not the memory backstop, which is the platform body limit.
  */
 export const MAX_TOTAL_COMMIT_CONTENT_LENGTH = 5_000_000;
 
