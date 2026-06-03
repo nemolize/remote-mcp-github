@@ -20,6 +20,10 @@ export const errorResult = (message: string): ToolResult => ({
 	isError: true,
 });
 
+// Known limitation: the caught error's message is forwarded to the model
+// verbatim. Octokit already redacts the Authorization header from the error it
+// throws, so tokens do not leak here; sanitising the remaining fields (URLs,
+// request bodies) would be defence-in-depth but is not done today.
 export const wrapTool = async (fn: () => Promise<ToolResult>): Promise<ToolResult> => {
 	try {
 		return await fn();

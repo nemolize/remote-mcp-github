@@ -269,6 +269,11 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 						),
 					);
 				}
+				// Known limitation (TOCTOU): the branch head is read here and written
+				// back via updateRef below. A concurrent push to the same branch in
+				// that window makes updateRef fail with a 422 (non-fast-forward);
+				// wrapTool surfaces the error to the caller, which is expected to
+				// retry — there is no automatic retry here.
 				const parentSha = await getBranchHeadSha(octo, owner, repo, branch);
 				const parentCommit = await octo.rest.git.getCommit({
 					owner,
@@ -276,6 +281,10 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					commit_sha: parentSha,
 				});
 				logRateLimit(parentCommit.headers);
+				// Known limitation: the inline-`content` path (utf-8, else branch
+				// below) is subject to the Tree API's ~1 MB per-file inline cap. The
+				// base64 path uploads via createBlob first, which is not bound by that
+				// inline limit (only by the schema's MAX_FILE_CONTENT_LENGTH).
 				const treeEntries = await Promise.all(
 					files.map(async (f) => {
 						if (f.encoding === "base64") {
