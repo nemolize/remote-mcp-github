@@ -41,7 +41,9 @@ describe("logWrite", () => {
 		logWrite({ tool: "commit_file", owner: "o", repo: "r", branch: "main", path: "a.ts" });
 		expect(logSpy).toHaveBeenCalledTimes(1);
 		const [line] = logSpy.mock.calls[0];
-		expect(line).toBe('[github-audit] {"tool":"commit_file","owner":"o","repo":"r","branch":"main","path":"a.ts"}');
+		expect(line).toBe(
+			'[github-audit] {"tool":"commit_file","owner":"o","repo":"r","branch":"main","path":"a.ts"}',
+		);
 	});
 
 	it("drops null and undefined fields so only touched fields appear", () => {
@@ -79,7 +81,10 @@ describe("write tools emit audit logs", () => {
 				repos: {
 					getContent: async () => ({ data: { type: "file", sha: "abc" }, headers: {} }),
 					createOrUpdateFileContents: async () => ({
-						data: { commit: { sha: "deadbeef0000", html_url: "https://x/commit" }, content: { html_url: "https://x/file" } },
+						data: {
+							commit: { sha: "deadbeef0000", html_url: "https://x/commit" },
+							content: { html_url: "https://x/file" },
+						},
 						headers: {},
 					}),
 				},
@@ -109,7 +114,10 @@ describe("write tools emit audit logs", () => {
 					getRef: async () => ({ data: { object: { sha: "parent" } }, headers: {} }),
 					getCommit: async () => ({ data: { tree: { sha: "t" } }, headers: {} }),
 					createTree: async () => ({ data: { sha: "tree" }, headers: {} }),
-					createCommit: async () => ({ data: { sha: "commit00", html_url: "https://x" }, headers: {} }),
+					createCommit: async () => ({
+						data: { sha: "commit00", html_url: "https://x" },
+						headers: {},
+					}),
 					updateRef: async () => ({ data: {}, headers: {} }),
 				},
 			},
@@ -145,7 +153,12 @@ describe("write tools emit audit logs", () => {
 			},
 		};
 		registerBranchTools(server, () => octokit);
-		await invoke(handlers, "create_branch", { owner: "o", repo: "r", branch: "feat", from: "main" });
+		await invoke(handlers, "create_branch", {
+			owner: "o",
+			repo: "r",
+			branch: "feat",
+			from: "main",
+		});
 		expect(auditEntries(logSpy)).toEqual([
 			{ tool: "create_branch", owner: "o", repo: "r", branch: "feat" },
 		]);
