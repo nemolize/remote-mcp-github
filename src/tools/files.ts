@@ -39,6 +39,20 @@ const fetchBlobBase64 = async (
 	return data.encoding === "base64" ? data.content : encodeBase64Utf8(data.content);
 };
 
+// Decodes a base64 blob to a UTF-8 string, returning null when the bytes are not
+// valid UTF-8 (i.e. the file is binary). `atob` yields a Latin-1 byte string;
+// interpolating raw binary bytes into a text code fence would emit mojibake, so
+// the caller surfaces a "binary, not rendered" notice instead.
+const decodeBase64ToText = (base64: string): string | null => {
+	const binary = atob(base64.replace(/\n/g, ""));
+	const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+	try {
+		return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
+	} catch {
+		return null;
+	}
+};
+
 export const registerFileTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"get_file_content",
@@ -73,21 +87,34 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				if (data.type !== "file" || !("content" in data) || data.content == null) {
 					return errorResult(`Path is not a regular file (type=${data.type}).`);
 				}
+				const header = `# ${owner}/${repo}/${path}${refSuffix} (${data.size} bytes)`;
+				// Reject oversized files before fetching anything: decoding a
+				// multi-megabyte blob fully into the isolate (base64 response + atob
+				// binary string + interpolation) would risk OOM on the Workers runtime,
+				// the same memory concern the write-side caps guard. The 1-100 MB files
+				// the Blob-API fallback below targets are mostly binary anyway.
+				if (data.size > MAX_FILE_CONTENT_LENGTH) {
+					return errorResult(
+						`File is ${data.size} bytes, over the ${MAX_FILE_CONTENT_LENGTH}-byte read limit. View it on the web instead: ${data.html_url ?? "(url unavailable)"}`,
+					);
+				}
 				// The Contents API only inlines `content` for files <= 1 MB; for files
 				// 1-100 MB it returns `content: ""` with `encoding: "none"`. Falling
-				// straight to atob("") would silently yield an empty file body, so fetch
-				// the bytes via the Git Blob API (supports up to 100 MB) using the blob
-				// SHA the Contents response already provides.
+				// straight to atob("") would silently yield an empty body, so fetch the
+				// bytes via the Git Blob API using the blob SHA the Contents response
+				// already provides. Gate on `encoding` (the authoritative non-inlined
+				// signal) so an empty 0-byte file does not trigger a needless round-trip.
 				const base64 =
-					data.encoding === "base64" && data.content !== ""
-						? data.content
-						: await fetchBlobBase64(client(), owner, repo, data.sha);
-				const decoded = atob(base64.replace(/\n/g, ""));
-				return text(
-					truncate(
-						`# ${owner}/${repo}/${path}${refSuffix} (${data.size} bytes)\n\n\`\`\`\n${decoded}\n\`\`\``,
-					),
-				);
+					data.encoding === "none"
+						? await fetchBlobBase64(client(), owner, repo, data.sha)
+						: data.content;
+				const decoded = decodeBase64ToText(base64);
+				if (decoded == null) {
+					return errorResult(
+						`File appears to be binary (not valid UTF-8); not rendering its bytes as text. View it on the web instead: ${data.html_url ?? "(url unavailable)"}`,
+					);
+				}
+				return text(truncate(`${header}\n\n\`\`\`\n${decoded}\n\`\`\``));
 			}),
 	);
 
