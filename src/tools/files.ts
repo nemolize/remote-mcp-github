@@ -9,7 +9,7 @@ import {
 	getBranchHeadSha,
 	resolveFileSha,
 } from "../github/helpers.js";
-import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
+import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
 import { isNonEmpty } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import {
@@ -161,6 +161,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					sha,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "commit_file", owner, repo, branch, path });
 				const action = sha != null ? "updated" : "created";
 				return text(
 					`# File ${action}\n\n- \`${path}\` on \`${branch}\` (encoding=${encoding})\n- commit: \`${data.commit.sha?.slice(0, 7) ?? "(unknown)"}\` — ${data.commit.html_url}\n- file: ${data.content?.html_url ?? "(n/a)"}`,
@@ -209,6 +210,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					sha,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "delete_file", owner, repo, branch, path });
 				return text(
 					`# File deleted\n\n- \`${path}\` on \`${branch}\`\n- commit: \`${data.commit.sha?.slice(0, 7) ?? "(unknown)"}\` — ${data.commit.html_url}`,
 				);
@@ -267,6 +269,11 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 						),
 					);
 				}
+				// Known limitation (TOCTOU): the branch head is read here and written
+				// back via updateRef below. A concurrent push to the same branch in
+				// that window makes updateRef fail with a 422 (non-fast-forward);
+				// wrapTool surfaces the error to the caller, which is expected to
+				// retry — there is no automatic retry here.
 				const parentSha = await getBranchHeadSha(octo, owner, repo, branch);
 				const parentCommit = await octo.rest.git.getCommit({
 					owner,
@@ -274,6 +281,10 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					commit_sha: parentSha,
 				});
 				logRateLimit(parentCommit.headers);
+				// Known limitation: the inline-`content` path (utf-8, else branch
+				// below) is subject to the Tree API's ~1 MB per-file inline cap. The
+				// base64 path uploads via createBlob first, which is not bound by that
+				// inline limit (only by the schema's MAX_FILE_CONTENT_LENGTH).
 				const treeEntries = await Promise.all(
 					files.map(async (f) => {
 						if (f.encoding === "base64") {
@@ -321,6 +332,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					sha: commit.data.sha,
 				});
 				logRateLimit(updated.headers);
+				logWrite({ tool: "commit_files", owner, repo, branch, file_count: files.length });
 				const list = files
 					.map((f) => `  - \`${f.path}\` (mode=${f.mode}, encoding=${f.encoding})`)
 					.join("\n");

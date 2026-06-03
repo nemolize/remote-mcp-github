@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { getBranchHeadSha, resolveDefaultBranch } from "../github/helpers.js";
-import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
+import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget, SameRepoBranchPattern } from "./common.js";
 
@@ -85,6 +85,7 @@ export const registerBranchTools = (server: McpServer, client: OctokitFactory): 
 					sha: baseSha,
 				});
 				logRateLimit(created.headers);
+				logWrite({ tool: "create_branch", owner, repo, branch });
 				return text(
 					`# Branch created\n\n- **${branch}** ← branched from \`${base}\` @ \`${baseSha.slice(0, 7)}\`\n- ref: ${created.data.ref}`,
 				);
@@ -119,6 +120,7 @@ export const registerBranchTools = (server: McpServer, client: OctokitFactory): 
 					ref: `heads/${branch}`,
 				});
 				logRateLimit(res.headers);
+				logWrite({ tool: "delete_branch", owner, repo, branch });
 				return text(
 					`# Branch deleted\n\n- **${branch}** removed from ${owner}/${repo}\n- was @ \`${headSha.slice(0, 7)}\` (full: \`${headSha}\`)`,
 				);

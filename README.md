@@ -75,7 +75,9 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 
 Both `/mcp` (Streamable HTTP) and `/sse` endpoints are exposed; Claude.ai currently uses `/sse`.
 
-Each tool call logs the GitHub rate-limit headers (`[github-ratelimit] remaining/limit, resets at …`) to `wrangler tail` so quota exhaustion is observable.
+Each tool call logs the GitHub rate-limit headers (`[github-ratelimit] remaining/limit, resets at …`) to `wrangler tail` so quota exhaustion is observable. Every successful write also emits a structured audit line (e.g. `[github-audit] {"tool":"commit_file","owner":"o","repo":"r","branch":"main","path":"x.ts"}`) to the Workers log, giving per-call accountability for LLM-mediated mutations. Both go to the Workers log only and never appear in the tool responses returned to the model.
+
+`commit_files` reads the branch head and writes it back as a new ref; a concurrent push to the same branch in that window fails with a 422 and is surfaced to the caller to retry (no automatic retry). Its inline `content` (utf-8) path is bound by the Tree API's ~1 MB per-file cap; pass `encoding: "base64"` to upload larger files via the Blob API instead. See the inline comments in `src/tools/files.ts` for detail.
 
 ## Prerequisites
 
@@ -230,7 +232,7 @@ wrangler.jsonc           # Cloudflare Workers config; KV id goes here
 
 - Tokens are encrypted at rest in the `OAUTH_KV` namespace using `COOKIE_ENCRYPTION_KEY`. Rotate the key (and re-deploy) to invalidate all active grants.
 - The Worker is the OAuth _server_ for Claude.ai (and any other MCP client) and the OAuth _client_ for GitHub. The GitHub access token never leaves the Worker — it sits in `this.props.accessToken` inside the Durable Object instance, used by Octokit per request.
-- All tool calls go through a `wrapTool()` boundary that converts thrown errors into `{ isError: true, content: [{ type: "text", text: "Error: …" }] }` so the model sees the failure mode rather than the connection dropping.
+- All tool calls go through a `wrapTool()` boundary that converts thrown errors into `{ isError: true, content: [{ type: "text", text: "Error: …" }] }` so the model sees the failure mode rather than the connection dropping. The error text is forwarded verbatim; Octokit already redacts the Authorization header, so tokens do not leak, though other fields are not sanitised (defence-in-depth, not done today).
 - Write-tool payloads carry input-size caps (file content, commit/PR/issue/comment text, per-commit file count, and the aggregate content size of a multi-file commit — see `src/tools/common.ts`) as defence-in-depth, so a runaway model can't burn Worker CPU/memory with a multi-megabyte payload well under the platform's 100 MiB request limit. Oversized input is rejected with a descriptive error (per-field caps at schema validation; the aggregate-commit cap in the `commit_files` handler before any API call).
 - This is still a small server. Audit before exposing to untrusted users; consider tightening CORS, limiting allowed origins, or restricting `ALLOWED_USERNAMES` for sensitive write tools.
 
