@@ -70,7 +70,8 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 		},
 		async ({ owner, repo, path, ref }) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.repos.getContent({
+				const octo = client();
+				const { data, headers } = await octo.rest.repos.getContent({
 					owner,
 					repo,
 					path,
@@ -106,7 +107,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				// signal) so an empty 0-byte file does not trigger a needless round-trip.
 				const base64 =
 					data.encoding === "none"
-						? await fetchBlobBase64(client(), owner, repo, data.sha)
+						? await fetchBlobBase64(octo, owner, repo, data.sha)
 						: data.content;
 				const decoded = decodeBase64ToText(base64);
 				if (decoded == null) {
