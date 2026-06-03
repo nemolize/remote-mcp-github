@@ -21,6 +21,24 @@ import {
 	RepoTarget,
 } from "./common.js";
 
+type GitClient = ReturnType<OctokitFactory>;
+
+// Fetches a blob's bytes as base64 via the Git Blob API. Used as a fallback when
+// the Contents API declines to inline `content` (files 1-100 MB return
+// `encoding: "none"`). The Blob API caps at 100 MB; larger files reject and the
+// error surfaces through `wrapTool`.
+const fetchBlobBase64 = async (
+	octo: GitClient,
+	owner: string,
+	repo: string,
+	fileSha: string,
+): Promise<string> => {
+	const { data, headers } = await octo.rest.git.getBlob({ owner, repo, file_sha: fileSha });
+	logRateLimit(headers);
+	// The Blob API normally returns base64; tolerate a utf-8 response by re-encoding.
+	return data.encoding === "base64" ? data.content : encodeBase64Utf8(data.content);
+};
+
 export const registerFileTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"get_file_content",
@@ -55,7 +73,16 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				if (data.type !== "file" || !("content" in data) || data.content == null) {
 					return errorResult(`Path is not a regular file (type=${data.type}).`);
 				}
-				const decoded = atob(data.content.replace(/\n/g, ""));
+				// The Contents API only inlines `content` for files <= 1 MB; for files
+				// 1-100 MB it returns `content: ""` with `encoding: "none"`. Falling
+				// straight to atob("") would silently yield an empty file body, so fetch
+				// the bytes via the Git Blob API (supports up to 100 MB) using the blob
+				// SHA the Contents response already provides.
+				const base64 =
+					data.encoding === "base64" && data.content !== ""
+						? data.content
+						: await fetchBlobBase64(client(), owner, repo, data.sha);
+				const decoded = atob(base64.replace(/\n/g, ""));
 				return text(
 					truncate(
 						`# ${owner}/${repo}/${path}${refSuffix} (${data.size} bytes)\n\n\`\`\`\n${decoded}\n\`\`\``,
