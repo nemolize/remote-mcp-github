@@ -228,3 +228,123 @@ describe("write tools emit audit logs", () => {
 		expect(auditEntries(logSpy)).toEqual([]);
 	});
 });
+
+// A permissive Octokit stub whose every method resolves with a shape generous
+// enough for any single write handler. Each handler only reads a subset, so one
+// fixture covers all 14 — this keeps the all-tools coverage table below from
+// repeating a bespoke mock per tool.
+const wideOctokit = () => {
+	const ok = (data) => async () => ({ data, headers: {} });
+	return {
+		rest: {
+			repos: {
+				get: ok({ default_branch: "main" }),
+				getContent: ok({ type: "file", sha: "abc" }),
+				createOrUpdateFileContents: ok({
+					commit: { sha: "deadbeef0000", html_url: "https://x/commit" },
+					content: { html_url: "https://x/file" },
+				}),
+				deleteFile: ok({ commit: { sha: "deadbeef0000", html_url: "https://x/commit" } }),
+			},
+			git: {
+				getRef: ok({ object: { sha: "parent000000" } }),
+				getCommit: ok({ tree: { sha: "t" } }),
+				createTree: ok({ sha: "tree" }),
+				createCommit: ok({ sha: "commit00", html_url: "https://x" }),
+				createRef: ok({ ref: "refs/heads/feat" }),
+				deleteRef: ok({}),
+				updateRef: ok({}),
+			},
+			issues: {
+				create: ok({ number: 99, title: "t", html_url: "https://x" }),
+				createComment: ok({ html_url: "https://x" }),
+				update: ok({ number: 5, title: "t", state: "open", html_url: "https://x" }),
+				addLabels: ok([{ name: "bug" }]),
+				removeLabel: ok([]),
+				addAssignees: ok({ assignees: [{ login: "a" }] }),
+				removeAssignees: ok({ assignees: [] }),
+			},
+			pulls: {
+				create: ok({ number: 7, title: "t", draft: false, html_url: "https://x" }),
+				requestReviewers: ok({ requested_reviewers: [{ login: "a" }], requested_teams: [] }),
+			},
+		},
+	};
+};
+
+// Every write tool, the register function that owns it, the minimal params it
+// needs, and the audit `tool` name it must log. Read tools are intentionally
+// absent — they must NOT emit an audit line.
+const WRITE_TOOLS = [
+	[
+		registerFileTools,
+		"commit_file",
+		{
+			owner: "o",
+			repo: "r",
+			branch: "main",
+			path: "a.ts",
+			content: "x",
+			encoding: "utf-8",
+			message: "m",
+		},
+	],
+	[
+		registerFileTools,
+		"delete_file",
+		{ owner: "o", repo: "r", branch: "main", path: "a.ts", message: "m" },
+	],
+	[
+		registerFileTools,
+		"commit_files",
+		{
+			owner: "o",
+			repo: "r",
+			branch: "main",
+			message: "m",
+			files: [{ path: "a.ts", content: "x", encoding: "utf-8", mode: "100644" }],
+		},
+	],
+	[registerBranchTools, "create_branch", { owner: "o", repo: "r", branch: "feat", from: "main" }],
+	[registerBranchTools, "delete_branch", { owner: "o", repo: "r", branch: "feat" }],
+	[registerIssueTools, "create_issue", { owner: "o", repo: "r", title: "t" }],
+	[registerIssueTools, "add_comment", { owner: "o", repo: "r", issue_number: 1, body: "b" }],
+	[registerIssueTools, "update_issue", { owner: "o", repo: "r", issue_number: 1, title: "t" }],
+	[registerIssueTools, "add_labels", { owner: "o", repo: "r", issue_number: 1, labels: ["bug"] }],
+	[registerIssueTools, "remove_label", { owner: "o", repo: "r", issue_number: 1, name: "bug" }],
+	[
+		registerIssueTools,
+		"add_assignees",
+		{ owner: "o", repo: "r", issue_number: 1, assignees: ["a"] },
+	],
+	[
+		registerIssueTools,
+		"remove_assignees",
+		{ owner: "o", repo: "r", issue_number: 1, assignees: ["a"] },
+	],
+	[registerPullTools, "create_pull_request", { owner: "o", repo: "r", title: "t", head: "feat" }],
+	[
+		registerPullTools,
+		"request_pr_review",
+		{ owner: "o", repo: "r", pull_number: 1, reviewers: ["a"] },
+	],
+];
+
+describe("every write tool emits exactly one audit line tagged with its own name", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it.each(WRITE_TOOLS.map(([register, toolName, params]) => ({ register, toolName, params })))(
+		"$toolName",
+		async ({ register, toolName, params }) => {
+			const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+			const { handlers, server } = captureHandlers();
+			register(server, () => wideOctokit());
+			await invoke(handlers, toolName, params);
+			const entries = auditEntries(logSpy);
+			expect(entries).toHaveLength(1);
+			expect(entries[0]).toMatchObject({ tool: toolName, owner: "o", repo: "r" });
+		},
+	);
+});
