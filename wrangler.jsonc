@@ -18,11 +18,16 @@
 		"port": 8788,
 	},
 	/**
-	 * Secrets are populated via `wrangler secret put` (see README):
+	 * Required secrets (see README for setup):
 	 *   GITHUB_CLIENT_ID
 	 *   GITHUB_CLIENT_SECRET
 	 *   COOKIE_ENCRYPTION_KEY
+	 * Validated at deploy time and mapped into Worker bindings from process
+	 * env / .dev.vars in local dev.
 	 */
+	"secrets": {
+		"required": ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "COOKIE_ENCRYPTION_KEY"],
+	},
 	"migrations": [
 		{
 			"new_sqlite_classes": ["MyMCP"],

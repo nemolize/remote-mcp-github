@@ -127,6 +127,10 @@ Generate the cookie encryption key with `openssl rand -hex 32`.
 
 `.dev.vars` is git-ignored.
 
+Alternatively, export the three keys as environment variables (e.g. via your
+shell or a secret manager) instead of writing `.dev.vars` — `wrangler dev`
+reads the required secrets from `process.env` as well.
+
 ### 5. Wire production secrets
 
 Push the **prod** OAuth App credentials and a fresh cookie key to Cloudflare:
