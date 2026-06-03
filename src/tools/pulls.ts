@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { resolveDefaultBranch } from "../github/helpers.js";
-import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
+import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
 import {
 	CrossRepoHeadPattern,
@@ -124,6 +124,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					maintainer_can_modify,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "create_pull_request", owner, repo, pull_number: data.number });
 				const flag = data.draft === true ? " (draft)" : "";
 				return text(
 					`# Pull request opened${flag}\n\n- **${data.title}** (#${data.number}) — \`${effectiveHead}\` → \`${target}\`\n- ${data.html_url}`,
@@ -168,6 +169,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					team_reviewers,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "request_pr_review", owner, repo, pull_number });
 				const users = (data.requested_reviewers ?? []).map((u) => `@${u.login}`);
 				const teams = (data.requested_teams ?? []).map((t) => `@${owner}/${t.slug}`);
 				const requested = [...users, ...teams];

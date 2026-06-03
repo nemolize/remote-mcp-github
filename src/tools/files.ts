@@ -9,7 +9,7 @@ import {
 	getBranchHeadSha,
 	resolveFileSha,
 } from "../github/helpers.js";
-import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
+import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
 import { isNonEmpty } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import {
@@ -161,6 +161,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					sha,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "commit_file", owner, repo, branch, path });
 				const action = sha != null ? "updated" : "created";
 				return text(
 					`# File ${action}\n\n- \`${path}\` on \`${branch}\` (encoding=${encoding})\n- commit: \`${data.commit.sha?.slice(0, 7) ?? "(unknown)"}\` — ${data.commit.html_url}\n- file: ${data.content?.html_url ?? "(n/a)"}`,
@@ -209,6 +210,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					sha,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "delete_file", owner, repo, branch, path });
 				return text(
 					`# File deleted\n\n- \`${path}\` on \`${branch}\`\n- commit: \`${data.commit.sha?.slice(0, 7) ?? "(unknown)"}\` — ${data.commit.html_url}`,
 				);
@@ -321,6 +323,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					sha: commit.data.sha,
 				});
 				logRateLimit(updated.headers);
+				logWrite({ tool: "commit_files", owner, repo, branch, file_count: files.length });
 				const list = files
 					.map((f) => `  - \`${f.path}\` (mode=${f.mode}, encoding=${f.encoding})`)
 					.join("\n");

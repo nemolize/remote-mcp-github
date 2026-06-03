@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
+import { logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
 import { MAX_TEXT_FIELD_LENGTH, maxCharsMessage, RepoTarget } from "./common.js";
 import { searchHeader } from "./search-helpers.js";
@@ -261,6 +261,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					assignees,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "create_issue", owner, repo, issue_number: data.number });
 				return text(`# Issue created\n\n- **${data.title}** (#${data.number})\n- ${data.html_url}`);
 			}),
 	);
@@ -289,6 +290,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					body,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "add_comment", owner, repo, issue_number });
 				return text(`# Comment added\n\n- on #${issue_number}\n- ${data.html_url}`);
 			}),
 	);
@@ -363,6 +365,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					milestone,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "update_issue", owner, repo, issue_number });
 				return text(
 					`# Issue updated\n\n- **${data.title}** (#${data.number}) — state: **${data.state}**${data.state_reason != null ? ` (${data.state_reason})` : ""}\n- ${data.html_url}`,
 				);
@@ -392,6 +395,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					labels,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "add_labels", owner, repo, issue_number });
 				const names = data.map((l) => l.name);
 				return text(
 					`# Labels added\n\n- on #${issue_number}\n- labels now: ${formatNameList(names, "code")}`,
@@ -423,6 +427,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					name,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "remove_label", owner, repo, issue_number });
 				const names = data.map((l) => l.name);
 				return text(
 					`# Label removed\n\n- removed \`${name}\` from #${issue_number}\n- labels now: ${formatNameList(names, "code")}`,
@@ -454,6 +459,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					assignees,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "add_assignees", owner, repo, issue_number });
 				const logins = (data.assignees ?? []).map((a) => a.login);
 				return text(
 					`# Assignees added\n\n- on #${issue_number}\n- assignees now: ${formatNameList(logins, "at")}`,
@@ -485,6 +491,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					assignees,
 				});
 				logRateLimit(headers);
+				logWrite({ tool: "remove_assignees", owner, repo, issue_number });
 				const logins = (data.assignees ?? []).map((a) => a.login);
 				return text(
 					`# Assignees removed\n\n- from #${issue_number}\n- assignees now: ${formatNameList(logins, "at")}`,
