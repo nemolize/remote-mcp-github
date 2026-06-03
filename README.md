@@ -75,7 +75,7 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 
 Both `/mcp` (Streamable HTTP) and `/sse` endpoints are exposed; Claude.ai currently uses `/sse`.
 
-Each tool call logs the GitHub rate-limit headers (`[github-ratelimit] remaining/limit, resets at …`) to `wrangler tail` so quota exhaustion is observable. Every successful write also emits a structured audit line (`[github-audit] {"tool","owner","repo",…}`) to the Workers log, giving per-call accountability for LLM-mediated mutations. Both go to the Workers log only and never appear in the tool responses returned to the model.
+Each tool call logs the GitHub rate-limit headers (`[github-ratelimit] remaining/limit, resets at …`) to `wrangler tail` so quota exhaustion is observable. Every successful write also emits a structured audit line (e.g. `[github-audit] {"tool":"commit_file","owner":"o","repo":"r","branch":"main","path":"x.ts"}`) to the Workers log, giving per-call accountability for LLM-mediated mutations. Both go to the Workers log only and never appear in the tool responses returned to the model.
 
 `commit_files` reads the branch head and writes it back as a new ref; a concurrent push to the same branch in that window fails with a 422 and is surfaced to the caller to retry (no automatic retry). Its inline `content` (utf-8) path is bound by the Tree API's ~1 MB per-file cap; pass `encoding: "base64"` to upload larger files via the Blob API instead. See the inline comments in `src/tools/files.ts` for detail.
 
