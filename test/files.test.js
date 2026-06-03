@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { MAX_FILE_CONTENT_LENGTH } from "../src/tools/common.js";
 import { registerFileTools } from "../src/tools/files.js";
 
 const captureHandlers = () => {
@@ -15,7 +16,7 @@ const captureHandlers = () => {
 const b64 = (s) => btoa(s);
 
 // Minimal Octokit stub. `getContent` and `getBlob` are overridable per test; the
-// remaining endpoints are present so the other file tools register cleanly.
+// non-file endpoints exist only so the other file tools register cleanly.
 const stubOctokit = (overrides = {}) => ({
 	rest: {
 		repos: {
@@ -25,7 +26,6 @@ const stubOctokit = (overrides = {}) => ({
 			...overrides.repos,
 		},
 		git: {
-			getBlob: async () => ({ data: { content: "", encoding: "base64" }, headers: {} }),
 			getRef: async () => ({ data: { object: { sha: "p" } }, headers: {} }),
 			getCommit: async () => ({ data: { tree: { sha: "t" } }, headers: {} }),
 			createBlob: async () => ({ data: { sha: "b" }, headers: {} }),
@@ -43,6 +43,12 @@ const invoke = async (handlers, name, params) => {
 	return handler(params);
 };
 
+const fileContent = (params) => {
+	const { handlers, server } = captureHandlers();
+	registerFileTools(server, () => params.octokit);
+	return invoke(handlers, "get_file_content", { owner: "o", repo: "r", path: params.path });
+};
+
 describe("get_file_content", () => {
 	it("decodes inlined content for files <= 1 MB without calling the Blob API", async () => {
 		const getBlob = vi.fn();
@@ -55,20 +61,15 @@ describe("get_file_content", () => {
 						content: b64("hello world"),
 						size: 11,
 						sha: "s1",
+						html_url: "https://example.test/a.txt",
 					},
 					headers: {},
 				}),
 			},
 			git: { getBlob },
 		});
-		const { handlers, server } = captureHandlers();
-		registerFileTools(server, () => octokit);
 
-		const result = await invoke(handlers, "get_file_content", {
-			owner: "o",
-			repo: "r",
-			path: "a.txt",
-		});
+		const result = await fileContent({ octokit, path: "a.txt" });
 
 		expect(result.isError).toBeFalsy();
 		expect(result.content[0].text).toContain("hello world");
@@ -83,20 +84,21 @@ describe("get_file_content", () => {
 		const octokit = stubOctokit({
 			repos: {
 				getContent: async () => ({
-					data: { type: "file", encoding: "none", content: "", size: 5_000_000, sha: "bigsha" },
+					data: {
+						type: "file",
+						encoding: "none",
+						content: "",
+						size: 2_000_000,
+						sha: "bigsha",
+						html_url: "https://example.test/big.txt",
+					},
 					headers: {},
 				}),
 			},
 			git: { getBlob },
 		});
-		const { handlers, server } = captureHandlers();
-		registerFileTools(server, () => octokit);
 
-		const result = await invoke(handlers, "get_file_content", {
-			owner: "o",
-			repo: "r",
-			path: "big.bin",
-		});
+		const result = await fileContent({ octokit, path: "big.txt" });
 
 		expect(result.isError).toBeFalsy();
 		expect(getBlob).toHaveBeenCalledOnce();
@@ -109,7 +111,14 @@ describe("get_file_content", () => {
 		const octokit = stubOctokit({
 			repos: {
 				getContent: async () => ({
-					data: { type: "file", encoding: "none", content: "", size: 2_000_000, sha: "u8" },
+					data: {
+						type: "file",
+						encoding: "none",
+						content: "",
+						size: 2_000_000,
+						sha: "u8",
+						html_url: "https://example.test/u.txt",
+					},
 					headers: {},
 				}),
 			},
@@ -117,17 +126,93 @@ describe("get_file_content", () => {
 				getBlob: async () => ({ data: { content: "plain text", encoding: "utf-8" }, headers: {} }),
 			},
 		});
-		const { handlers, server } = captureHandlers();
-		registerFileTools(server, () => octokit);
 
-		const result = await invoke(handlers, "get_file_content", {
-			owner: "o",
-			repo: "r",
-			path: "u.txt",
-		});
+		const result = await fileContent({ octokit, path: "u.txt" });
 
 		expect(result.isError).toBeFalsy();
 		expect(result.content[0].text).toContain("plain text");
+	});
+
+	it("rejects files over the read size limit without fetching the blob", async () => {
+		const getBlob = vi.fn();
+		const octokit = stubOctokit({
+			repos: {
+				getContent: async () => ({
+					data: {
+						type: "file",
+						encoding: "none",
+						content: "",
+						size: MAX_FILE_CONTENT_LENGTH + 1,
+						sha: "huge",
+						html_url: "https://example.test/huge.bin",
+					},
+					headers: {},
+				}),
+			},
+			git: { getBlob },
+		});
+
+		const result = await fileContent({ octokit, path: "huge.bin" });
+
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("read limit");
+		expect(result.content[0].text).toContain("https://example.test/huge.bin");
+		expect(getBlob).not.toHaveBeenCalled();
+	});
+
+	it("errors on a binary (non-UTF-8) body instead of emitting mojibake", async () => {
+		// 0xFF 0xFE is not a valid UTF-8 sequence.
+		const binaryB64 = b64(String.fromCharCode(0xff, 0xfe, 0x00));
+		const octokit = stubOctokit({
+			repos: {
+				getContent: async () => ({
+					data: {
+						type: "file",
+						encoding: "none",
+						content: "",
+						size: 1_500_000,
+						sha: "binsha",
+						html_url: "https://example.test/blob.bin",
+					},
+					headers: {},
+				}),
+			},
+			git: {
+				getBlob: async () => ({ data: { content: binaryB64, encoding: "base64" }, headers: {} }),
+			},
+		});
+
+		const result = await fileContent({ octokit, path: "blob.bin" });
+
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("binary");
+		expect(result.content[0].text).toContain("https://example.test/blob.bin");
+	});
+
+	it("handles an empty (0-byte) file without a Blob API round-trip", async () => {
+		const getBlob = vi.fn();
+		const octokit = stubOctokit({
+			repos: {
+				getContent: async () => ({
+					data: {
+						type: "file",
+						encoding: "base64",
+						content: "",
+						size: 0,
+						sha: "empty",
+						html_url: "https://example.test/empty.txt",
+					},
+					headers: {},
+				}),
+			},
+			git: { getBlob },
+		});
+
+		const result = await fileContent({ octokit, path: "empty.txt" });
+
+		expect(result.isError).toBeFalsy();
+		expect(getBlob).not.toHaveBeenCalled();
+		expect(result.content[0].text).toContain("(0 bytes)");
 	});
 
 	it("renders a directory listing when the path is a directory", async () => {
@@ -142,14 +227,8 @@ describe("get_file_content", () => {
 				}),
 			},
 		});
-		const { handlers, server } = captureHandlers();
-		registerFileTools(server, () => octokit);
 
-		const result = await invoke(handlers, "get_file_content", {
-			owner: "o",
-			repo: "r",
-			path: "src",
-		});
+		const result = await fileContent({ octokit, path: "src" });
 
 		expect(result.isError).toBeFalsy();
 		expect(result.content[0].text).toContain("Directory listing");
@@ -166,14 +245,8 @@ describe("get_file_content", () => {
 				}),
 			},
 		});
-		const { handlers, server } = captureHandlers();
-		registerFileTools(server, () => octokit);
 
-		const result = await invoke(handlers, "get_file_content", {
-			owner: "o",
-			repo: "r",
-			path: "mod",
-		});
+		const result = await fileContent({ octokit, path: "mod" });
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("not a regular file");
