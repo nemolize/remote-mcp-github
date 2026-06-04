@@ -210,9 +210,19 @@ type ReviewThreadsQueryResult = {
 	} | null;
 };
 
-type ResolveThreadMutationResult = {
-	thread: { id: string; isResolved: boolean } | null;
-};
+/**
+ * Trim a one-line comment preview to a fixed width with a plain ellipsis. The
+ * shared `truncate()` is for the whole tool response (it appends a "paginate to
+ * see more" hint that is nonsensical for an inline snippet), so the snippet uses
+ * a simple slice instead.
+ */
+const SNIPPET_MAX = 120;
+const snippetOf = (line: string): string =>
+	line.length <= SNIPPET_MAX ? line : `${line.slice(0, SNIPPET_MAX)}…`;
+
+type ReviewThreadState = { thread: { id: string; isResolved: boolean } | null };
+type ResolveReviewThreadResult = { resolveReviewThread: ReviewThreadState };
+type UnresolveReviewThreadResult = { unresolveReviewThread: ReviewThreadState };
 
 const REVIEW_THREADS_QUERY = `
 	query ($owner: String!, $repo: String!, $pull_number: Int!, $first: Int!) {
@@ -303,14 +313,16 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 					const state = t.isResolved ? "resolved" : "unresolved";
 					const outdated = t.isOutdated ? ", outdated" : "";
 					const snippet =
-						firstComment?.body != null ? truncate(firstComment.body.split("\n")[0] ?? "", 120) : "";
+						firstComment?.body != null ? snippetOf(firstComment.body.split("\n")[0] ?? "") : "";
 					return `- \`${t.id}\` — ${state}${outdated} — ${author} on ${location}${snippet !== "" ? `\n  > ${snippet}` : ""}`;
 				});
 				const more = pageInfo.hasNextPage
 					? `\n\n(${threads.length} of ${totalCount} shown; more threads exist — raise \`first\` to see them.)`
 					: "";
 				return text(
-					`# Review threads on ${owner}/${repo}#${pull_number} (${threads.length})\n\n${lines.join("\n")}${more}`,
+					truncate(
+						`# Review threads on ${owner}/${repo}#${pull_number} (${threads.length})\n\n${lines.join("\n")}${more}`,
+					),
 				);
 			}),
 	);
@@ -329,9 +341,9 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 		},
 		async ({ thread_id }) =>
 			wrapTool(async () => {
-				const result = await client().graphql<{
-					resolveReviewThread: ResolveThreadMutationResult;
-				}>(RESOLVE_THREAD_MUTATION, { thread_id });
+				const result = await client().graphql<ResolveReviewThreadResult>(RESOLVE_THREAD_MUTATION, {
+					thread_id,
+				});
 				const thread = result.resolveReviewThread.thread;
 				if (thread == null) {
 					return errorResult(`Failed to resolve review thread ${thread_id}.`);
@@ -357,9 +369,10 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 		},
 		async ({ thread_id }) =>
 			wrapTool(async () => {
-				const result = await client().graphql<{
-					unresolveReviewThread: ResolveThreadMutationResult;
-				}>(UNRESOLVE_THREAD_MUTATION, { thread_id });
+				const result = await client().graphql<UnresolveReviewThreadResult>(
+					UNRESOLVE_THREAD_MUTATION,
+					{ thread_id },
+				);
 				const thread = result.unresolveReviewThread.thread;
 				if (thread == null) {
 					return errorResult(`Failed to unresolve review thread ${thread_id}.`);

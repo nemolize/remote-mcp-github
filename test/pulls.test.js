@@ -82,6 +82,34 @@ describe("registerPullTools — review thread tools", () => {
 		expect(result.isError).toBeUndefined();
 	});
 
+	it("list_pr_review_threads trims a long snippet with a plain ellipsis, not the paginate hint", async () => {
+		const { handlers, server } = captureHandlers();
+		const longBody = "x".repeat(200);
+		const octokit = stubOctokit(async () =>
+			threadsResult([
+				{
+					id: "PRRT_aaa",
+					isResolved: false,
+					isOutdated: false,
+					comments: {
+						nodes: [{ author: { login: "alice" }, path: "src/foo.ts", line: 1, body: longBody }],
+					},
+				},
+			]),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_threads", {
+			owner: "o",
+			repo: "r",
+			pull_number: 5,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain(`> ${"x".repeat(120)}…`);
+		expect(body).not.toContain("paginate");
+		expect(body).not.toContain("truncated;");
+	});
+
 	it("list_pr_review_threads forwards the `first` default and passes vars to graphql", async () => {
 		const { handlers, server } = captureHandlers();
 		let capturedVars;
