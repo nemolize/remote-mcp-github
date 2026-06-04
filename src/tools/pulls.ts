@@ -2,7 +2,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { resolveDefaultBranch } from "../github/helpers.js";
-import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
+import {
+	errorResult,
+	logRateLimit,
+	logWrite,
+	MAX_RESPONSE_CHARS,
+	text,
+	truncate,
+	wrapTool,
+} from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
 import {
 	CrossRepoHeadPattern,
@@ -203,7 +211,7 @@ type ReviewThreadsQueryResult = {
 		pullRequest: {
 			reviewThreads: {
 				totalCount: number;
-				pageInfo: { hasNextPage: boolean };
+				pageInfo: { hasNextPage: boolean; endCursor: string | null };
 				nodes: Array<ReviewThreadNode | null>;
 			};
 		} | null;
@@ -225,12 +233,12 @@ type ResolveReviewThreadResult = { resolveReviewThread: ReviewThreadState };
 type UnresolveReviewThreadResult = { unresolveReviewThread: ReviewThreadState };
 
 const REVIEW_THREADS_QUERY = `
-	query ($owner: String!, $repo: String!, $pull_number: Int!, $first: Int!) {
+	query ($owner: String!, $repo: String!, $pull_number: Int!, $first: Int!, $after: String) {
 		repository(owner: $owner, name: $repo) {
 			pullRequest(number: $pull_number) {
-				reviewThreads(first: $first) {
+				reviewThreads(first: $first, after: $after) {
 					totalCount
-					pageInfo { hasNextPage }
+					pageInfo { hasNextPage endCursor }
 					nodes {
 						id
 						isResolved
@@ -271,7 +279,7 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 		"list_pr_review_threads",
 		{
 			description:
-				"List the review threads on a pull request, including each thread's node ID (`PRRT_...`) and resolved state. Use this to discover thread IDs before calling resolve_review_thread / unresolve_review_thread, or to check which review threads are still unresolved. Backed by GraphQL since the REST review-comment surface does not expose thread IDs.",
+				"List the review threads on a pull request, including each thread's node ID (`PRRT_...`) and resolved state. Use this to discover thread IDs before calling resolve_review_thread / unresolve_review_thread, or to check which review threads are still unresolved. Supports cursor pagination via `after` for PRs with more than 100 threads. Backed by GraphQL since the REST review-comment surface does not expose thread IDs.",
 			inputSchema: {
 				...RepoTarget,
 				pull_number: z.number().int().positive().describe("Pull request number."),
@@ -283,15 +291,23 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 					.optional()
 					.default(50)
 					.describe("Maximum number of review threads to return (1-100)."),
+				after: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Opaque pagination cursor from a previous page's endCursor. Omit for the first page.",
+					),
 			},
 		},
-		async ({ owner, repo, pull_number, first }) =>
+		async ({ owner, repo, pull_number, first, after }) =>
 			wrapTool(async () => {
 				const result = await client().graphql<ReviewThreadsQueryResult>(REVIEW_THREADS_QUERY, {
 					owner,
 					repo,
 					pull_number,
 					first,
+					after,
 				});
 				if (result.repository == null) {
 					return errorResult(
@@ -321,14 +337,21 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 						firstComment?.body != null ? snippetOf(firstComment.body.split("\n")[0] ?? "") : "";
 					return `- \`${t.id}\` — ${state}${outdated} — ${author} on ${location}${snippet !== "" ? `\n  > ${snippet}` : ""}`;
 				});
-				const more = pageInfo.hasNextPage
-					? `\n\n(${threads.length} of ${totalCount} shown; more threads exist. Raise \`first\` up to 100 to fetch more in one call; threads beyond 100 are not yet reachable — cursor pagination is tracked in #50.)`
-					: "";
-				return text(
-					truncate(
-						`# Review threads on ${owner}/${repo}#${pull_number} (${threads.length})\n\n${lines.join("\n")}${more}`,
-					),
+				const more =
+					pageInfo.hasNextPage && pageInfo.endCursor != null
+						? `\n\n(${threads.length} of ${totalCount} shown; more threads exist. Re-invoke with \`after: "${pageInfo.endCursor}"\` to fetch the next page.)`
+						: "";
+				// Truncate the thread body within a budget that reserves room for the
+				// cursor hint, then append the hint. Since truncate() now honours its
+				// cap (notice included), `body` stays within `MAX_RESPONSE_CHARS -
+				// more.length`, so `body + more` never exceeds the cap and a large page
+				// of long snippets can't drop the `after` cursor — the exact failure
+				// #50 set out to fix.
+				const body = truncate(
+					`# Review threads on ${owner}/${repo}#${pull_number} (${threads.length})\n\n${lines.join("\n")}`,
+					MAX_RESPONSE_CHARS - more.length,
 				);
+				return text(`${body}${more}`);
 			}),
 	);
 
