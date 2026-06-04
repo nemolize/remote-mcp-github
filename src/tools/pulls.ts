@@ -179,4 +179,213 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 				);
 			}),
 	);
+
+	registerReviewThreadTools(server, client);
+};
+
+/** Shape of one review thread node returned by the `reviewThreads` GraphQL query. */
+type ReviewThreadNode = {
+	id: string;
+	isResolved: boolean;
+	isOutdated: boolean;
+	comments: {
+		nodes: Array<{
+			author: { login: string } | null;
+			path: string | null;
+			line: number | null;
+			body: string;
+		} | null>;
+	};
+};
+
+type ReviewThreadsQueryResult = {
+	repository: {
+		pullRequest: {
+			reviewThreads: {
+				totalCount: number;
+				pageInfo: { hasNextPage: boolean };
+				nodes: Array<ReviewThreadNode | null>;
+			};
+		} | null;
+	} | null;
+};
+
+/**
+ * Trim a one-line comment preview to a fixed width with a plain ellipsis. The
+ * shared `truncate()` is for the whole tool response (it appends a "paginate to
+ * see more" hint that is nonsensical for an inline snippet), so the snippet uses
+ * a simple slice instead.
+ */
+const SNIPPET_MAX = 120;
+const snippetOf = (line: string): string =>
+	line.length <= SNIPPET_MAX ? line : `${line.slice(0, SNIPPET_MAX)}…`;
+
+type ReviewThreadState = { thread: { id: string; isResolved: boolean } | null };
+type ResolveReviewThreadResult = { resolveReviewThread: ReviewThreadState };
+type UnresolveReviewThreadResult = { unresolveReviewThread: ReviewThreadState };
+
+const REVIEW_THREADS_QUERY = `
+	query ($owner: String!, $repo: String!, $pull_number: Int!, $first: Int!) {
+		repository(owner: $owner, name: $repo) {
+			pullRequest(number: $pull_number) {
+				reviewThreads(first: $first) {
+					totalCount
+					pageInfo { hasNextPage }
+					nodes {
+						id
+						isResolved
+						isOutdated
+						comments(first: 1) {
+							nodes {
+								author { login }
+								path
+								line
+								body
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+`;
+
+const RESOLVE_THREAD_MUTATION = `
+	mutation ($thread_id: ID!) {
+		resolveReviewThread(input: { threadId: $thread_id }) {
+			thread { id isResolved }
+		}
+	}
+`;
+
+const UNRESOLVE_THREAD_MUTATION = `
+	mutation ($thread_id: ID!) {
+		unresolveReviewThread(input: { threadId: $thread_id }) {
+			thread { id isResolved }
+		}
+	}
+`;
+
+const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): void => {
+	server.registerTool(
+		"list_pr_review_threads",
+		{
+			description:
+				"List the review threads on a pull request, including each thread's node ID (`PRRT_...`) and resolved state. Use this to discover thread IDs before calling resolve_review_thread / unresolve_review_thread, or to check which review threads are still unresolved. Backed by GraphQL since the REST review-comment surface does not expose thread IDs.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				first: z
+					.number()
+					.int()
+					.min(1)
+					.max(100)
+					.optional()
+					.default(50)
+					.describe("Maximum number of review threads to return (1-100)."),
+			},
+		},
+		async ({ owner, repo, pull_number, first }) =>
+			wrapTool(async () => {
+				const result = await client().graphql<ReviewThreadsQueryResult>(REVIEW_THREADS_QUERY, {
+					owner,
+					repo,
+					pull_number,
+					first,
+				});
+				if (result.repository == null) {
+					return errorResult(
+						`Repository ${owner}/${repo} not found or not accessible (check the name and your token's permissions).`,
+					);
+				}
+				const pr = result.repository.pullRequest;
+				if (pr == null) {
+					return errorResult(`Pull request ${owner}/${repo}#${pull_number} not found.`);
+				}
+				const { totalCount, pageInfo, nodes } = pr.reviewThreads;
+				const threads = nodes.filter((n): n is ReviewThreadNode => n != null);
+				if (threads.length === 0) {
+					return text(`# Review threads on ${owner}/${repo}#${pull_number}\n\nNo review threads.`);
+				}
+				const lines = threads.map((t) => {
+					const firstComment = t.comments.nodes.find((c) => c != null) ?? null;
+					const author =
+						firstComment?.author?.login != null ? `@${firstComment.author.login}` : "(unknown)";
+					const location =
+						firstComment?.path != null
+							? `${firstComment.path}${firstComment.line != null ? `:${firstComment.line}` : ""}`
+							: "(no location)";
+					const state = t.isResolved ? "resolved" : "unresolved";
+					const outdated = t.isOutdated ? ", outdated" : "";
+					const snippet =
+						firstComment?.body != null ? snippetOf(firstComment.body.split("\n")[0] ?? "") : "";
+					return `- \`${t.id}\` — ${state}${outdated} — ${author} on ${location}${snippet !== "" ? `\n  > ${snippet}` : ""}`;
+				});
+				const more = pageInfo.hasNextPage
+					? `\n\n(${threads.length} of ${totalCount} shown; more threads exist. Raise \`first\` up to 100 to fetch more in one call; threads beyond 100 are not yet reachable — cursor pagination is tracked in #50.)`
+					: "";
+				return text(
+					truncate(
+						`# Review threads on ${owner}/${repo}#${pull_number} (${threads.length})\n\n${lines.join("\n")}${more}`,
+					),
+				);
+			}),
+	);
+
+	server.registerTool(
+		"resolve_review_thread",
+		{
+			description:
+				"Mark a pull request review thread as resolved. Operates on a thread node ID (`PRRT_...`), which you can discover with list_pr_review_threads. Use after a review comment has been addressed.",
+			inputSchema: {
+				thread_id: z
+					.string()
+					.min(1)
+					.describe("Review thread node ID, e.g. 'PRRT_...'. Discover via list_pr_review_threads."),
+			},
+		},
+		async ({ thread_id }) =>
+			wrapTool(async () => {
+				const result = await client().graphql<ResolveReviewThreadResult>(RESOLVE_THREAD_MUTATION, {
+					thread_id,
+				});
+				const thread = result.resolveReviewThread.thread;
+				if (thread == null) {
+					return errorResult(`Failed to resolve review thread ${thread_id}.`);
+				}
+				logWrite({ tool: "resolve_review_thread", thread_id });
+				return text(
+					`# Review thread resolved\n\n- \`${thread.id}\` — resolved: ${thread.isResolved}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"unresolve_review_thread",
+		{
+			description:
+				"Re-open a previously resolved pull request review thread. Operates on a thread node ID (`PRRT_...`), which you can discover with list_pr_review_threads. Use to reverse an accidental or premature resolution.",
+			inputSchema: {
+				thread_id: z
+					.string()
+					.min(1)
+					.describe("Review thread node ID, e.g. 'PRRT_...'. Discover via list_pr_review_threads."),
+			},
+		},
+		async ({ thread_id }) =>
+			wrapTool(async () => {
+				const result = await client().graphql<UnresolveReviewThreadResult>(
+					UNRESOLVE_THREAD_MUTATION,
+					{ thread_id },
+				);
+				const thread = result.unresolveReviewThread.thread;
+				if (thread == null) {
+					return errorResult(`Failed to unresolve review thread ${thread_id}.`);
+				}
+				logWrite({ tool: "unresolve_review_thread", thread_id });
+				return text(
+					`# Review thread re-opened\n\n- \`${thread.id}\` — resolved: ${thread.isResolved}`,
+				);
+			}),
+	);
 };
