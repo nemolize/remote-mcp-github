@@ -5,22 +5,7 @@ import { registerBranchTools } from "../src/tools/branches.js";
 import { registerFileTools } from "../src/tools/files.js";
 import { registerIssueTools } from "../src/tools/issues.js";
 import { registerPullTools } from "../src/tools/pulls.js";
-
-const captureHandlers = () => {
-	const handlers = new Map();
-	const server = {
-		registerTool: (name, _config, handler) => {
-			handlers.set(name, handler);
-		},
-	};
-	return { handlers, server };
-};
-
-const invoke = async (handlers, name, params) => {
-	const handler = handlers.get(name);
-	expect(handler, `tool ${name} was not registered`).toBeDefined();
-	return handler(params);
-};
+import { captureHandlers, invoke } from "./_helpers/tools.js";
 
 // Returns every `[github-audit]` JSON payload logged during the spy's lifetime,
 // parsed back into objects. Isolates the audit trail from the `[github-ratelimit]`

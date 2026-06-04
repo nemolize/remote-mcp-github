@@ -1,16 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { registerCommitTools } from "../src/tools/commits.js";
-
-const captureHandlers = () => {
-	const handlers = new Map();
-	const server = {
-		registerTool: (name, _config, handler) => {
-			handlers.set(name, handler);
-		},
-	};
-	return { handlers, server };
-};
+import { captureHandlers, invoke } from "./_helpers/tools.js";
 
 const stubOctokit = (overrides) => ({
 	rest: {
@@ -22,12 +13,6 @@ const stubOctokit = (overrides) => ({
 		},
 	},
 });
-
-const invoke = async (handlers, name, params) => {
-	const handler = handlers.get(name);
-	expect(handler, `tool ${name} was not registered`).toBeDefined();
-	return handler(params);
-};
 
 describe("registerCommitTools", () => {
 	it("list_commits renders short SHA, subject, author, and date", async () => {
