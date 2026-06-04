@@ -341,9 +341,12 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 					pageInfo.hasNextPage && pageInfo.endCursor != null
 						? `\n\n(${threads.length} of ${totalCount} shown; more threads exist. Re-invoke with \`after: "${pageInfo.endCursor}"\` to fetch the next page.)`
 						: "";
-				// Truncate the thread body first, then append the cursor hint, so a
-				// large page (long snippets) cannot drop the `after` cursor and leave
-				// later pages unreachable — the exact failure #50 set out to fix.
+				// Truncate the thread body within a budget that reserves room for the
+				// cursor hint, then append the hint. Since truncate() now honours its
+				// cap (notice included), `body` stays within `MAX_RESPONSE_CHARS -
+				// more.length`, so `body + more` never exceeds the cap and a large page
+				// of long snippets can't drop the `after` cursor — the exact failure
+				// #50 set out to fix.
 				const body = truncate(
 					`# Review threads on ${owner}/${repo}#${pull_number} (${threads.length})\n\n${lines.join("\n")}`,
 					MAX_RESPONSE_CHARS - more.length,
