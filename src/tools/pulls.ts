@@ -293,7 +293,12 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 					pull_number,
 					first,
 				});
-				const pr = result.repository?.pullRequest;
+				if (result.repository == null) {
+					return errorResult(
+						`Repository ${owner}/${repo} not found or not accessible (check the name and your token's permissions).`,
+					);
+				}
+				const pr = result.repository.pullRequest;
 				if (pr == null) {
 					return errorResult(`Pull request ${owner}/${repo}#${pull_number} not found.`);
 				}
@@ -317,7 +322,7 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 					return `- \`${t.id}\` — ${state}${outdated} — ${author} on ${location}${snippet !== "" ? `\n  > ${snippet}` : ""}`;
 				});
 				const more = pageInfo.hasNextPage
-					? `\n\n(${threads.length} of ${totalCount} shown; more threads exist — raise \`first\` to see them.)`
+					? `\n\n(${threads.length} of ${totalCount} shown; more threads exist. Raise \`first\` up to 100 to fetch more in one call; threads beyond 100 are not yet reachable — cursor pagination is tracked in #50.)`
 					: "";
 				return text(
 					truncate(
