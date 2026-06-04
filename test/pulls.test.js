@@ -23,12 +23,12 @@ const invoke = async (handlers, name, params) => {
 	return handler(params);
 };
 
-const threadsResult = (threads, { totalCount, hasNextPage = false } = {}) => ({
+const threadsResult = (threads, { totalCount, hasNextPage = false, endCursor = null } = {}) => ({
 	repository: {
 		pullRequest: {
 			reviewThreads: {
 				totalCount: totalCount ?? threads.length,
-				pageInfo: { hasNextPage },
+				pageInfo: { hasNextPage, endCursor },
 				nodes: threads,
 			},
 		},
@@ -125,7 +125,38 @@ describe("registerPullTools — review thread tools", () => {
 			pull_number: 5,
 			first: 50,
 		});
-		expect(capturedVars).toEqual({ owner: "o", repo: "r", pull_number: 5, first: 50 });
+		expect(capturedVars).toEqual({
+			owner: "o",
+			repo: "r",
+			pull_number: 5,
+			first: 50,
+			after: undefined,
+		});
+	});
+
+	it("list_pr_review_threads forwards the `after` cursor to graphql", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedVars;
+		const octokit = stubOctokit(async (_query, vars) => {
+			capturedVars = vars;
+			return threadsResult([]);
+		});
+		registerPullTools(server, () => octokit);
+
+		await invoke(handlers, "list_pr_review_threads", {
+			owner: "o",
+			repo: "r",
+			pull_number: 5,
+			first: 50,
+			after: "CURSOR_abc",
+		});
+		expect(capturedVars).toEqual({
+			owner: "o",
+			repo: "r",
+			pull_number: 5,
+			first: 50,
+			after: "CURSOR_abc",
+		});
 	});
 
 	it("list_pr_review_threads reports an empty thread list", async () => {
@@ -141,7 +172,7 @@ describe("registerPullTools — review thread tools", () => {
 		expect(result.content[0].text).toContain("No review threads.");
 	});
 
-	it("list_pr_review_threads shows a pagination hint when more threads exist", async () => {
+	it("list_pr_review_threads shows a cursor pagination hint when more threads exist", async () => {
 		const { handlers, server } = captureHandlers();
 		const octokit = stubOctokit(async () =>
 			threadsResult(
@@ -153,7 +184,7 @@ describe("registerPullTools — review thread tools", () => {
 						comments: { nodes: [] },
 					},
 				],
-				{ totalCount: 10, hasNextPage: true },
+				{ totalCount: 10, hasNextPage: true, endCursor: "CURSOR_next" },
 			),
 		);
 		registerPullTools(server, () => octokit);
@@ -167,6 +198,56 @@ describe("registerPullTools — review thread tools", () => {
 		expect(body).toContain("resolved, outdated");
 		expect(body).toContain("(unknown) on (no location)");
 		expect(body).toContain("1 of 10 shown");
+		expect(body).toContain('after: "CURSOR_next"');
+		expect(body).not.toContain("Raise `first`");
+	});
+
+	it("list_pr_review_threads keeps the cursor hint when a large page overflows the truncation cap", async () => {
+		const { handlers, server } = captureHandlers();
+		// 100 threads each with a near-max-width snippet — the joined body easily
+		// exceeds MAX_RESPONSE_CHARS (8000), so a naive "truncate(body + hint)"
+		// would drop the trailing cursor and make later pages unreachable (#50).
+		const bigThreads = Array.from({ length: 100 }, (_, i) => ({
+			id: `PRRT_${i}`,
+			isResolved: false,
+			isOutdated: false,
+			comments: {
+				nodes: [{ author: { login: "alice" }, path: "src/foo.ts", line: i, body: "y".repeat(120) }],
+			},
+		}));
+		const octokit = stubOctokit(async () =>
+			threadsResult(bigThreads, { totalCount: 250, hasNextPage: true, endCursor: "CURSOR_tail" }),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_threads", {
+			owner: "o",
+			repo: "r",
+			pull_number: 5,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("truncated;");
+		expect(body).toContain('after: "CURSOR_tail"');
+	});
+
+	it("list_pr_review_threads omits the pagination hint when there is no next page", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () =>
+			threadsResult(
+				[{ id: "PRRT_aaa", isResolved: false, isOutdated: false, comments: { nodes: [] } }],
+				{ totalCount: 1, hasNextPage: false },
+			),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_threads", {
+			owner: "o",
+			repo: "r",
+			pull_number: 5,
+		});
+		const body = result.content[0].text;
+		expect(body).not.toContain("shown; more threads exist");
+		expect(body).not.toContain("after:");
 	});
 
 	it("list_pr_review_threads errors when the PR is not found", async () => {
