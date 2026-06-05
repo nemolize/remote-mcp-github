@@ -815,6 +815,7 @@ async function getApprovedClientsFromCookie(
 	if (parts.length !== 2) return null;
 
 	const [signatureHex, base64Payload] = parts;
+	if (signatureHex == null || base64Payload == null) return null;
 	const payload = atob(base64Payload);
 
 	const isValid = await verifySignature(signatureHex, payload, cookieSecret);
