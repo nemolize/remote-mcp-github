@@ -75,7 +75,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					owner,
 					repo,
 					path,
-					ref,
+					...(ref !== undefined ? { ref } : {}),
 				});
 				logRateLimit(headers);
 				const refSuffix = isNonEmpty(ref) ? `@${ref}` : "";
@@ -158,7 +158,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					branch,
 					message,
 					content: encoded,
-					sha,
+					...(sha !== undefined ? { sha } : {}),
 				});
 				logRateLimit(headers);
 				logWrite({ tool: "commit_file", owner, repo, branch, path });

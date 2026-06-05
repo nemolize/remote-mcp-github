@@ -92,13 +92,13 @@ export const registerCommitTools = (server: McpServer, client: OctokitFactory): 
 				const { data, headers } = await client().rest.repos.listCommits({
 					owner,
 					repo,
-					sha,
-					path,
-					author,
-					since,
-					until,
+					...(sha !== undefined ? { sha } : {}),
+					...(path !== undefined ? { path } : {}),
+					...(author !== undefined ? { author } : {}),
+					...(since !== undefined ? { since } : {}),
+					...(until !== undefined ? { until } : {}),
 					per_page,
-					page,
+					...(page !== undefined ? { page } : {}),
 				});
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no commits found)");

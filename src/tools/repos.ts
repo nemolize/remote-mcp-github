@@ -170,10 +170,10 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 			wrapTool(async () => {
 				const { data, headers } = await client().rest.search.repos({
 					q: query,
-					sort,
-					order,
+					...(sort !== undefined ? { sort } : {}),
+					...(order !== undefined ? { order } : {}),
 					per_page,
-					page,
+					...(page !== undefined ? { page } : {}),
 				});
 				logRateLimit(headers);
 				if (data.total_count === 0)

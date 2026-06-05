@@ -36,9 +36,9 @@ export const registerBranchTools = (server: McpServer, client: OctokitFactory): 
 				const { data, headers } = await client().rest.repos.listBranches({
 					owner,
 					repo,
-					protected: protectedOnly,
+					...(protectedOnly !== undefined ? { protected: protectedOnly } : {}),
 					per_page,
-					page,
+					...(page !== undefined ? { page } : {}),
 				});
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no branches found)");

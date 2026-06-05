@@ -35,6 +35,8 @@
 
 		/* Enable all strict type-checking options. */
 		"strict": true,
+		/* Treat optional properties as exactly optional — disallow explicitly assigning 'undefined'. */
+		"exactOptionalPropertyTypes": true,
 		/* Add 'undefined' to index signature results for safer array/object access. */
 		"noUncheckedIndexedAccess": true,
 		/* Report errors on unused local variables. */

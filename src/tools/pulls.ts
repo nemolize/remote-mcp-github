@@ -127,9 +127,9 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					title,
 					head: effectiveHead,
 					base: target,
-					body,
-					draft,
-					maintainer_can_modify,
+					...(body !== undefined ? { body } : {}),
+					...(draft !== undefined ? { draft } : {}),
+					...(maintainer_can_modify !== undefined ? { maintainer_can_modify } : {}),
 				});
 				logRateLimit(headers);
 				logWrite({ tool: "create_pull_request", owner, repo, pull_number: data.number });
@@ -173,8 +173,8 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					owner,
 					repo,
 					pull_number,
-					reviewers,
-					team_reviewers,
+					...(reviewers !== undefined ? { reviewers } : {}),
+					...(team_reviewers !== undefined ? { team_reviewers } : {}),
 				});
 				logRateLimit(headers);
 				logWrite({ tool: "request_pr_review", owner, repo, pull_number });

@@ -257,9 +257,9 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					owner,
 					repo,
 					title,
-					body,
-					labels,
-					assignees,
+					...(body !== undefined ? { body } : {}),
+					...(labels !== undefined ? { labels } : {}),
+					...(assignees !== undefined ? { assignees } : {}),
 				});
 				logRateLimit(headers);
 				logWrite({ tool: "create_issue", owner, repo, issue_number: data.number });
@@ -357,13 +357,15 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					owner,
 					repo,
 					issue_number,
-					title,
-					body,
-					state,
-					state_reason,
-					labels,
-					assignees,
-					milestone,
+					...(title !== undefined ? { title } : {}),
+					...(body !== undefined ? { body } : {}),
+					...(state !== undefined ? { state } : {}),
+					// `state_reason` and `milestone` accept `null` as a meaningful "clear"
+					// signal, so guard on `undefined` only — a `null` must still be sent.
+					...(state_reason !== undefined ? { state_reason } : {}),
+					...(labels !== undefined ? { labels } : {}),
+					...(assignees !== undefined ? { assignees } : {}),
+					...(milestone !== undefined ? { milestone } : {}),
 				});
 				logRateLimit(headers);
 				logWrite({ tool: "update_issue", owner, repo, issue_number });
