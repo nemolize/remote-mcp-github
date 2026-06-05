@@ -2,16 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { MAX_FILE_CONTENT_LENGTH } from "../src/tools/common.js";
 import { registerFileTools } from "../src/tools/files.js";
-
-const captureHandlers = () => {
-	const handlers = new Map();
-	const server = {
-		registerTool: (name, _config, handler) => {
-			handlers.set(name, handler);
-		},
-	};
-	return { handlers, server };
-};
+import { captureHandlers, invoke } from "./_helpers/tools.js";
 
 const b64 = (s) => btoa(s);
 
@@ -36,12 +27,6 @@ const stubOctokit = (overrides = {}) => ({
 		},
 	},
 });
-
-const invoke = async (handlers, name, params) => {
-	const handler = handlers.get(name);
-	expect(handler, `tool ${name} was not registered`).toBeDefined();
-	return handler(params);
-};
 
 const fileContent = (params) => {
 	const { handlers, server } = captureHandlers();

@@ -1,27 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { registerPullTools } from "../src/tools/pulls.js";
-
-const captureHandlers = () => {
-	const handlers = new Map();
-	const server = {
-		registerTool: (name, _config, handler) => {
-			handlers.set(name, handler);
-		},
-	};
-	return { handlers, server };
-};
+import { captureHandlers, invoke } from "./_helpers/tools.js";
 
 // Octokit stub whose `graphql` member is driven by the test. The review-thread
 // tools call `client().graphql(query, vars)` and ignore the REST surface, so
 // only `graphql` needs stubbing here.
 const stubOctokit = (graphql) => ({ graphql });
-
-const invoke = async (handlers, name, params) => {
-	const handler = handlers.get(name);
-	expect(handler, `tool ${name} was not registered`).toBeDefined();
-	return handler(params);
-};
 
 const threadsResult = (threads, { totalCount, hasNextPage = false, endCursor = null } = {}) => ({
 	repository: {

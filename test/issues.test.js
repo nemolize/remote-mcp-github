@@ -1,18 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { registerIssueTools } from "../src/tools/issues.js";
+import { captureHandlers, invoke } from "./_helpers/tools.js";
 
-const captureHandlers = () => {
-	const handlers = new Map();
-	const server = {
-		registerTool: (name, _config, handler) => {
-			handlers.set(name, handler);
-		},
-	};
-	return { handlers, server };
-};
-
-const stubOctokit = (overrides) => ({
+// `overrides` patches the `rest.issues.*` methods (the bulk of the issue tools);
+// `search` separately patches `rest.search.issuesAndPullRequests` (search_issues).
+const stubOctokit = (overrides = {}, search = {}) => ({
 	rest: {
 		issues: {
 			get: async () => ({ data: {}, headers: {} }),
@@ -25,14 +18,15 @@ const stubOctokit = (overrides) => ({
 			removeAssignees: async () => ({ data: { assignees: [] }, headers: {} }),
 			...overrides,
 		},
+		search: {
+			issuesAndPullRequests: async () => ({
+				data: { total_count: 0, items: [] },
+				headers: {},
+			}),
+			...search,
+		},
 	},
 });
-
-const invoke = async (handlers, name, params) => {
-	const handler = handlers.get(name);
-	expect(handler, `tool ${name} was not registered`).toBeDefined();
-	return handler(params);
-};
 
 describe("registerIssueTools", () => {
 	it("get_issue renders title, labels, and assignees", async () => {
@@ -155,5 +149,163 @@ describe("registerIssueTools", () => {
 		const body = result.content[0].text;
 		expect(body).toContain("Label does not exist");
 		expect(body).toContain("HTTP 404");
+	});
+
+	// NOTE: the zod `.default("open")` on `state` is applied by the MCP SDK's
+	// schema validation, which handler-direct invocation bypasses — so this test
+	// passes state explicitly rather than relying on the default.
+	it("search_issues composes the repo+state qualifier and reports no matches", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedQ;
+		const octokit = stubOctokit(
+			{},
+			{
+				issuesAndPullRequests: async ({ q }) => {
+					capturedQ = q;
+					return { data: { total_count: 0, items: [] }, headers: {} };
+				},
+			},
+		);
+		registerIssueTools(server, () => octokit);
+
+		const result = await invoke(handlers, "search_issues", {
+			owner: "o",
+			repo: "r",
+			query: "boom",
+			state: "open",
+		});
+		expect(capturedQ).toBe("boom repo:o/r state:open");
+		const body = result.content[0].text;
+		expect(body).toContain("No issues or PRs matched `boom repo:o/r state:open`.");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("search_issues drops the state qualifier when state is 'all'", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedQ;
+		const octokit = stubOctokit(
+			{},
+			{
+				issuesAndPullRequests: async ({ q }) => {
+					capturedQ = q;
+					return { data: { total_count: 0, items: [] }, headers: {} };
+				},
+			},
+		);
+		registerIssueTools(server, () => octokit);
+
+		await invoke(handlers, "search_issues", {
+			owner: "o",
+			repo: "r",
+			query: "boom",
+			state: "all",
+		});
+		expect(capturedQ).toBe("boom repo:o/r");
+	});
+
+	it("search_issues distinguishes PR and Issue rows", async () => {
+		const { handlers, server } = captureHandlers();
+		const items = [
+			{
+				number: 7,
+				title: "A pull request",
+				state: "open",
+				user: { login: "alice" },
+				html_url: "https://example.test/7",
+				pull_request: { url: "https://example.test/pulls/7" },
+			},
+			{
+				number: 8,
+				title: "An issue",
+				state: "closed",
+				user: { login: "bob" },
+				html_url: "https://example.test/8",
+				pull_request: undefined,
+			},
+		];
+		const octokit = stubOctokit(
+			{},
+			{
+				issuesAndPullRequests: async () => ({
+					data: { total_count: 2, items },
+					headers: {},
+				}),
+			},
+		);
+		registerIssueTools(server, () => octokit);
+
+		const result = await invoke(handlers, "search_issues", {
+			owner: "o",
+			repo: "r",
+			query: "x",
+			state: "all",
+			per_page: 20,
+			page: 1,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("- [PR #7] **A pull request** (open) by @alice");
+		expect(body).toContain("- [Issue #8] **An issue** (closed) by @bob");
+		expect(body).toContain("(showing 2 of 2)");
+	});
+
+	it("search_issues falls back to (unknown) author when user is null", async () => {
+		const { handlers, server } = captureHandlers();
+		const items = [
+			{
+				number: 9,
+				title: "Orphaned issue",
+				state: "open",
+				user: null,
+				html_url: "https://example.test/9",
+				pull_request: undefined,
+			},
+		];
+		const octokit = stubOctokit(
+			{},
+			{
+				issuesAndPullRequests: async () => ({
+					data: { total_count: 1, items },
+					headers: {},
+				}),
+			},
+		);
+		registerIssueTools(server, () => octokit);
+
+		const result = await invoke(handlers, "search_issues", {
+			owner: "o",
+			repo: "r",
+			query: "x",
+			state: "all",
+			per_page: 20,
+			page: 1,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("- [Issue #9] **Orphaned issue** (open) by (unknown)");
+		expect(body).not.toContain("@undefined");
+	});
+
+	it("search_issues surfaces Octokit errors via wrapTool (isError = true)", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(
+			{},
+			{
+				issuesAndPullRequests: async () => {
+					const err = new Error("Validation Failed");
+					err.status = 422;
+					throw err;
+				},
+			},
+		);
+		registerIssueTools(server, () => octokit);
+
+		const result = await invoke(handlers, "search_issues", {
+			owner: "o",
+			repo: "r",
+			query: "bad:qualifier",
+		});
+		expect(result.isError).toBe(true);
+		const body = result.content[0].text;
+		expect(body).toContain("Validation Failed");
+		expect(body).toContain("HTTP 422");
 	});
 });
