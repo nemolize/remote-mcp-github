@@ -55,7 +55,8 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					return text(`# Search results\n\nNo issues or PRs matched \`${q}\`.`);
 				const lines = data.items.map((i) => {
 					const kind = i.pull_request ? "PR" : "Issue";
-					return `- [${kind} #${i.number}] **${i.title}** (${i.state}) by @${i.user?.login}\n  - ${i.html_url}`;
+					const author = i.user ? `@${i.user.login}` : "(unknown)";
+					return `- [${kind} #${i.number}] **${i.title}** (${i.state}) by ${author}\n  - ${i.html_url}`;
 				});
 				const header = searchHeader({
 					label: "Search results",

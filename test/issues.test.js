@@ -248,6 +248,42 @@ describe("registerIssueTools", () => {
 		expect(body).toContain("(showing 2 of 2)");
 	});
 
+	it("search_issues falls back to (unknown) author when user is null", async () => {
+		const { handlers, server } = captureHandlers();
+		const items = [
+			{
+				number: 9,
+				title: "Orphaned issue",
+				state: "open",
+				user: null,
+				html_url: "https://example.test/9",
+				pull_request: undefined,
+			},
+		];
+		const octokit = stubOctokit(
+			{},
+			{
+				issuesAndPullRequests: async () => ({
+					data: { total_count: 1, items },
+					headers: {},
+				}),
+			},
+		);
+		registerIssueTools(server, () => octokit);
+
+		const result = await invoke(handlers, "search_issues", {
+			owner: "o",
+			repo: "r",
+			query: "x",
+			state: "all",
+			per_page: 20,
+			page: 1,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("- [Issue #9] **Orphaned issue** (open) by (unknown)");
+		expect(body).not.toContain("@undefined");
+	});
+
 	it("search_issues surfaces Octokit errors via wrapTool (isError = true)", async () => {
 		const { handlers, server } = captureHandlers();
 		const octokit = stubOctokit(
