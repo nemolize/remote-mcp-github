@@ -10,19 +10,22 @@ import { isNonEmpty } from "./utils.js";
  * Represents errors that occur during OAuth operations with standardized error codes and descriptions.
  */
 export class OAuthError extends Error {
+	readonly code: string;
+	readonly description: string;
+	readonly statusCode: number;
+
 	/**
 	 * Creates a new OAuthError
 	 * @param code - The OAuth error code (e.g., "invalid_request", "invalid_grant")
 	 * @param description - Human-readable error description
 	 * @param statusCode - HTTP status code to return (defaults to 400)
 	 */
-	constructor(
-		public code: string,
-		public description: string,
-		public statusCode = 400,
-	) {
+	constructor(code: string, description: string, statusCode = 400) {
 		super(description);
 		this.name = "OAuthError";
+		this.code = code;
+		this.description = description;
+		this.statusCode = statusCode;
 	}
 
 	/**

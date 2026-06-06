@@ -30,6 +30,8 @@
 		"isolatedModules": true,
 		/* Require type-only imports/exports to be marked explicitly (`import type`), emitting other imports verbatim. */
 		"verbatimModuleSyntax": true,
+		/* Disallow runtime-emitting TS-only syntax (parameter properties, enums, namespaces) so transpilation is pure type-erasure. */
+		"erasableSyntaxOnly": true,
 		/* Allow 'import x from y' when a module doesn't have a default export. */
 		"allowSyntheticDefaultImports": true,
 		/* Ensure that casing is correct in imports. */
