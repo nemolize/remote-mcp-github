@@ -128,6 +128,39 @@ describe("registerIssueTools", () => {
 		expect(captured.assignees).toEqual([]);
 	});
 
+	it("update_issue forwards explicit null for state_reason/milestone so callers can clear them", async () => {
+		const { handlers, server } = captureHandlers();
+		let captured;
+		const octokit = stubOctokit({
+			update: async (params) => {
+				captured = params;
+				return {
+					data: {
+						number: 1,
+						title: "x",
+						state: "open",
+						state_reason: null,
+						html_url: "https://example.test/1",
+					},
+					headers: {},
+				};
+			},
+		});
+		registerIssueTools(server, () => octokit);
+
+		await invoke(handlers, "update_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			state_reason: null,
+			milestone: null,
+		});
+		// The conditional-spread guard is on `undefined` only, so a deliberate
+		// `null` must reach Octokit as `null` (the "clear" signal) — not be omitted.
+		expect(captured.state_reason).toBeNull();
+		expect(captured.milestone).toBeNull();
+	});
+
 	it("remove_label surfaces Octokit errors via wrapTool (isError = true)", async () => {
 		const { handlers, server } = captureHandlers();
 		const octokit = stubOctokit({

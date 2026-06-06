@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getBranchHeadSha, resolveDefaultBranch } from "../github/helpers.js";
 import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
+import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget, SameRepoBranchPattern } from "./common.js";
 
@@ -33,13 +34,15 @@ export const registerBranchTools = (server: McpServer, client: OctokitFactory): 
 		},
 		async ({ owner, repo, protected: protectedOnly, per_page, page }) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.repos.listBranches({
-					owner,
-					repo,
-					protected: protectedOnly,
-					per_page,
-					page,
-				});
+				const { data, headers } = await client().rest.repos.listBranches(
+					stripUndefined({
+						owner,
+						repo,
+						protected: protectedOnly,
+						per_page,
+						page,
+					}),
+				);
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no branches found)");
 				const lines = data.map((b) => {

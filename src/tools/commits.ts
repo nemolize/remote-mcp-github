@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
-import { isNonEmpty } from "../utils.js";
+import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
@@ -89,17 +89,19 @@ export const registerCommitTools = (server: McpServer, client: OctokitFactory): 
 		},
 		async ({ owner, repo, sha, path, author, since, until, per_page, page }) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.repos.listCommits({
-					owner,
-					repo,
-					sha,
-					path,
-					author,
-					since,
-					until,
-					per_page,
-					page,
-				});
+				const { data, headers } = await client().rest.repos.listCommits(
+					stripUndefined({
+						owner,
+						repo,
+						sha,
+						path,
+						author,
+						since,
+						until,
+						per_page,
+						page,
+					}),
+				);
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no commits found)");
 				const lines = data.map((c) => {

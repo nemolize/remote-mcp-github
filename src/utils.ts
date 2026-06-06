@@ -6,6 +6,40 @@ export const isHttpStatus = (e: unknown, status: number): boolean => {
 };
 
 /**
+ * Narrows `T` so the keys that *could* be `undefined` become optional (with
+ * `undefined` excluded from their value) while always-present keys stay
+ * required — the type-level counterpart to {@link stripUndefined}.
+ */
+export type StripUndefined<T> = {
+	[K in keyof T as undefined extends T[K] ? K : never]?: Exclude<T[K], undefined>;
+} & {
+	[K in keyof T as undefined extends T[K] ? never : K]: T[K];
+};
+
+/**
+ * Drops keys whose value is `undefined`, leaving every other value (including
+ * `null`) intact.
+ *
+ * Under `exactOptionalPropertyTypes`, Octokit's request methods reject an
+ * explicit `undefined` on an optional field (`body?: string` does not accept
+ * `body: undefined`), so optional schema inputs cannot be spread into a request
+ * object directly. Passing the object through this helper omits the unset keys
+ * so the remaining shape matches Octokit's `T?` optionals.
+ *
+ * `null` is preserved (the key is kept) because some fields — e.g.
+ * `update_issue`'s `state_reason` / `milestone` — accept `null` as a meaningful
+ * "clear" signal that must still be sent.
+ */
+export const stripUndefined = <T extends object>(obj: T): StripUndefined<T> =>
+	// `Object.fromEntries` returns a structurally-lossy type, so recovering the
+	// narrowed StripUndefined<T> shape requires this one assertion — there is no
+	// assertion-free expression of a key-remapped result. Scoped to this line.
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+	Object.fromEntries(
+		Object.entries(obj).filter(([, value]) => value !== undefined),
+	) as StripUndefined<T>;
+
+/**
  * Constructs an authorization URL for an upstream service.
  *
  * @param {Object} options

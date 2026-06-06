@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
+import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { MAX_TEXT_FIELD_LENGTH, maxCharsMessage, RepoTarget } from "./common.js";
 import { searchHeader } from "./search-helpers.js";
@@ -253,14 +254,16 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 		},
 		async ({ owner, repo, title, body, labels, assignees }) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.issues.create({
-					owner,
-					repo,
-					title,
-					body,
-					labels,
-					assignees,
-				});
+				const { data, headers } = await client().rest.issues.create(
+					stripUndefined({
+						owner,
+						repo,
+						title,
+						body,
+						labels,
+						assignees,
+					}),
+				);
 				logRateLimit(headers);
 				logWrite({ tool: "create_issue", owner, repo, issue_number: data.number });
 				return text(`# Issue created\n\n- **${data.title}** (#${data.number})\n- ${data.html_url}`);
@@ -353,18 +356,22 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 			milestone,
 		}) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.issues.update({
-					owner,
-					repo,
-					issue_number,
-					title,
-					body,
-					state,
-					state_reason,
-					labels,
-					assignees,
-					milestone,
-				});
+				// `state_reason` / `milestone` rely on stripUndefined preserving an
+				// explicit `null` (the "clear" signal) while dropping `undefined`.
+				const { data, headers } = await client().rest.issues.update(
+					stripUndefined({
+						owner,
+						repo,
+						issue_number,
+						title,
+						body,
+						state,
+						state_reason,
+						labels,
+						assignees,
+						milestone,
+					}),
+				);
 				logRateLimit(headers);
 				logWrite({ tool: "update_issue", owner, repo, issue_number });
 				return text(

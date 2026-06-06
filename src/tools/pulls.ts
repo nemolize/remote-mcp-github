@@ -11,6 +11,7 @@ import {
 	truncate,
 	wrapTool,
 } from "../mcp/response.js";
+import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import {
 	CrossRepoHeadPattern,
@@ -121,16 +122,18 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 				}
 				const octo = client();
 				const target = base ?? (await resolveDefaultBranch(octo, owner, repo));
-				const { data, headers } = await octo.rest.pulls.create({
-					owner,
-					repo,
-					title,
-					head: effectiveHead,
-					base: target,
-					body,
-					draft,
-					maintainer_can_modify,
-				});
+				const { data, headers } = await octo.rest.pulls.create(
+					stripUndefined({
+						owner,
+						repo,
+						title,
+						head: effectiveHead,
+						base: target,
+						body,
+						draft,
+						maintainer_can_modify,
+					}),
+				);
 				logRateLimit(headers);
 				logWrite({ tool: "create_pull_request", owner, repo, pull_number: data.number });
 				const flag = data.draft === true ? " (draft)" : "";
@@ -169,13 +172,15 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					return errorResult("At least one of `reviewers` or `team_reviewers` must be non-empty.");
 				}
 				const octo = client();
-				const { data, headers } = await octo.rest.pulls.requestReviewers({
-					owner,
-					repo,
-					pull_number,
-					reviewers,
-					team_reviewers,
-				});
+				const { data, headers } = await octo.rest.pulls.requestReviewers(
+					stripUndefined({
+						owner,
+						repo,
+						pull_number,
+						reviewers,
+						team_reviewers,
+					}),
+				);
 				logRateLimit(headers);
 				logWrite({ tool: "request_pr_review", owner, repo, pull_number });
 				const users = (data.requested_reviewers ?? []).map((u) => `@${u.login}`);

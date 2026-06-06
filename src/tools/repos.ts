@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
-import { isNonEmpty } from "../utils.js";
+import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 import { searchHeader } from "./search-helpers.js";
@@ -168,13 +168,15 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 		},
 		async ({ query, sort, order, per_page, page }) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.search.repos({
-					q: query,
-					sort,
-					order,
-					per_page,
-					page,
-				});
+				const { data, headers } = await client().rest.search.repos(
+					stripUndefined({
+						q: query,
+						sort,
+						order,
+						per_page,
+						page,
+					}),
+				);
 				logRateLimit(headers);
 				if (data.total_count === 0)
 					return text(`# Repo search\n\nNo repositories matched \`${query}\`.`);
