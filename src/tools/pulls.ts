@@ -11,6 +11,7 @@ import {
 	truncate,
 	wrapTool,
 } from "../mcp/response.js";
+import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import {
 	CrossRepoHeadPattern,
@@ -19,7 +20,6 @@ import {
 	RepoTarget,
 	SameRepoBranchPattern,
 } from "./common.js";
-import { stripUndefined } from "./strip-undefined.js";
 
 export const registerPullTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(

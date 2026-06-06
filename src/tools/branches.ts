@@ -3,9 +3,9 @@ import { z } from "zod";
 
 import { getBranchHeadSha, resolveDefaultBranch } from "../github/helpers.js";
 import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
+import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget, SameRepoBranchPattern } from "./common.js";
-import { stripUndefined } from "./strip-undefined.js";
 
 export const registerBranchTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(

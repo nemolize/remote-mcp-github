@@ -2,11 +2,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
-import { isNonEmpty } from "../utils.js";
+import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 import { searchHeader } from "./search-helpers.js";
-import { stripUndefined } from "./strip-undefined.js";
 
 export const registerRepoTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(

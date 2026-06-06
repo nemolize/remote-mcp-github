@@ -2,10 +2,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
-import { isNonEmpty } from "../utils.js";
+import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
-import { stripUndefined } from "./strip-undefined.js";
 
 // Shared shape between `getCommit` and `compareCommits*` file entries. Octokit's
 // generated types carry more fields, but these are all the rendering needs; the

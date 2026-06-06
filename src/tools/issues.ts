@@ -2,10 +2,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
+import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { MAX_TEXT_FIELD_LENGTH, maxCharsMessage, RepoTarget } from "./common.js";
 import { searchHeader } from "./search-helpers.js";
-import { stripUndefined } from "./strip-undefined.js";
 
 const formatNameList = (names: string[], wrap: "code" | "at"): string => {
 	if (names.length === 0) return "(none)";
@@ -356,8 +356,8 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 			milestone,
 		}) =>
 			wrapTool(async () => {
-				// stripUndefined drops only `undefined` keys, so an explicit `null` on
-				// `state_reason` / `milestone` (the "clear" signal) is preserved and sent.
+				// `state_reason` / `milestone` rely on stripUndefined preserving an
+				// explicit `null` (the "clear" signal) while dropping `undefined`.
 				const { data, headers } = await client().rest.issues.update(
 					stripUndefined({
 						owner,

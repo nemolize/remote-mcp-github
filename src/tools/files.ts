@@ -10,7 +10,7 @@ import {
 	resolveFileSha,
 } from "../github/helpers.js";
 import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
-import { isNonEmpty } from "../utils.js";
+import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import {
 	MAX_FILE_CONTENT_LENGTH,
@@ -20,7 +20,6 @@ import {
 	maxCharsMessage,
 	RepoTarget,
 } from "./common.js";
-import { stripUndefined } from "./strip-undefined.js";
 
 type GitClient = ReturnType<OctokitFactory>;
 
