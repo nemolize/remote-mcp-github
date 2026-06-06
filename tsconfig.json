@@ -47,6 +47,8 @@
 		"noImplicitOverride": true,
 		/* Report errors for fallthrough cases in switch statements. */
 		"noFallthroughCasesInSwitch": true,
+		/* Report an error when not all code paths in a function return a value. */
+		"noImplicitReturns": true,
 
 		/* Skip type checking all .d.ts files. */
 		"skipLibCheck": true
