@@ -49,6 +49,8 @@
 		"noFallthroughCasesInSwitch": true,
 		/* Report an error when not all code paths in a function return a value. */
 		"noImplicitReturns": true,
+		/* Require index-signature properties to be accessed with bracket notation. */
+		"noPropertyAccessFromIndexSignature": true,
 
 		/* Skip type checking all .d.ts files. */
 		"skipLibCheck": true
