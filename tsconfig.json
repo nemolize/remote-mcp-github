@@ -53,6 +53,8 @@
 		"noPropertyAccessFromIndexSignature": true,
 		/* Check that side-effect imports resolve to an existing module. */
 		"noUncheckedSideEffectImports": true,
+		/* Report errors on unreachable code. */
+		"allowUnreachableCode": false,
 
 		/* Skip type checking all .d.ts files. */
 		"skipLibCheck": true
