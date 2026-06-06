@@ -5,6 +5,7 @@ import { logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/respons
 import type { OctokitFactory } from "./common.js";
 import { MAX_TEXT_FIELD_LENGTH, maxCharsMessage, RepoTarget } from "./common.js";
 import { searchHeader } from "./search-helpers.js";
+import { stripUndefined } from "./strip-undefined.js";
 
 const formatNameList = (names: string[], wrap: "code" | "at"): string => {
 	if (names.length === 0) return "(none)";
@@ -253,14 +254,16 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 		},
 		async ({ owner, repo, title, body, labels, assignees }) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.issues.create({
-					owner,
-					repo,
-					title,
-					...(body !== undefined ? { body } : {}),
-					...(labels !== undefined ? { labels } : {}),
-					...(assignees !== undefined ? { assignees } : {}),
-				});
+				const { data, headers } = await client().rest.issues.create(
+					stripUndefined({
+						owner,
+						repo,
+						title,
+						body,
+						labels,
+						assignees,
+					}),
+				);
 				logRateLimit(headers);
 				logWrite({ tool: "create_issue", owner, repo, issue_number: data.number });
 				return text(`# Issue created\n\n- **${data.title}** (#${data.number})\n- ${data.html_url}`);
@@ -353,20 +356,22 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 			milestone,
 		}) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.issues.update({
-					owner,
-					repo,
-					issue_number,
-					...(title !== undefined ? { title } : {}),
-					...(body !== undefined ? { body } : {}),
-					...(state !== undefined ? { state } : {}),
-					// `state_reason` and `milestone` accept `null` as a meaningful "clear"
-					// signal, so guard on `undefined` only — a `null` must still be sent.
-					...(state_reason !== undefined ? { state_reason } : {}),
-					...(labels !== undefined ? { labels } : {}),
-					...(assignees !== undefined ? { assignees } : {}),
-					...(milestone !== undefined ? { milestone } : {}),
-				});
+				// stripUndefined drops only `undefined` keys, so an explicit `null` on
+				// `state_reason` / `milestone` (the "clear" signal) is preserved and sent.
+				const { data, headers } = await client().rest.issues.update(
+					stripUndefined({
+						owner,
+						repo,
+						issue_number,
+						title,
+						body,
+						state,
+						state_reason,
+						labels,
+						assignees,
+						milestone,
+					}),
+				);
 				logRateLimit(headers);
 				logWrite({ tool: "update_issue", owner, repo, issue_number });
 				return text(

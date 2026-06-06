@@ -5,6 +5,7 @@ import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import { isNonEmpty } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
+import { stripUndefined } from "./strip-undefined.js";
 
 // Shared shape between `getCommit` and `compareCommits*` file entries. Octokit's
 // generated types carry more fields, but these are all the rendering needs; the
@@ -89,17 +90,19 @@ export const registerCommitTools = (server: McpServer, client: OctokitFactory): 
 		},
 		async ({ owner, repo, sha, path, author, since, until, per_page, page }) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.repos.listCommits({
-					owner,
-					repo,
-					...(sha !== undefined ? { sha } : {}),
-					...(path !== undefined ? { path } : {}),
-					...(author !== undefined ? { author } : {}),
-					...(since !== undefined ? { since } : {}),
-					...(until !== undefined ? { until } : {}),
-					per_page,
-					...(page !== undefined ? { page } : {}),
-				});
+				const { data, headers } = await client().rest.repos.listCommits(
+					stripUndefined({
+						owner,
+						repo,
+						sha,
+						path,
+						author,
+						since,
+						until,
+						per_page,
+						page,
+					}),
+				);
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no commits found)");
 				const lines = data.map((c) => {

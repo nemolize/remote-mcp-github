@@ -42,4 +42,15 @@ export default tseslint.config(
 			"@typescript-eslint/strict-boolean-expressions": "error",
 		},
 	},
+	{
+		// `stripUndefined` narrows away `undefined` from optional keys; the
+		// `Object.fromEntries` round-trip is structurally lossy, so a type
+		// assertion back to the narrowed shape is unavoidable there. Contain the
+		// single assertion to this one file rather than scattering conditional
+		// spreads across every Octokit call site (see strip-undefined.ts).
+		files: ["src/tools/strip-undefined.ts"],
+		rules: {
+			"@typescript-eslint/consistent-type-assertions": "off",
+		},
+	},
 );

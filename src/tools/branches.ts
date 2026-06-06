@@ -5,6 +5,7 @@ import { getBranchHeadSha, resolveDefaultBranch } from "../github/helpers.js";
 import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget, SameRepoBranchPattern } from "./common.js";
+import { stripUndefined } from "./strip-undefined.js";
 
 export const registerBranchTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
@@ -33,13 +34,15 @@ export const registerBranchTools = (server: McpServer, client: OctokitFactory): 
 		},
 		async ({ owner, repo, protected: protectedOnly, per_page, page }) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.repos.listBranches({
-					owner,
-					repo,
-					...(protectedOnly !== undefined ? { protected: protectedOnly } : {}),
-					per_page,
-					...(page !== undefined ? { page } : {}),
-				});
+				const { data, headers } = await client().rest.repos.listBranches(
+					stripUndefined({
+						owner,
+						repo,
+						protected: protectedOnly,
+						per_page,
+						page,
+					}),
+				);
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no branches found)");
 				const lines = data.map((b) => {

@@ -20,6 +20,7 @@ import {
 	maxCharsMessage,
 	RepoTarget,
 } from "./common.js";
+import { stripUndefined } from "./strip-undefined.js";
 
 type GitClient = ReturnType<OctokitFactory>;
 
@@ -71,12 +72,14 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 		async ({ owner, repo, path, ref }) =>
 			wrapTool(async () => {
 				const octo = client();
-				const { data, headers } = await octo.rest.repos.getContent({
-					owner,
-					repo,
-					path,
-					...(ref !== undefined ? { ref } : {}),
-				});
+				const { data, headers } = await octo.rest.repos.getContent(
+					stripUndefined({
+						owner,
+						repo,
+						path,
+						ref,
+					}),
+				);
 				logRateLimit(headers);
 				const refSuffix = isNonEmpty(ref) ? `@${ref}` : "";
 				if (Array.isArray(data)) {
@@ -151,15 +154,17 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				}
 				const sha = resolved.kind === "found" ? resolved.sha : undefined;
 				const encoded = encoding === "base64" ? content : encodeBase64Utf8(content);
-				const { data, headers } = await octo.rest.repos.createOrUpdateFileContents({
-					owner,
-					repo,
-					path,
-					branch,
-					message,
-					content: encoded,
-					...(sha !== undefined ? { sha } : {}),
-				});
+				const { data, headers } = await octo.rest.repos.createOrUpdateFileContents(
+					stripUndefined({
+						owner,
+						repo,
+						path,
+						branch,
+						message,
+						content: encoded,
+						sha,
+					}),
+				);
 				logRateLimit(headers);
 				logWrite({ tool: "commit_file", owner, repo, branch, path });
 				const action = sha != null ? "updated" : "created";
