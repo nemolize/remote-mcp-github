@@ -20,6 +20,7 @@ export default tseslint.config(
 		},
 		rules: {
 			"@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
+			"@typescript-eslint/consistent-type-imports": "error",
 			"@typescript-eslint/no-unused-vars": "off",
 			"simple-import-sort/imports": "error",
 			"simple-import-sort/exports": "error",
