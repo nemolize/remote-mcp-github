@@ -55,6 +55,8 @@
 		"noUncheckedSideEffectImports": true,
 		/* Report errors on unreachable code. */
 		"allowUnreachableCode": false,
+		/* Report errors on unused labels. */
+		"allowUnusedLabels": false,
 
 		/* Skip type checking all .d.ts files. */
 		"skipLibCheck": true
