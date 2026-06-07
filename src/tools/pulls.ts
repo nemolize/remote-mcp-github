@@ -21,6 +21,25 @@ import {
 	SameRepoBranchPattern,
 } from "./common.js";
 
+/**
+ * Trim a one-line comment preview to a fixed width with a plain ellipsis. The
+ * shared `truncate()` is for the whole tool response (it appends a "paginate to
+ * see more" hint that is nonsensical for an inline snippet), so the snippet uses
+ * a simple slice instead.
+ */
+const SNIPPET_MAX = 120;
+const snippetOf = (line: string): string =>
+	line.length <= SNIPPET_MAX ? line : `${line.slice(0, SNIPPET_MAX)}…`;
+
+/**
+ * A merged PR reports `state: "closed"`, which hides the more useful "merged"
+ * distinction. Collapse that into a single rendered state so `get_pull_request`
+ * and `update_pull_request` describe a merged PR identically. `merged` may be
+ * absent on the `pulls.update` payload, so treat only an explicit `true` as merged.
+ */
+const resolvePrState = (data: { merged?: boolean; state: string }): string =>
+	data.merged === true ? "merged" : data.state;
+
 export const registerPullTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"get_pr_diff",
@@ -193,6 +212,214 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 			}),
 	);
 
+	server.registerTool(
+		"get_pull_request",
+		{
+			description:
+				"Fetch a single pull request's full detail. Use when the user asks to read, inspect, or check the status of a PR — including whether it is mergeable, draft, or already merged. Returns state, mergeable state, head/base branches and SHAs, requested reviewers, commit/diff counts, timestamps, URL, and a (possibly truncated) body. Richer than the issue endpoint, which omits PR-specific fields.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+			},
+		},
+		async ({ owner, repo, pull_number }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.pulls.get({
+					owner,
+					repo,
+					pull_number,
+				});
+				logRateLimit(headers);
+				const state = resolvePrState(data);
+				// `pulls.get` types `user` as non-nullable, unlike the issue endpoint.
+				const author = `@${data.user.login}`;
+				const requestedUsers = (data.requested_reviewers ?? []).map((u) => `@${u.login}`);
+				const requestedTeams = (data.requested_teams ?? []).map((t) => `@${owner}/${t.slug}`);
+				const reviewers = [...requestedUsers, ...requestedTeams];
+				const reviewerList = reviewers.length > 0 ? reviewers.join(", ") : "(none)";
+				const mergeable = data.mergeable_state ?? "unknown";
+				const draftFlag = data.draft === true ? " (draft)" : "";
+				const body = data.body != null && data.body.length > 0 ? data.body : "(no body)";
+				const lines = [
+					`# PR #${data.number}: ${data.title}${draftFlag}`,
+					"",
+					`- state: **${state}**`,
+					`- mergeable: ${mergeable}`,
+					`- head → base: \`${data.head.ref}\` (${data.head.sha.slice(0, 7)}) → \`${data.base.ref}\` (${data.base.sha.slice(0, 7)})`,
+					`- author: ${author}`,
+					`- requested_reviewers: ${reviewerList}`,
+					`- commits: ${data.commits}, +${data.additions} / -${data.deletions} across ${data.changed_files} file(s)`,
+					`- created: ${data.created_at} | updated: ${data.updated_at}${data.merged_at != null ? ` | merged: ${data.merged_at}` : ""}`,
+					`- url: ${data.html_url}`,
+					"",
+					"## Body",
+					"",
+					body,
+				];
+				return text(truncate(lines.join("\n")));
+			}),
+	);
+
+	server.registerTool(
+		"list_pr_reviews",
+		{
+			description:
+				"List the reviews submitted on a pull request — the review-level wrappers (state: APPROVED / CHANGES_REQUESTED / COMMENTED / DISMISSED / PENDING, the summary body, the reviewer, and when it was submitted). Use to check a PR's approval status or read reviewers' summary comments. Distinct from `list_pr_review_threads` (inline file:line comments) and `list_issue_comments` (conversation comments). REST page-based pagination via `page` / `per_page`.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				per_page: z
+					.number()
+					.int()
+					.min(1)
+					.max(100)
+					.optional()
+					.default(30)
+					.describe("Results per page (1-100)."),
+				page: z
+					.number()
+					.int()
+					.min(1)
+					.optional()
+					.describe("Page number (1-indexed). Defaults to 1."),
+			},
+		},
+		async ({ owner, repo, pull_number, per_page, page }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.pulls.listReviews({
+					owner,
+					repo,
+					pull_number,
+					per_page,
+					page,
+				});
+				logRateLimit(headers);
+				if (data.length === 0) {
+					return text(`# Reviews on ${owner}/${repo}#${pull_number}\n\nNo reviews submitted.`);
+				}
+				const lines = data.map((r) => {
+					const author = r.user?.login != null ? `@${r.user.login}` : "(unknown)";
+					const submitted = r.submitted_at != null ? ` (${r.submitted_at})` : "";
+					const snippet =
+						r.body.length > 0 ? `\n  > ${snippetOf(r.body.split("\n")[0] ?? "")}` : "";
+					return `- ${author} — **${r.state}**${submitted}${snippet}`;
+				});
+				const hasMore = (headers.link ?? "").includes('rel="next"');
+				const pageNum = page ?? 1;
+				const header = hasMore
+					? `# Reviews on ${owner}/${repo}#${pull_number} (page ${pageNum}, ${data.length} shown; more available — pass next \`page\` or raise \`per_page\` up to 100)`
+					: `# Reviews on ${owner}/${repo}#${pull_number} (${data.length})`;
+				return text(truncate(`${header}\n\n${lines.join("\n")}`));
+			}),
+	);
+
+	server.registerTool(
+		"update_pull_request",
+		{
+			description:
+				'Edit an existing pull request\'s title, body, state, or base branch. Use when the user asks to retitle, edit the description of, close (without merging), reopen, or retarget a PR. Pass `state: "closed"` to close without merging, `state: "open"` to reopen. `base` retargets the merge destination. To merge a PR, use merge_pull_request instead; to mark a draft as ready for review, that is a separate GraphQL operation not covered here.',
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number to update."),
+				title: z.string().min(1).optional().describe("New PR title."),
+				body: z
+					.string()
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("PR body", MAX_TEXT_FIELD_LENGTH))
+					.optional()
+					.describe(
+						"New PR body (Markdown supported); omit to leave unchanged, pass an empty string to clear.",
+					),
+				state: z
+					.enum(["open", "closed"])
+					.optional()
+					.describe("New PR state. `closed` closes without merging; `open` reopens."),
+				base: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("New base branch to retarget the PR at (the merge destination)."),
+			},
+		},
+		async ({ owner, repo, pull_number, title, body, state, base }) =>
+			wrapTool(async () => {
+				if (title == null && body == null && state == null && base == null) {
+					return errorResult("Provide at least one field to update (title, body, state, or base).");
+				}
+				const { data, headers } = await client().rest.pulls.update(
+					stripUndefined({
+						owner,
+						repo,
+						pull_number,
+						title,
+						body,
+						state,
+						base,
+					}),
+				);
+				logRateLimit(headers);
+				logWrite({ tool: "update_pull_request", owner, repo, pull_number });
+				const resolvedState = resolvePrState(data);
+				return text(
+					`# Pull request updated\n\n- **${data.title}** (#${data.number}) — state: **${resolvedState}** → base \`${data.base.ref}\`\n- ${data.html_url}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"merge_pull_request",
+		{
+			description:
+				"Merge a pull request. Use when the user asks to merge, squash-merge, or rebase-merge a PR. `merge_method` selects the strategy (the repo must allow it, or GitHub returns 405). `commit_title` / `commit_message` customise the merge commit (ignored for `rebase`). Pass `sha` as a concurrency guard — the merge is refused if the PR head has moved past it. Returns the merge commit SHA on success.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number to merge."),
+				merge_method: z
+					.enum(["merge", "squash", "rebase"])
+					.default("merge")
+					.describe(
+						"Merge strategy. The repository must permit the chosen method (a disabled method returns 405).",
+					),
+				commit_title: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Title for the merge commit. Ignored when merge_method is `rebase`."),
+				commit_message: z
+					.string()
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Commit message", MAX_TEXT_FIELD_LENGTH))
+					.optional()
+					.describe("Body for the merge commit. Ignored when merge_method is `rebase`."),
+				sha: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("SHA the PR head must match — the merge is refused if it has advanced."),
+			},
+		},
+		async ({ owner, repo, pull_number, merge_method, commit_title, commit_message, sha }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.pulls.merge(
+					stripUndefined({
+						owner,
+						repo,
+						pull_number,
+						merge_method,
+						commit_title,
+						commit_message,
+						sha,
+					}),
+				);
+				logRateLimit(headers);
+				if (data.merged !== true) {
+					return errorResult(`Merge not completed for #${pull_number}: ${data.message}`);
+				}
+				logWrite({ tool: "merge_pull_request", owner, repo, pull_number });
+				return text(
+					`# Pull request merged\n\n- PR #${pull_number} merged via \`${merge_method}\`\n- merge commit: \`${data.sha}\`\n- ${data.message}`,
+				);
+			}),
+	);
+
 	registerReviewThreadTools(server, client);
 };
 
@@ -222,16 +449,6 @@ type ReviewThreadsQueryResult = {
 		} | null;
 	} | null;
 };
-
-/**
- * Trim a one-line comment preview to a fixed width with a plain ellipsis. The
- * shared `truncate()` is for the whole tool response (it appends a "paginate to
- * see more" hint that is nonsensical for an inline snippet), so the snippet uses
- * a simple slice instead.
- */
-const SNIPPET_MAX = 120;
-const snippetOf = (line: string): string =>
-	line.length <= SNIPPET_MAX ? line : `${line.slice(0, SNIPPET_MAX)}…`;
 
 type ReviewThreadState = { thread: { id: string; isResolved: boolean } | null };
 type ResolveReviewThreadResult = { resolveReviewThread: ReviewThreadState };
