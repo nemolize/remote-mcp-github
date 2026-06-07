@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { registerPullTools } from "../src/tools/pulls.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
@@ -684,20 +684,30 @@ describe("registerPullTools — merge_pull_request", () => {
 		}));
 		registerPullTools(server, () => octokit);
 
-		// The raw handler bypasses Zod, so the `merge_method` default isn't applied
-		// here — pass it explicitly, mirroring what the framework hands the handler.
-		const result = await invoke(handlers, "merge_pull_request", {
-			owner: "o",
-			repo: "r",
-			pull_number: 42,
-			merge_method: "merge",
-		});
-		const body = result.content[0].text;
-		expect(body).toContain("# Pull request merged");
-		expect(body).toContain("PR #42 merged via `merge`");
-		expect(body).toContain("merge commit: `deadbeef`");
-		expect(calls[0]).toEqual({ owner: "o", repo: "r", pull_number: 42, merge_method: "merge" });
-		expect(result.isError).toBeUndefined();
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		try {
+			// The raw handler bypasses Zod, so the `merge_method` default isn't applied
+			// here — pass it explicitly, mirroring what the framework hands the handler.
+			const result = await invoke(handlers, "merge_pull_request", {
+				owner: "o",
+				repo: "r",
+				pull_number: 42,
+				merge_method: "merge",
+			});
+			const body = result.content[0].text;
+			expect(body).toContain("# Pull request merged");
+			expect(body).toContain("PR #42 merged via `merge`");
+			expect(body).toContain("merge commit: `deadbeef`");
+			expect(calls[0]).toEqual({ owner: "o", repo: "r", pull_number: 42, merge_method: "merge" });
+			expect(result.isError).toBeUndefined();
+			// A successful merge records exactly one audit line.
+			const auditLines = logSpy.mock.calls.filter(([first]) =>
+				String(first).includes("[github-audit]"),
+			);
+			expect(auditLines).toHaveLength(1);
+		} finally {
+			logSpy.mockRestore();
+		}
 	});
 
 	it("forwards squash method, commit_title/message, and sha guard", async () => {
@@ -728,7 +738,7 @@ describe("registerPullTools — merge_pull_request", () => {
 		});
 	});
 
-	it("returns an error when the API reports the PR was not merged", async () => {
+	it("returns an error and emits no audit log when the API reports the PR was not merged", async () => {
 		const { handlers, server } = captureHandlers();
 		const { octokit } = stubPullsMerge(async () => ({
 			data: { merged: false, sha: "", message: "Base branch was modified. Review and try again." },
@@ -736,14 +746,25 @@ describe("registerPullTools — merge_pull_request", () => {
 		}));
 		registerPullTools(server, () => octokit);
 
-		const result = await invoke(handlers, "merge_pull_request", {
-			owner: "o",
-			repo: "r",
-			pull_number: 42,
-		});
-		expect(result.isError).toBe(true);
-		expect(result.content[0].text).toContain("Merge not completed for #42");
-		expect(result.content[0].text).toContain("Base branch was modified");
+		// `logWrite` emits a `[github-audit]` line via console.log on success only;
+		// a non-merge must not record a write event.
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		try {
+			const result = await invoke(handlers, "merge_pull_request", {
+				owner: "o",
+				repo: "r",
+				pull_number: 42,
+			});
+			expect(result.isError).toBe(true);
+			expect(result.content[0].text).toContain("Merge not completed for #42");
+			expect(result.content[0].text).toContain("Base branch was modified");
+			const auditLines = logSpy.mock.calls.filter(([first]) =>
+				String(first).includes("[github-audit]"),
+			);
+			expect(auditLines).toHaveLength(0);
+		} finally {
+			logSpy.mockRestore();
+		}
 	});
 
 	it("propagates REST errors (e.g. 405 disallowed method) via wrapTool", async () => {

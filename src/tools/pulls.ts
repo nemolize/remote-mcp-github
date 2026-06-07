@@ -401,10 +401,10 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					}),
 				);
 				logRateLimit(headers);
-				logWrite({ tool: "merge_pull_request", owner, repo, pull_number });
 				if (data.merged !== true) {
 					return errorResult(`Merge not completed for #${pull_number}: ${data.message}`);
 				}
+				logWrite({ tool: "merge_pull_request", owner, repo, pull_number });
 				return text(
 					`# Pull request merged\n\n- PR #${pull_number} merged via \`${merge_method}\`\n- merge commit: \`${data.sha}\`\n- ${data.message}`,
 				);
