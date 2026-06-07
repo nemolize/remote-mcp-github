@@ -21,6 +21,16 @@ import {
 	SameRepoBranchPattern,
 } from "./common.js";
 
+/**
+ * Trim a one-line comment preview to a fixed width with a plain ellipsis. The
+ * shared `truncate()` is for the whole tool response (it appends a "paginate to
+ * see more" hint that is nonsensical for an inline snippet), so the snippet uses
+ * a simple slice instead.
+ */
+const SNIPPET_MAX = 120;
+const snippetOf = (line: string): string =>
+	line.length <= SNIPPET_MAX ? line : `${line.slice(0, SNIPPET_MAX)}…`;
+
 export const registerPullTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"get_pr_diff",
@@ -241,6 +251,59 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 			}),
 	);
 
+	server.registerTool(
+		"list_pr_reviews",
+		{
+			description:
+				"List the reviews submitted on a pull request — the review-level wrappers (state: APPROVED / CHANGES_REQUESTED / COMMENTED / DISMISSED / PENDING, the summary body, the reviewer, and when it was submitted). Use to check a PR's approval status or read reviewers' summary comments. Distinct from `list_pr_review_threads` (inline file:line comments) and `list_issue_comments` (conversation comments). REST page-based pagination via `page` / `per_page`.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				per_page: z
+					.number()
+					.int()
+					.min(1)
+					.max(100)
+					.optional()
+					.default(30)
+					.describe("Results per page (1-100)."),
+				page: z
+					.number()
+					.int()
+					.min(1)
+					.optional()
+					.describe("Page number (1-indexed). Defaults to 1."),
+			},
+		},
+		async ({ owner, repo, pull_number, per_page, page }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.pulls.listReviews({
+					owner,
+					repo,
+					pull_number,
+					per_page,
+					page,
+				});
+				logRateLimit(headers);
+				if (data.length === 0) {
+					return text(`# Reviews on ${owner}/${repo}#${pull_number}\n\nNo reviews submitted.`);
+				}
+				const lines = data.map((r) => {
+					const author = r.user?.login != null ? `@${r.user.login}` : "(unknown)";
+					const submitted = r.submitted_at != null ? ` (${r.submitted_at})` : "";
+					const snippet =
+						r.body.length > 0 ? `\n  > ${snippetOf(r.body.split("\n")[0] ?? "")}` : "";
+					return `- ${author} — **${r.state}**${submitted}${snippet}`;
+				});
+				const hasMore = (headers.link ?? "").includes('rel="next"');
+				const pageNum = page ?? 1;
+				const header = hasMore
+					? `# Reviews on ${owner}/${repo}#${pull_number} (page ${pageNum}, ${data.length} shown; more available — pass next \`page\` or raise \`per_page\` up to 100)`
+					: `# Reviews on ${owner}/${repo}#${pull_number} (${data.length})`;
+				return text(truncate(`${header}\n\n${lines.join("\n")}`));
+			}),
+	);
+
 	registerReviewThreadTools(server, client);
 };
 
@@ -270,16 +333,6 @@ type ReviewThreadsQueryResult = {
 		} | null;
 	} | null;
 };
-
-/**
- * Trim a one-line comment preview to a fixed width with a plain ellipsis. The
- * shared `truncate()` is for the whole tool response (it appends a "paginate to
- * see more" hint that is nonsensical for an inline snippet), so the snippet uses
- * a simple slice instead.
- */
-const SNIPPET_MAX = 120;
-const snippetOf = (line: string): string =>
-	line.length <= SNIPPET_MAX ? line : `${line.slice(0, SNIPPET_MAX)}…`;
 
 type ReviewThreadState = { thread: { id: string; isResolved: boolean } | null };
 type ResolveReviewThreadResult = { resolveReviewThread: ReviewThreadState };

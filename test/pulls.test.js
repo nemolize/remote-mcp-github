@@ -418,3 +418,112 @@ describe("registerPullTools — get_pull_request", () => {
 		expect(result.content[0].text).toContain("Not Found");
 	});
 });
+
+// Octokit stub exposing only `rest.pulls.listReviews`.
+const stubListReviews = (impl) => ({ rest: { pulls: { listReviews: impl } } });
+
+describe("registerPullTools — list_pr_reviews", () => {
+	it("registers list_pr_reviews", () => {
+		const { handlers, server } = captureHandlers();
+		registerPullTools(server, () => stubListReviews(async () => ({ data: [], headers: {} })));
+		expect(handlers.has("list_pr_reviews")).toBe(true);
+	});
+
+	it("renders each review's author, state, submitted_at, and body snippet", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListReviews(async () => ({
+			data: [
+				{
+					user: { login: "alice" },
+					state: "APPROVED",
+					submitted_at: "2026-06-01T00:00:00Z",
+					body: "LGTM\nsecond line ignored",
+				},
+				{
+					user: { login: "bob" },
+					state: "CHANGES_REQUESTED",
+					submitted_at: "2026-06-02T00:00:00Z",
+					body: "",
+				},
+			],
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_reviews", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Reviews on o/r#42 (2)");
+		expect(body).toContain("@alice — **APPROVED** (2026-06-01T00:00:00Z)");
+		expect(body).toContain("> LGTM");
+		expect(body).not.toContain("second line ignored");
+		expect(body).toContain("@bob — **CHANGES_REQUESTED** (2026-06-02T00:00:00Z)");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("reports no reviews when the list is empty", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListReviews(async () => ({ data: [], headers: {} }));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_reviews", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.content[0].text).toContain("No reviews submitted.");
+	});
+
+	it("surfaces a pagination hint when more pages exist", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListReviews(async () => ({
+			data: [{ user: { login: "alice" }, state: "COMMENTED", submitted_at: null, body: "" }],
+			headers: { link: '<https://api.github.com/...&page=2>; rel="next"' },
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_reviews", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			page: 1,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("page 1, 1 shown; more available");
+	});
+
+	it("falls back to (unknown) when a review has no user", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListReviews(async () => ({
+			data: [{ user: null, state: "DISMISSED", submitted_at: "2026-06-01T00:00:00Z", body: "" }],
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_reviews", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.content[0].text).toContain("(unknown) — **DISMISSED**");
+	});
+
+	it("propagates REST errors via wrapTool", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListReviews(async () => {
+			throw new Error("Not Found");
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_reviews", {
+			owner: "o",
+			repo: "r",
+			pull_number: 999,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Not Found");
+	});
+});
