@@ -302,3 +302,119 @@ describe("registerPullTools — review thread tools", () => {
 		expect(result.content[0].text).toContain("Bad credentials");
 	});
 });
+
+// Octokit stub exposing only `rest.pulls.get`, which is all get_pull_request calls.
+const stubPullsGet = (impl) => ({ rest: { pulls: { get: impl } } });
+
+const prData = (overrides = {}) => ({
+	number: 42,
+	title: "Add widget",
+	state: "open",
+	merged: false,
+	merged_at: null,
+	draft: false,
+	mergeable_state: "clean",
+	user: { login: "alice" },
+	requested_reviewers: [{ login: "bob" }],
+	requested_teams: [{ slug: "core" }],
+	head: { ref: "feature/widget", sha: "abcdef1234567890" },
+	base: { ref: "main", sha: "1234567abcdef890" },
+	commits: 3,
+	additions: 120,
+	deletions: 8,
+	changed_files: 5,
+	created_at: "2026-06-01T00:00:00Z",
+	updated_at: "2026-06-02T00:00:00Z",
+	body: "PR body text",
+	html_url: "https://github.com/o/r/pull/42",
+	...overrides,
+});
+
+describe("registerPullTools — get_pull_request", () => {
+	it("registers get_pull_request", () => {
+		const { handlers, server } = captureHandlers();
+		registerPullTools(server, () => stubPullsGet(async () => ({ data: prData(), headers: {} })));
+		expect(handlers.has("get_pull_request")).toBe(true);
+	});
+
+	it("renders state, mergeable, head/base SHAs, reviewers, counts, and body", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPullsGet(async () => ({ data: prData(), headers: {} }));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# PR #42: Add widget");
+		expect(body).toContain("state: **open**");
+		expect(body).toContain("mergeable: clean");
+		expect(body).toContain("`feature/widget` (abcdef1) → `main` (1234567)");
+		expect(body).toContain("requested_reviewers: @bob, @o/core");
+		expect(body).toContain("commits: 3, +120 / -8 across 5 file(s)");
+		expect(body).toContain("PR body text");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("reports merged state and merged_at when the PR is merged", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPullsGet(async () => ({
+			data: prData({ merged: true, merged_at: "2026-06-03T00:00:00Z", state: "closed" }),
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("state: **merged**");
+		expect(body).toContain("merged: 2026-06-03T00:00:00Z");
+	});
+
+	it("falls back to placeholders for missing optional fields", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPullsGet(async () => ({
+			data: prData({
+				draft: true,
+				mergeable_state: null,
+				requested_reviewers: [],
+				requested_teams: [],
+				body: null,
+			}),
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# PR #42: Add widget (draft)");
+		expect(body).toContain("mergeable: unknown");
+		expect(body).toContain("requested_reviewers: (none)");
+		expect(body).toContain("(no body)");
+	});
+
+	it("propagates REST errors via wrapTool", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPullsGet(async () => {
+			throw new Error("Not Found");
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 999,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Not Found");
+	});
+});

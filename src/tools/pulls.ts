@@ -193,6 +193,54 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 			}),
 	);
 
+	server.registerTool(
+		"get_pull_request",
+		{
+			description:
+				"Fetch a single pull request's full detail. Use when the user asks to read, inspect, or check the status of a PR — including whether it is mergeable, draft, or already merged. Returns state, mergeable state, head/base branches and SHAs, requested reviewers, commit/diff counts, timestamps, URL, and a (possibly truncated) body. Richer than the issue endpoint, which omits PR-specific fields.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+			},
+		},
+		async ({ owner, repo, pull_number }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.pulls.get({
+					owner,
+					repo,
+					pull_number,
+				});
+				logRateLimit(headers);
+				const state = data.merged === true ? "merged" : data.state;
+				// `pulls.get` types `user` as non-nullable, unlike the issue endpoint.
+				const author = `@${data.user.login}`;
+				const requestedUsers = (data.requested_reviewers ?? []).map((u) => `@${u.login}`);
+				const requestedTeams = (data.requested_teams ?? []).map((t) => `@${owner}/${t.slug}`);
+				const reviewers = [...requestedUsers, ...requestedTeams];
+				const reviewerList = reviewers.length > 0 ? reviewers.join(", ") : "(none)";
+				const mergeable = data.mergeable_state ?? "unknown";
+				const draftFlag = data.draft === true ? " (draft)" : "";
+				const body = data.body != null && data.body.length > 0 ? data.body : "(no body)";
+				const lines = [
+					`# PR #${data.number}: ${data.title}${draftFlag}`,
+					"",
+					`- state: **${state}**`,
+					`- mergeable: ${mergeable}`,
+					`- head → base: \`${data.head.ref}\` (${data.head.sha.slice(0, 7)}) → \`${data.base.ref}\` (${data.base.sha.slice(0, 7)})`,
+					`- author: ${author}`,
+					`- requested_reviewers: ${reviewerList}`,
+					`- commits: ${data.commits}, +${data.additions} / -${data.deletions} across ${data.changed_files} file(s)`,
+					`- created: ${data.created_at} | updated: ${data.updated_at}${data.merged_at != null ? ` | merged: ${data.merged_at}` : ""}`,
+					`- url: ${data.html_url}`,
+					"",
+					"## Body",
+					"",
+					body,
+				];
+				return text(truncate(lines.join("\n")));
+			}),
+	);
+
 	registerReviewThreadTools(server, client);
 };
 

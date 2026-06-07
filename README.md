@@ -56,6 +56,7 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `get_commit`              | read  | Single commit detail — message, author, parents, per-file stats, diff                              |
 | `compare_commits`         | read  | Diff between two refs (ahead / behind counts, merge base, per-file stats, diff)                    |
 | `get_pr_diff`             | read  | Unified diff for a pull request                                                                    |
+| `get_pull_request`        | read  | Full PR detail — state, mergeable state, head/base SHAs, reviewers, commit/diff counts             |
 | `list_pr_review_threads`  | read  | PR review threads with node IDs (`PRRT_…`) + resolved state (companion read for resolve/unresolve) |
 | `search_code`             | read  | Code search across GitHub                                                                          |
 | `list_branches`           | read  | List branches in a repo (name, head SHA, protected flag)                                           |
