@@ -356,6 +356,61 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 			}),
 	);
 
+	server.registerTool(
+		"merge_pull_request",
+		{
+			description:
+				"Merge a pull request. Use when the user asks to merge, squash-merge, or rebase-merge a PR. `merge_method` selects the strategy (the repo must allow it, or GitHub returns 405). `commit_title` / `commit_message` customise the merge commit (ignored for `rebase`). Pass `sha` as a concurrency guard — the merge is refused if the PR head has moved past it. Returns the merge commit SHA on success.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number to merge."),
+				merge_method: z
+					.enum(["merge", "squash", "rebase"])
+					.default("merge")
+					.describe(
+						"Merge strategy. The repository must permit the chosen method (a disabled method returns 405).",
+					),
+				commit_title: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Title for the merge commit. Ignored when merge_method is `rebase`."),
+				commit_message: z
+					.string()
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Commit message", MAX_TEXT_FIELD_LENGTH))
+					.optional()
+					.describe("Body for the merge commit. Ignored when merge_method is `rebase`."),
+				sha: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("SHA the PR head must match — the merge is refused if it has advanced."),
+			},
+		},
+		async ({ owner, repo, pull_number, merge_method, commit_title, commit_message, sha }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.pulls.merge(
+					stripUndefined({
+						owner,
+						repo,
+						pull_number,
+						merge_method,
+						commit_title,
+						commit_message,
+						sha,
+					}),
+				);
+				logRateLimit(headers);
+				logWrite({ tool: "merge_pull_request", owner, repo, pull_number });
+				if (data.merged !== true) {
+					return errorResult(`Merge not completed for #${pull_number}: ${data.message}`);
+				}
+				return text(
+					`# Pull request merged\n\n- PR #${pull_number} merged via \`${merge_method}\`\n- merge commit: \`${data.sha}\`\n- ${data.message}`,
+				);
+			}),
+	);
+
 	registerReviewThreadTools(server, client);
 };
 

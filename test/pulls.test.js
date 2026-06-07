@@ -648,3 +648,118 @@ describe("registerPullTools — update_pull_request", () => {
 		expect(result.content[0].text).toContain("Not Found");
 	});
 });
+
+// Octokit stub exposing only `rest.pulls.merge`, capturing the args passed.
+const stubPullsMerge = (impl) => {
+	const calls = [];
+	const octokit = {
+		rest: {
+			pulls: {
+				merge: (args) => {
+					calls.push(args);
+					return impl(args);
+				},
+			},
+		},
+	};
+	return { octokit, calls };
+};
+
+describe("registerPullTools — merge_pull_request", () => {
+	it("registers merge_pull_request", () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubPullsMerge(async () => ({
+			data: { merged: true, sha: "deadbeef", message: "Pull Request successfully merged" },
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+		expect(handlers.has("merge_pull_request")).toBe(true);
+	});
+
+	it("merges and reports the merge commit SHA", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPullsMerge(async () => ({
+			data: { merged: true, sha: "deadbeef", message: "Pull Request successfully merged" },
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		// The raw handler bypasses Zod, so the `merge_method` default isn't applied
+		// here — pass it explicitly, mirroring what the framework hands the handler.
+		const result = await invoke(handlers, "merge_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			merge_method: "merge",
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Pull request merged");
+		expect(body).toContain("PR #42 merged via `merge`");
+		expect(body).toContain("merge commit: `deadbeef`");
+		expect(calls[0]).toEqual({ owner: "o", repo: "r", pull_number: 42, merge_method: "merge" });
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("forwards squash method, commit_title/message, and sha guard", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPullsMerge(async () => ({
+			data: { merged: true, sha: "cafe1234", message: "merged" },
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		await invoke(handlers, "merge_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			merge_method: "squash",
+			commit_title: "Squashed!",
+			commit_message: "body",
+			sha: "abc123",
+		});
+		expect(calls[0]).toEqual({
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			merge_method: "squash",
+			commit_title: "Squashed!",
+			commit_message: "body",
+			sha: "abc123",
+		});
+	});
+
+	it("returns an error when the API reports the PR was not merged", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubPullsMerge(async () => ({
+			data: { merged: false, sha: "", message: "Base branch was modified. Review and try again." },
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "merge_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Merge not completed for #42");
+		expect(result.content[0].text).toContain("Base branch was modified");
+	});
+
+	it("propagates REST errors (e.g. 405 disallowed method) via wrapTool", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubPullsMerge(async () => {
+			throw new Error("Rebase merges are not allowed on this repository");
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "merge_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			merge_method: "rebase",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Rebase merges are not allowed");
+	});
+});
