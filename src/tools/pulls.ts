@@ -31,6 +31,15 @@ const SNIPPET_MAX = 120;
 const snippetOf = (line: string): string =>
 	line.length <= SNIPPET_MAX ? line : `${line.slice(0, SNIPPET_MAX)}…`;
 
+/**
+ * A merged PR reports `state: "closed"`, which hides the more useful "merged"
+ * distinction. Collapse that into a single rendered state so `get_pull_request`
+ * and `update_pull_request` describe a merged PR identically. `merged` may be
+ * absent on the `pulls.update` payload, so treat only an explicit `true` as merged.
+ */
+const resolvePrState = (data: { merged?: boolean; state: string }): string =>
+	data.merged === true ? "merged" : data.state;
+
 export const registerPullTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"get_pr_diff",
@@ -221,7 +230,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					pull_number,
 				});
 				logRateLimit(headers);
-				const state = data.merged === true ? "merged" : data.state;
+				const state = resolvePrState(data);
 				// `pulls.get` types `user` as non-nullable, unlike the issue endpoint.
 				const author = `@${data.user.login}`;
 				const requestedUsers = (data.requested_reviewers ?? []).map((u) => `@${u.login}`);
@@ -349,7 +358,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 				);
 				logRateLimit(headers);
 				logWrite({ tool: "update_pull_request", owner, repo, pull_number });
-				const resolvedState = data.merged === true ? "merged" : data.state;
+				const resolvedState = resolvePrState(data);
 				return text(
 					`# Pull request updated\n\n- **${data.title}** (#${data.number}) — state: **${resolvedState}** → base \`${data.base.ref}\`\n- ${data.html_url}`,
 				);
