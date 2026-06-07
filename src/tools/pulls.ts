@@ -31,6 +31,13 @@ const SNIPPET_MAX = 120;
 const snippetOf = (line: string): string =>
 	line.length <= SNIPPET_MAX ? line : `${line.slice(0, SNIPPET_MAX)}…`;
 
+const snippetFromBody = (body: string | null | undefined): string => {
+	if (body == null || body.length === 0) {
+		return "";
+	}
+	return snippetOf(body.split("\n")[0] ?? "");
+};
+
 /**
  * A merged PR reports `state: "closed"`, which hides the more useful "merged"
  * distinction. Collapse that into a single rendered state so `get_pull_request`
@@ -300,9 +307,9 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 				const lines = data.map((r) => {
 					const author = r.user?.login != null ? `@${r.user.login}` : "(unknown)";
 					const submitted = r.submitted_at != null ? ` (${r.submitted_at})` : "";
-					const snippet =
-						r.body.length > 0 ? `\n  > ${snippetOf(r.body.split("\n")[0] ?? "")}` : "";
-					return `- ${author} — **${r.state}**${submitted}${snippet}`;
+					const snippet = snippetFromBody(r.body);
+					const line = snippet === "" ? "" : `\n  > ${snippet}`;
+					return `- ${author} — **${r.state}**${submitted}${line}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
 				const pageNum = page ?? 1;
@@ -555,8 +562,7 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 							: "(no location)";
 					const state = t.isResolved ? "resolved" : "unresolved";
 					const outdated = t.isOutdated ? ", outdated" : "";
-					const snippet =
-						firstComment?.body != null ? snippetOf(firstComment.body.split("\n")[0] ?? "") : "";
+					const snippet = snippetFromBody(firstComment?.body);
 					return `- \`${t.id}\` — ${state}${outdated} — ${author} on ${location}${snippet !== "" ? `\n  > ${snippet}` : ""}`;
 				});
 				const more =

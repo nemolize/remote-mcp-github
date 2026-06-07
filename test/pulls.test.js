@@ -215,6 +215,42 @@ describe("registerPullTools — review thread tools", () => {
 		expect(body).toContain('after: "CURSOR_tail"');
 	});
 
+	it("omits snippets for empty or missing thread comment bodies", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () =>
+			threadsResult([
+				{
+					id: "PRRT_aaa",
+					isResolved: false,
+					isOutdated: false,
+					comments: {
+						nodes: [{ author: { login: "alice" }, path: "src/foo.ts", line: 12, body: "" }],
+					},
+				},
+				{
+					id: "PRRT_bbb",
+					isResolved: true,
+					isOutdated: false,
+					comments: {
+						nodes: [{ author: { login: "bob" }, path: "src/bar.ts", line: 33, body: null }],
+					},
+				},
+			]),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_threads", {
+			owner: "o",
+			repo: "r",
+			pull_number: 5,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("`PRRT_aaa`");
+		expect(body).toContain("`PRRT_bbb`");
+		expect(body).not.toContain("\n  > ");
+		expect(result.isError).toBeUndefined();
+	});
+
 	it("list_pr_review_threads omits the pagination hint when there is no next page", async () => {
 		const { handlers, server } = captureHandlers();
 		const octokit = stubOctokit(async () =>
@@ -493,6 +529,39 @@ describe("registerPullTools — list_pr_reviews", () => {
 		});
 		const body = result.content[0].text;
 		expect(body).toContain("page 1, 1 shown; more available");
+	});
+
+	it("omits snippets for empty or missing review body text", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListReviews(async () => ({
+			data: [
+				{
+					user: { login: "alice" },
+					state: "COMMENTED",
+					submitted_at: null,
+					body: "",
+				},
+				{
+					user: { login: "bob" },
+					state: "DISMISSED",
+					submitted_at: null,
+					body: null,
+				},
+			],
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_reviews", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("@alice — **COMMENTED**");
+		expect(body).toContain("@bob — **DISMISSED**");
+		expect(body).not.toContain("\n  > ");
+		expect(result.isError).toBeUndefined();
 	});
 
 	it("falls back to (unknown) when a review has no user", async () => {
