@@ -304,6 +304,58 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 			}),
 	);
 
+	server.registerTool(
+		"update_pull_request",
+		{
+			description:
+				'Edit an existing pull request\'s title, body, state, or base branch. Use when the user asks to retitle, edit the description of, close (without merging), reopen, or retarget a PR. Pass `state: "closed"` to close without merging, `state: "open"` to reopen. `base` retargets the merge destination. To merge a PR, use merge_pull_request instead; to mark a draft as ready for review, that is a separate GraphQL operation not covered here.',
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number to update."),
+				title: z.string().min(1).optional().describe("New PR title."),
+				body: z
+					.string()
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("PR body", MAX_TEXT_FIELD_LENGTH))
+					.optional()
+					.describe(
+						"New PR body (Markdown supported); omit to leave unchanged, pass an empty string to clear.",
+					),
+				state: z
+					.enum(["open", "closed"])
+					.optional()
+					.describe("New PR state. `closed` closes without merging; `open` reopens."),
+				base: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("New base branch to retarget the PR at (the merge destination)."),
+			},
+		},
+		async ({ owner, repo, pull_number, title, body, state, base }) =>
+			wrapTool(async () => {
+				if (title == null && body == null && state == null && base == null) {
+					return errorResult("Provide at least one field to update (title, body, state, or base).");
+				}
+				const { data, headers } = await client().rest.pulls.update(
+					stripUndefined({
+						owner,
+						repo,
+						pull_number,
+						title,
+						body,
+						state,
+						base,
+					}),
+				);
+				logRateLimit(headers);
+				logWrite({ tool: "update_pull_request", owner, repo, pull_number });
+				const resolvedState = data.merged === true ? "merged" : data.state;
+				return text(
+					`# Pull request updated\n\n- **${data.title}** (#${data.number}) — state: **${resolvedState}** → base \`${data.base.ref}\`\n- ${data.html_url}`,
+				);
+			}),
+	);
+
 	registerReviewThreadTools(server, client);
 };
 

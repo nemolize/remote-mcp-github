@@ -527,3 +527,124 @@ describe("registerPullTools — list_pr_reviews", () => {
 		expect(result.content[0].text).toContain("Not Found");
 	});
 });
+
+// Octokit stub exposing only `rest.pulls.update`. `impl` receives the call args
+// directly (so a throwing impl rejects cleanly via the same promise the handler
+// awaits); the test reads back the captured args from `calls`.
+const stubPullsUpdate = (impl) => {
+	const calls = [];
+	const octokit = {
+		rest: {
+			pulls: {
+				update: (args) => {
+					calls.push(args);
+					return impl(args);
+				},
+			},
+		},
+	};
+	return { octokit, calls };
+};
+
+const updatedPr = (overrides = {}) => ({
+	number: 42,
+	title: "Updated title",
+	state: "open",
+	merged: false,
+	base: { ref: "main" },
+	html_url: "https://github.com/o/r/pull/42",
+	...overrides,
+});
+
+describe("registerPullTools — update_pull_request", () => {
+	it("registers update_pull_request", () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubPullsUpdate(async () => ({ data: updatedPr(), headers: {} }));
+		registerPullTools(server, () => octokit);
+		expect(handlers.has("update_pull_request")).toBe(true);
+	});
+
+	it("updates title and renders the new state and base", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPullsUpdate(async () => ({
+			data: updatedPr({ title: "New title" }),
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			title: "New title",
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Pull request updated");
+		expect(body).toContain("**New title** (#42) — state: **open** → base `main`");
+		expect(calls[0]).toEqual({ owner: "o", repo: "r", pull_number: 42, title: "New title" });
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("passes an empty-string body through to clear it", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPullsUpdate(async () => ({ data: updatedPr(), headers: {} }));
+		registerPullTools(server, () => octokit);
+
+		await invoke(handlers, "update_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			body: "",
+		});
+		expect(calls[0]).toEqual({ owner: "o", repo: "r", pull_number: 42, body: "" });
+	});
+
+	it("renders merged state when closing a merged PR", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubPullsUpdate(async () => ({
+			data: updatedPr({ merged: true, state: "closed" }),
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			state: "closed",
+		});
+		expect(result.content[0].text).toContain("state: **merged**");
+	});
+
+	it("rejects a call with no fields to update without hitting the API", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPullsUpdate(async () => ({ data: updatedPr(), headers: {} }));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Provide at least one field");
+		expect(calls).toHaveLength(0);
+	});
+
+	it("propagates REST errors via wrapTool", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubPullsUpdate(async () => {
+			throw new Error("Not Found");
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_pull_request", {
+			owner: "o",
+			repo: "r",
+			pull_number: 999,
+			title: "x",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Not Found");
+	});
+});

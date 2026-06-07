@@ -67,6 +67,7 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `commit_files`            | write | Create or update multiple files on a branch in one commit (Tree API, per-file mode / encoding)     |
 | `delete_file`             | write | Delete a single file on a branch in one commit (auto-SHA lookup like `commit_file`)                |
 | `create_pull_request`     | write | Open a PR (same-repo `head` by default; `cross_repo_head` for fork PRs)                            |
+| `update_pull_request`     | write | Edit a PR's title / body / state (close / reopen) / base branch                                    |
 | `request_pr_review`       | write | Request reviewers (users and/or teams) on a PR                                                     |
 | `resolve_review_thread`   | write | Mark a PR review thread resolved (GraphQL; thread node ID)                                         |
 | `unresolve_review_thread` | write | Re-open a resolved PR review thread (GraphQL; thread node ID)                                      |
