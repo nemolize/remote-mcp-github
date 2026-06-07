@@ -235,6 +235,10 @@ wrangler.jsonc           # Cloudflare Workers config; KV id goes here
 .dev.vars.example        # Template for the dev secrets
 ```
 
+## Issue labels
+
+Two prefixed axes: `type:*` mirror the repo's conventional-commit types (`feat` / `fix` / `chore` / `docs`); `area:*` map to a responsibility area — a `src/tools/*.ts` module or a planned tool surface — and are created on demand when the first issue touching that area is filed. GitHub's standard workflow labels (`good first issue`, `help wanted`, `duplicate`, `invalid`, `question`, `wontfix`) are kept as-is.
+
 ## Security notes
 
 - Tokens are encrypted at rest in the `OAUTH_KV` namespace using `COOKIE_ENCRYPTION_KEY`. Rotate the key (and re-deploy) to invalidate all active grants.
