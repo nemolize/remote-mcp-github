@@ -32,6 +32,18 @@ const snippetOf = (line: string): string =>
 	line.length <= SNIPPET_MAX ? line : `${line.slice(0, SNIPPET_MAX)}…`;
 
 /**
+ * Render the indented one-line preview block (`\n  > <snippet>`) for a comment
+ * body, or an empty string when there is no body text. Centralises the
+ * "snippet only when there is body text" intent so the review-level and
+ * thread-level list tools guard and format it identically — a body that is
+ * empty, whitespace-only, null, or undefined all collapse to no block.
+ */
+const snippetBlock = (body: string | null | undefined): string => {
+	const firstLine = body?.split("\n")[0]?.trim() ?? "";
+	return firstLine === "" ? "" : `\n  > ${snippetOf(firstLine)}`;
+};
+
+/**
  * A merged PR reports `state: "closed"`, which hides the more useful "merged"
  * distinction. Collapse that into a single rendered state so `get_pull_request`
  * and `update_pull_request` describe a merged PR identically. `merged` may be
@@ -300,8 +312,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 				const lines = data.map((r) => {
 					const author = r.user?.login != null ? `@${r.user.login}` : "(unknown)";
 					const submitted = r.submitted_at != null ? ` (${r.submitted_at})` : "";
-					const snippet =
-						r.body.length > 0 ? `\n  > ${snippetOf(r.body.split("\n")[0] ?? "")}` : "";
+					const snippet = snippetBlock(r.body);
 					return `- ${author} — **${r.state}**${submitted}${snippet}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
@@ -555,9 +566,8 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 							: "(no location)";
 					const state = t.isResolved ? "resolved" : "unresolved";
 					const outdated = t.isOutdated ? ", outdated" : "";
-					const snippet =
-						firstComment?.body != null ? snippetOf(firstComment.body.split("\n")[0] ?? "") : "";
-					return `- \`${t.id}\` — ${state}${outdated} — ${author} on ${location}${snippet !== "" ? `\n  > ${snippet}` : ""}`;
+					const snippet = snippetBlock(firstComment?.body);
+					return `- \`${t.id}\` — ${state}${outdated} — ${author} on ${location}${snippet}`;
 				});
 				const more =
 					pageInfo.hasNextPage && pageInfo.endCursor != null
