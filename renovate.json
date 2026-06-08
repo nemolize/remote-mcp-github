@@ -1,12 +1,4 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"extends": ["local>nemolize/renovate-config"],
-	"packageRules": [
-		{
-			"description": "Pin @types/node to the major matching the runtime (mise: Node 24 LTS); ignore non-LTS major bumps.",
-			"matchPackageNames": ["@types/node"],
-			"matchUpdateTypes": ["major"],
-			"enabled": false
-		}
-	]
+	"extends": ["local>nemolize/renovate-config"]
 }
