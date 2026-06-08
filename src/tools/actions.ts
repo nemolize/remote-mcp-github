@@ -16,9 +16,9 @@ const outcomeOf = (status: string | null, conclusion: string | null): string =>
 // `workflow_id` accepts either a filename (`ci.yml`) or a numeric ID, matching
 // GitHub's own polymorphism. Octokit types the path param as `number`, but the
 // REST endpoint resolves a filename string too, so a string is forwarded as-is.
-const WorkflowId = z
-	.union([z.number().int().positive(), z.string().min(1)])
-	.describe("Workflow filename (e.g. 'ci.yml') or numeric ID.");
+// The per-use-site `.describe()` carries the field documentation (its sole use
+// re-describes it), so none is set here.
+const WorkflowId = z.union([z.number().int().positive(), z.string().min(1)]);
 
 export const registerActionTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
@@ -39,14 +39,25 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 						"Trigger event (e.g. 'push', 'pull_request', 'workflow_dispatch', 'schedule').",
 					),
 				status: z
+					// The full set GitHub's `status` query param accepts — a union of
+					// lifecycle states and conclusions. Kept complete so a query for
+					// any valid outcome (e.g. `timed_out`, `action_required`) is not
+					// rejected by schema validation before reaching GitHub.
 					.enum([
 						"queued",
 						"in_progress",
 						"completed",
+						"waiting",
+						"requested",
+						"pending",
 						"success",
 						"failure",
+						"neutral",
 						"cancelled",
 						"skipped",
+						"stale",
+						"timed_out",
+						"action_required",
 					])
 					.optional()
 					.describe("Filter by run status or conclusion."),
@@ -160,14 +171,16 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 		},
 		async ({ owner, repo, run_id, filter, per_page, page }) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.actions.listJobsForWorkflowRun({
-					owner,
-					repo,
-					run_id,
-					filter,
-					per_page,
-					page,
-				});
+				const { data, headers } = await client().rest.actions.listJobsForWorkflowRun(
+					stripUndefined({
+						owner,
+						repo,
+						run_id,
+						filter,
+						per_page,
+						page,
+					}),
+				);
 				logRateLimit(headers);
 				if (data.jobs.length === 0) return text("(no jobs found for this run)");
 				const blocks = data.jobs.map((j) => {
