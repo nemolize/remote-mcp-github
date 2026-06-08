@@ -66,18 +66,6 @@ describe("restListHeader", () => {
 			"# Repositories (page 1, 5 shown; more available — pass next `page` or raise `per_page` up to 100)",
 		);
 	});
-
-	it("honours a custom next-page hint fragment", () => {
-		expect(
-			restListHeader({
-				title: "X",
-				count: 1,
-				page: 1,
-				hasMore: true,
-				nextPageHint: "do the thing",
-			}),
-		).toBe("# X (page 1, 1 shown; more available — do the thing)");
-	});
 });
 
 describe("cursorMoreHint", () => {

@@ -577,6 +577,9 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 					shown: threads.length,
 					total: totalCount,
 					hasMore: pageInfo.hasNextPage && pageInfo.endCursor != null,
+					// Built eagerly even when there is no next page; cursorMoreHint
+					// discards it (returns "") unless hasMore, so the `null` endCursor
+					// here is never surfaced.
 					nextPageInstruction: `Re-invoke with \`after: "${pageInfo.endCursor}"\` to fetch the next page.`,
 				});
 				// Truncate the thread body within a budget that reserves room for the

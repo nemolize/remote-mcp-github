@@ -5,11 +5,10 @@ export type ToolResult = {
 
 export const MAX_RESPONSE_CHARS = 8000;
 
-// Instruction fragment shared by every REST page-based list tool: how the caller
-// fetches the next page once `hasMore` is true. Kept as a constant so the wording
-// stays identical across tools (all REST list endpoints here share `page` /
-// `per_page` semantics).
-export const REST_NEXT_PAGE_HINT = "pass next `page` or raise `per_page` up to 100";
+// How the caller fetches the next page once `hasMore` is true. All REST list
+// endpoints here share `page` / `per_page` semantics, so the instruction is the
+// same everywhere — a single constant keeps the wording identical across tools.
+const REST_NEXT_PAGE_HINT = "pass next `page` or raise `per_page` up to 100";
 
 // Builds the `# Title (...)` header line for a REST page-based list tool, folding
 // the "more results available" hint into the parenthetical when there is a next
@@ -22,16 +21,14 @@ export const restListHeader = ({
 	count,
 	page,
 	hasMore,
-	nextPageHint = REST_NEXT_PAGE_HINT,
 }: {
 	title: string;
 	count: number;
 	page?: number | undefined;
 	hasMore: boolean;
-	nextPageHint?: string | undefined;
 }): string =>
 	hasMore
-		? `# ${title} (page ${page ?? 1}, ${count} shown; more available — ${nextPageHint})`
+		? `# ${title} (page ${page ?? 1}, ${count} shown; more available — ${REST_NEXT_PAGE_HINT})`
 		: `# ${title} (${count})`;
 
 // Builds the trailing "more results" suffix for a cursor (GraphQL) based list
