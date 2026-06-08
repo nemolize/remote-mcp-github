@@ -133,6 +133,7 @@ describe("MCP transport E2E", () => {
 			"commit_file", // files
 			"create_pull_request", // pulls
 			"search_code", // search
+			"list_workflow_runs", // actions
 		]) {
 			expect(names, `tools/list missing ${required}`).toContain(required);
 		}
