@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
+import { logRateLimit, restListHeader, text, truncate, wrapTool } from "../mcp/response.js";
 import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
@@ -56,10 +56,12 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 					return `- **${r.full_name}** (${flag})${desc}\n  - ${r.html_url} | ${r.stargazers_count} stars | updated ${r.updated_at}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
-				const pageNum = page ?? 1;
-				const header = hasMore
-					? `# Repositories (page ${pageNum}, ${data.length} shown; more available — pass next \`page\` or raise \`per_page\` up to 100)`
-					: `# Repositories (${data.length})`;
+				const header = restListHeader({
+					title: "Repositories",
+					count: data.length,
+					page,
+					hasMore,
+				});
 				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
 	);

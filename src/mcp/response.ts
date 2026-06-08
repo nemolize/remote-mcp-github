@@ -5,6 +5,50 @@ export type ToolResult = {
 
 export const MAX_RESPONSE_CHARS = 8000;
 
+// How the caller fetches the next page once `hasMore` is true. All REST list
+// endpoints here share `page` / `per_page` semantics, so the instruction is the
+// same everywhere — a single constant keeps the wording identical across tools.
+const REST_NEXT_PAGE_HINT = "pass next `page` or raise `per_page` up to 100";
+
+// Builds the `# Title (...)` header line for a REST page-based list tool, folding
+// the "more results available" hint into the parenthetical when there is a next
+// page. Without a next page it collapses to `# Title (count)`. Centralising this
+// keeps the page/`per_page` wording consistent across list tools (commits,
+// branches, repos, issues, labels, PR reviews, ...) instead of each hand-rolling
+// the same string.
+export const restListHeader = ({
+	title,
+	count,
+	page,
+	hasMore,
+}: {
+	title: string;
+	count: number;
+	page?: number | undefined;
+	hasMore: boolean;
+}): string =>
+	hasMore
+		? `# ${title} (page ${page ?? 1}, ${count} shown; more available — ${REST_NEXT_PAGE_HINT})`
+		: `# ${title} (${count})`;
+
+// Builds the trailing "more results" suffix for a cursor (GraphQL) based list
+// tool. Returns "" when there is no next page so the caller can append it
+// unconditionally. The cursor instruction is tool-specific (it names the cursor
+// argument), so it is passed in; callers that truncate must reserve `.length` of
+// this suffix from their budget so the cursor is never dropped (see #50).
+export const cursorMoreHint = ({
+	shown,
+	total,
+	hasMore,
+	nextPageInstruction,
+}: {
+	shown: number;
+	total: number;
+	hasMore: boolean;
+	nextPageInstruction: string;
+}): string =>
+	hasMore ? `\n\n(${shown} of ${total} shown; more results exist. ${nextPageInstruction})` : "";
+
 export const truncate = (text: string, maxChars = MAX_RESPONSE_CHARS): string => {
 	if (text.length <= maxChars) return text;
 	// Reserve room for the truncation notice so the returned string honours

@@ -257,7 +257,7 @@ describe("registerPullTools — review thread tools", () => {
 			pull_number: 5,
 		});
 		const body = result.content[0].text;
-		expect(body).not.toContain("shown; more threads exist");
+		expect(body).not.toContain("shown; more results exist");
 		expect(body).not.toContain("after:");
 	});
 

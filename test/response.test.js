@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_RESPONSE_CHARS, truncate } from "../src/mcp/response.js";
+import {
+	cursorMoreHint,
+	MAX_RESPONSE_CHARS,
+	restListHeader,
+	truncate,
+} from "../src/mcp/response.js";
 
 describe("truncate", () => {
 	it("returns the input unchanged when it is within the cap", () => {
@@ -40,5 +45,46 @@ describe("truncate", () => {
 		// sliceLen floors at 0, so the notice alone would overflow; the hard cap
 		// keeps the result within maxChars for even this degenerate budget.
 		expect(result.length).toBeLessThanOrEqual(10);
+	});
+});
+
+describe("restListHeader", () => {
+	it("collapses to '# Title (count)' when there is no next page", () => {
+		expect(restListHeader({ title: "Commits", count: 3, page: 1, hasMore: false })).toBe(
+			"# Commits (3)",
+		);
+	});
+
+	it("folds the page/per_page hint into the parenthetical when more pages remain", () => {
+		expect(restListHeader({ title: "Commits", count: 30, page: 2, hasMore: true })).toBe(
+			"# Commits (page 2, 30 shown; more available — pass next `page` or raise `per_page` up to 100)",
+		);
+	});
+
+	it("treats an undefined page as page 1", () => {
+		expect(restListHeader({ title: "Repositories", count: 5, hasMore: true })).toBe(
+			"# Repositories (page 1, 5 shown; more available — pass next `page` or raise `per_page` up to 100)",
+		);
+	});
+});
+
+describe("cursorMoreHint", () => {
+	it("returns an empty string when there is no next page", () => {
+		expect(
+			cursorMoreHint({ shown: 5, total: 5, hasMore: false, nextPageInstruction: "ignored" }),
+		).toBe("");
+	});
+
+	it("builds a trailing suffix with shown/total and the cursor instruction when more remain", () => {
+		expect(
+			cursorMoreHint({
+				shown: 1,
+				total: 10,
+				hasMore: true,
+				nextPageInstruction: 'Re-invoke with `after: "C"` to fetch the next page.',
+			}),
+		).toBe(
+			'\n\n(1 of 10 shown; more results exist. Re-invoke with `after: "C"` to fetch the next page.)',
+		);
 	});
 });

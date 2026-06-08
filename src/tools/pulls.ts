@@ -3,10 +3,12 @@ import { z } from "zod";
 
 import { resolveDefaultBranch } from "../github/helpers.js";
 import {
+	cursorMoreHint,
 	errorResult,
 	logRateLimit,
 	logWrite,
 	MAX_RESPONSE_CHARS,
+	restListHeader,
 	text,
 	truncate,
 	wrapTool,
@@ -316,10 +318,12 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					return `- ${author} — **${r.state}**${submitted}${snippet}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
-				const pageNum = page ?? 1;
-				const header = hasMore
-					? `# Reviews on ${owner}/${repo}#${pull_number} (page ${pageNum}, ${data.length} shown; more available — pass next \`page\` or raise \`per_page\` up to 100)`
-					: `# Reviews on ${owner}/${repo}#${pull_number} (${data.length})`;
+				const header = restListHeader({
+					title: `Reviews on ${owner}/${repo}#${pull_number}`,
+					count: data.length,
+					page,
+					hasMore,
+				});
 				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
 	);
@@ -569,10 +573,15 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 					const snippet = snippetBlock(firstComment?.body);
 					return `- \`${t.id}\` — ${state}${outdated} — ${author} on ${location}${snippet}`;
 				});
-				const more =
-					pageInfo.hasNextPage && pageInfo.endCursor != null
-						? `\n\n(${threads.length} of ${totalCount} shown; more threads exist. Re-invoke with \`after: "${pageInfo.endCursor}"\` to fetch the next page.)`
-						: "";
+				const more = cursorMoreHint({
+					shown: threads.length,
+					total: totalCount,
+					hasMore: pageInfo.hasNextPage && pageInfo.endCursor != null,
+					// Built eagerly even when there is no next page; cursorMoreHint
+					// discards it (returns "") unless hasMore, so the `null` endCursor
+					// here is never surfaced.
+					nextPageInstruction: `Re-invoke with \`after: "${pageInfo.endCursor}"\` to fetch the next page.`,
+				});
 				// Truncate the thread body within a budget that reserves room for the
 				// cursor hint, then append the hint. Since truncate() now honours its
 				// cap (notice included), `body` stays within `MAX_RESPONSE_CHARS -
