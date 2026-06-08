@@ -5,3 +5,5 @@ worker-configuration.d.ts
 .vscode/
 .wrangler/
 .claude/
+.pnpm-store/
+.serena/
