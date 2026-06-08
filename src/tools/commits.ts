@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
+import { logRateLimit, restListHeader, text, truncate, wrapTool } from "../mcp/response.js";
 import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
@@ -112,10 +112,12 @@ export const registerCommitTools = (server: McpServer, client: OctokitFactory): 
 					return `- \`${short}\` ${subject} — ${who}, ${when}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
-				const pageNum = page ?? 1;
-				const header = hasMore
-					? `# Commits (page ${pageNum}, ${data.length} shown; more available — pass next \`page\` or raise \`per_page\` up to 100)`
-					: `# Commits (${data.length})`;
+				const header = restListHeader({
+					title: "Commits",
+					count: data.length,
+					page,
+					hasMore,
+				});
 				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
 	);

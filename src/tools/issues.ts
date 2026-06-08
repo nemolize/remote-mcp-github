@@ -1,7 +1,14 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
+import {
+	logRateLimit,
+	logWrite,
+	restListHeader,
+	text,
+	truncate,
+	wrapTool,
+} from "../mcp/response.js";
 import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { MAX_TEXT_FIELD_LENGTH, maxCharsMessage, RepoTarget } from "./common.js";
@@ -177,10 +184,12 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					return `- ${author} — ${ts} — ${c.html_url}\n  - ${preview.length > 0 ? preview : "(empty)"}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
-				const pageNum = page ?? 1;
-				const header = hasMore
-					? `# Comments on #${issue_number} (page ${pageNum}, ${data.length} shown; more available — pass next \`page\` or raise \`per_page\` up to 100)`
-					: `# Comments on #${issue_number} (${data.length})`;
+				const header = restListHeader({
+					title: `Comments on #${issue_number}`,
+					count: data.length,
+					page,
+					hasMore,
+				});
 				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
 	);
@@ -224,10 +233,12 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					return `- **${l.name}** (#${l.color})${desc}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
-				const pageNum = page ?? 1;
-				const header = hasMore
-					? `# Labels in ${owner}/${repo} (page ${pageNum}, ${data.length} shown; more available — pass next \`page\` or raise \`per_page\` up to 100)`
-					: `# Labels in ${owner}/${repo} (${data.length})`;
+				const header = restListHeader({
+					title: `Labels in ${owner}/${repo}`,
+					count: data.length,
+					page,
+					hasMore,
+				});
 				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
 	);

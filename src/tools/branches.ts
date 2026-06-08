@@ -2,7 +2,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { getBranchHeadSha, resolveDefaultBranch } from "../github/helpers.js";
-import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
+import {
+	errorResult,
+	logRateLimit,
+	logWrite,
+	restListHeader,
+	text,
+	truncate,
+	wrapTool,
+} from "../mcp/response.js";
 import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget, SameRepoBranchPattern } from "./common.js";
@@ -50,10 +58,12 @@ export const registerBranchTools = (server: McpServer, client: OctokitFactory): 
 					return `- **${b.name}** (${flag}) — \`${b.commit.sha.slice(0, 7)}\``;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
-				const pageNum = page ?? 1;
-				const header = hasMore
-					? `# Branches in ${owner}/${repo} (page ${pageNum}, ${data.length} shown; more available — pass next \`page\` or raise \`per_page\` up to 100)`
-					: `# Branches in ${owner}/${repo} (${data.length})`;
+				const header = restListHeader({
+					title: `Branches in ${owner}/${repo}`,
+					count: data.length,
+					page,
+					hasMore,
+				});
 				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
 	);
