@@ -144,6 +144,32 @@ describe("registerPullTools — review thread tools", () => {
 		});
 	});
 
+	it("list_pr_review_threads omits the snippet block for an empty-body comment", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () =>
+			threadsResult([
+				{
+					id: "PRRT_aaa",
+					isResolved: false,
+					isOutdated: false,
+					comments: {
+						nodes: [{ author: { login: "alice" }, path: "src/foo.ts", line: 1, body: "" }],
+					},
+				},
+			]),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_threads", {
+			owner: "o",
+			repo: "r",
+			pull_number: 5,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("@alice on src/foo.ts:1");
+		expect(body).not.toContain("\n  > ");
+	});
+
 	it("list_pr_review_threads reports an empty thread list", async () => {
 		const { handlers, server } = captureHandlers();
 		const octokit = stubOctokit(async () => threadsResult([]));
@@ -509,6 +535,22 @@ describe("registerPullTools — list_pr_reviews", () => {
 			pull_number: 42,
 		});
 		expect(result.content[0].text).toContain("(unknown) — **DISMISSED**");
+	});
+
+	it("omits the snippet block for a whitespace-only body", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListReviews(async () => ({
+			data: [{ user: { login: "alice" }, state: "COMMENTED", submitted_at: null, body: "   " }],
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_reviews", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.content[0].text).not.toContain("\n  > ");
 	});
 
 	it("propagates REST errors via wrapTool", async () => {
