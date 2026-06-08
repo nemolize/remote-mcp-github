@@ -60,6 +60,9 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `list_pr_reviews`         | read  | Submitted reviews — state (APPROVED / CHANGES_REQUESTED / …), reviewer, summary body, submitted_at |
 | `list_pr_review_threads`  | read  | PR review threads with node IDs (`PRRT_…`) + resolved state (companion read for resolve/unresolve) |
 | `search_code`             | read  | Code search across GitHub                                                                          |
+| `list_workflow_runs`      | read  | Recent Actions workflow runs filtered by workflow / branch / event / status                        |
+| `get_workflow_run`        | read  | Single run detail — status / conclusion, event, actor, head branch / SHA, attempt, timestamps      |
+| `list_workflow_run_jobs`  | read  | Jobs of a run with per-step status — the "what failed?" lookup                                     |
 | `list_branches`           | read  | List branches in a repo (name, head SHA, protected flag)                                           |
 | `create_branch`           | write | Branch from a base (or the repo's default)                                                         |
 | `delete_branch`           | write | Delete a branch (default branch refused)                                                           |

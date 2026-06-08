@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Octokit } from "octokit";
 
+import { registerActionTools } from "./tools/actions.js";
 import { registerBranchTools } from "./tools/branches.js";
 import { registerCommitTools } from "./tools/commits.js";
 import { registerFileTools } from "./tools/files.js";
@@ -21,4 +22,5 @@ export const registerTools = (server: McpServer, getAccessToken: () => string): 
 	registerBranchTools(server, client);
 	registerPullTools(server, client);
 	registerSearchTools(server, client);
+	registerActionTools(server, client);
 };
