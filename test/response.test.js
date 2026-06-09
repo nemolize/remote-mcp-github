@@ -5,6 +5,7 @@ import {
 	MAX_RESPONSE_CHARS,
 	restListHeader,
 	truncate,
+	truncateTail,
 } from "../src/mcp/response.js";
 
 describe("truncate", () => {
@@ -44,6 +45,41 @@ describe("truncate", () => {
 		const result = truncate("z".repeat(100), 10);
 		// sliceLen floors at 0, so the notice alone would overflow; the hard cap
 		// keeps the result within maxChars for even this degenerate budget.
+		expect(result.length).toBeLessThanOrEqual(10);
+	});
+});
+
+describe("truncateTail", () => {
+	it("returns the input unchanged when it is within the cap", () => {
+		const text = "x".repeat(MAX_RESPONSE_CHARS);
+		expect(truncateTail(text)).toBe(text);
+	});
+
+	it("keeps the tail and drops the head when the input overflows", () => {
+		const head = "H".repeat(MAX_RESPONSE_CHARS);
+		const text = `${head}TAIL_MARKER`;
+		const result = truncateTail(text);
+		expect(result.length).toBeLessThanOrEqual(MAX_RESPONSE_CHARS);
+		expect(result).toContain("TAIL_MARKER");
+		expect(result).not.toContain(head);
+		expect(result).toContain("leading characters omitted");
+	});
+
+	it("prefixes the notice (dropped region is the head)", () => {
+		const text = "y".repeat(2000);
+		const result = truncateTail(text, 500);
+		expect(result.startsWith("... (truncated;")).toBe(true);
+		expect(result.length).toBeLessThanOrEqual(500);
+	});
+
+	it("embeds the caller-supplied follow-up instruction", () => {
+		const text = "z".repeat(2000);
+		const result = truncateTail(text, 500, "Open the run on GitHub.");
+		expect(result).toContain("Open the run on GitHub.");
+	});
+
+	it("still honours maxChars when it is smaller than the notice itself", () => {
+		const result = truncateTail("z".repeat(100), 10);
 		expect(result.length).toBeLessThanOrEqual(10);
 	});
 });

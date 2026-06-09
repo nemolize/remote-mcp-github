@@ -49,23 +49,64 @@ export const cursorMoreHint = ({
 }): string =>
 	hasMore ? `\n\n(${shown} of ${total} shown; more results exist. ${nextPageInstruction})` : "";
 
-export const truncate = (text: string, maxChars = MAX_RESPONSE_CHARS): string => {
+// Shared truncation core for both `truncate` (keep head) and `truncateTail`
+// (keep tail). Both want the same length-invariant: the returned string honours
+// `maxChars` *including* the truncation notice, so a caller that appends a
+// trailing hint (e.g. a pagination cursor) within its own budget can rely on the
+// total staying within the cap. Only two things differ between the two — which
+// end of the text is retained and the notice wording — so they are parameters
+// here and the invariant logic (reserve notice, slice, hard-cap) lives once.
+const truncateKeeping = (
+	text: string,
+	keep: "head" | "tail",
+	maxChars: number,
+	notice: (omitted: number) => string,
+): string => {
 	if (text.length <= maxChars) return text;
-	// Reserve room for the truncation notice so the returned string honours
-	// `maxChars` *including* the notice. A caller that appends a trailing hint
-	// (e.g. a pagination cursor) within its own budget can then rely on the
-	// total staying within the cap.
-	const notice = (omitted: number): string =>
-		`\n\n... (truncated; ${omitted} more characters omitted to save context. Refine your query or paginate to see more.)`;
-	// Size the slice against the notice for the worst case (every remaining
-	// char omitted), then report the exact count from the actual slice length.
+	// Size the slice against the notice for the worst case (every other char
+	// omitted), then report the exact count from the actual slice length.
 	const sliceLen = Math.max(0, maxChars - notice(text.length).length);
-	const out = `${text.slice(0, sliceLen)}${notice(text.length - sliceLen)}`;
+	const omitted = text.length - sliceLen;
+	const out =
+		keep === "head"
+			? `${text.slice(0, sliceLen)}${notice(omitted)}`
+			: `${notice(omitted)}${text.slice(text.length - sliceLen)}`;
 	// When `maxChars` is smaller than the notice itself, `sliceLen` floors at 0
 	// and `out` is just the notice — which can exceed `maxChars`. Hard-cap so the
-	// length invariant holds for *every* `maxChars`, even degenerate ones.
-	return out.length <= maxChars ? out : out.slice(0, maxChars);
+	// length invariant holds for *every* `maxChars`, even degenerate ones. Keep
+	// the same end of the notice that the caller asked to keep of the text.
+	if (out.length <= maxChars) return out;
+	return keep === "head" ? out.slice(0, maxChars) : out.slice(out.length - maxChars);
 };
+
+// Keeps the *head* of the text — the default for list / detail tools whose
+// signal sits at the top (the first rows, the heading + metadata).
+export const truncate = (text: string, maxChars = MAX_RESPONSE_CHARS): string =>
+	truncateKeeping(
+		text,
+		"head",
+		maxChars,
+		(omitted) =>
+			`\n\n... (truncated; ${omitted} more characters omitted to save context. Refine your query or paginate to see more.)`,
+	);
+
+// Keeps the *tail* of the text — for payloads whose signal sits at the end, most
+// notably workflow-job logs where a CI failure surfaces in the final lines. The
+// notice is prefixed (the dropped region is the head). `instruction` lets the
+// caller phrase the follow-up that fits its tool (a log tool can't paginate, so
+// it shouldn't tell the reader to).
+export const truncateTail = (
+	text: string,
+	maxChars = MAX_RESPONSE_CHARS,
+	instruction = "Narrow the source to see more.",
+): string =>
+	truncateKeeping(
+		text,
+		"tail",
+		maxChars,
+		(omitted) =>
+			`... (truncated; ${omitted} leading characters omitted to save context — the tail, where failures surface, is kept. ${instruction})\n\n`,
+	);
 
 export const text = (body: string): ToolResult => ({
 	content: [{ type: "text", text: body }],
