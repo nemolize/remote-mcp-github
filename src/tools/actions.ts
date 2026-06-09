@@ -1,7 +1,15 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { logRateLimit, restListHeader, text, truncate, wrapTool } from "../mcp/response.js";
+import {
+	logRateLimit,
+	MAX_RESPONSE_CHARS,
+	restListHeader,
+	text,
+	truncate,
+	truncateTail,
+	wrapTool,
+} from "../mcp/response.js";
 import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
@@ -199,6 +207,83 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 					hasMore,
 				});
 				return text(truncate(`${header}\n\n${blocks.join("\n")}`));
+			}),
+	);
+
+	server.registerTool(
+		"list_workflows",
+		{
+			description:
+				"List the workflows defined in a repository (one line per workflow: ID, name, state, path). Use to discover what CI/CD pipelines exist and to find a `workflow_id` to filter `list_workflow_runs` or to dispatch. Returns the workflow file path so the definition can be read with `get_file_contents`.",
+			inputSchema: {
+				...RepoTarget,
+				per_page: z.number().int().min(1).max(100).optional().default(30),
+				page: z
+					.number()
+					.int()
+					.min(1)
+					.optional()
+					.describe("Page number (1-indexed). Defaults to 1."),
+			},
+		},
+		async ({ owner, repo, per_page, page }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.actions.listRepoWorkflows(
+					stripUndefined({ owner, repo, per_page, page }),
+				);
+				logRateLimit(headers);
+				if (data.workflows.length === 0) return text("(no workflows found)");
+				const lines = data.workflows.map(
+					(w) => `- \`${w.id}\` **${w.name}** — ${w.state} (\`${w.path}\`)`,
+				);
+				const hasMore = (headers.link ?? "").includes('rel="next"');
+				const header = restListHeader({
+					title: "Workflows",
+					count: data.workflows.length,
+					page,
+					hasMore,
+				});
+				return text(truncate(`${header}\n\n${lines.join("\n")}`));
+			}),
+	);
+
+	server.registerTool(
+		"get_job_logs",
+		{
+			description:
+				"Fetch the plain-text logs of a single workflow-run job — the 'why did it fail?' lookup once `list_workflow_run_jobs` has pinpointed the failed job by ID. Returns the job log tail-truncated to the response cap (CI failures surface at the end). May require elevated repository permissions: GitHub can return 403 'Must have admin rights' for accounts without sufficient access (a permission level, not an OAuth scope). Logs for an old run attempt may have expired; GitHub then returns 410 Gone.",
+			inputSchema: {
+				...RepoTarget,
+				job_id: z.number().int().positive().describe("Job ID (from `list_workflow_run_jobs`)."),
+			},
+		},
+		async ({ owner, repo, job_id }) =>
+			wrapTool(async () => {
+				// GitHub responds 302 to a short-lived log URL; Octokit follows the
+				// redirect and returns the log body as text. Typed as `unknown` here
+				// because the rest-endpoint types model the pre-redirect 302 (no body)
+				// rather than the followed text response.
+				const { data, headers } = await client().rest.actions.downloadJobLogsForWorkflowRun({
+					owner,
+					repo,
+					job_id,
+				});
+				logRateLimit(headers);
+				const logText = typeof data === "string" ? data : String(data);
+				if (logText.length === 0) return text(`(no logs for job ${job_id})`);
+				const header = `# Logs for job ${job_id} in ${owner}/${repo}\n\n`;
+				// Keep the header outside the truncated region (it's not part of the
+				// log) and reserve its length from the cap so header + tail stays
+				// within MAX_RESPONSE_CHARS. The follow-up instruction is log-specific:
+				// this tool already targets one job and can't paginate, so point the
+				// reader at the run's other jobs / the run page rather than "paginate".
+				return text(
+					`${header}${truncateTail(
+						logText,
+						MAX_RESPONSE_CHARS - header.length,
+						"Inspect a more specific job, or open the run on GitHub, to see earlier output.",
+					)}`,
+				);
 			}),
 	);
 };

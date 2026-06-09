@@ -10,6 +10,8 @@ const stubOctokit = (overrides) => ({
 			listWorkflowRunsForRepo: async () => ({ data: { workflow_runs: [] }, headers: {} }),
 			getWorkflowRun: async () => ({ data: {}, headers: {} }),
 			listJobsForWorkflowRun: async () => ({ data: { jobs: [] }, headers: {} }),
+			listRepoWorkflows: async () => ({ data: { workflows: [] }, headers: {} }),
+			downloadJobLogsForWorkflowRun: async () => ({ data: "", headers: {} }),
 			...overrides,
 		},
 	},
@@ -262,6 +264,100 @@ describe("registerActionTools", () => {
 			run_id: 7,
 		});
 		expect(result.content[0].text).toBe("(no jobs found for this run)");
+	});
+
+	it("list_workflows renders each workflow's ID, name, state, and path", async () => {
+		const { handlers, server } = captureHandlers();
+		let captured;
+		const octokit = stubOctokit({
+			listRepoWorkflows: async (params) => {
+				captured = params;
+				return {
+					data: {
+						workflows: [
+							{ id: 101, name: "CI", state: "active", path: ".github/workflows/ci.yml" },
+							{
+								id: 102,
+								name: "Deploy",
+								state: "disabled_manually",
+								path: ".github/workflows/deploy.yml",
+							},
+						],
+					},
+					headers: {},
+				};
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_workflows", {
+			owner: "o",
+			repo: "r",
+			per_page: 50,
+			page: 2,
+		});
+		const body = result.content[0].text;
+		expect(captured).toMatchObject({ owner: "o", repo: "r", per_page: 50, page: 2 });
+		expect(body).toContain("# Workflows (2)");
+		expect(body).toContain("`101` **CI** — active (`.github/workflows/ci.yml`)");
+		expect(body).toContain("`102` **Deploy** — disabled_manually (`.github/workflows/deploy.yml`)");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("list_workflows reports an empty result", async () => {
+		const { handlers, server } = captureHandlers();
+		registerActionTools(server, () => stubOctokit({}));
+
+		const result = await invoke(handlers, "list_workflows", { owner: "o", repo: "r" });
+		expect(result.content[0].text).toBe("(no workflows found)");
+	});
+
+	it("get_job_logs returns the job log under a heading", async () => {
+		const { handlers, server } = captureHandlers();
+		let captured;
+		const octokit = stubOctokit({
+			downloadJobLogsForWorkflowRun: async (params) => {
+				captured = params;
+				return { data: "2026-06-01 step one ok\n2026-06-01 step two FAILED\n", headers: {} };
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_job_logs", { owner: "o", repo: "r", job_id: 42 });
+		const body = result.content[0].text;
+		expect(captured).toMatchObject({ owner: "o", repo: "r", job_id: 42 });
+		expect(body).toContain("# Logs for job 42 in o/r");
+		expect(body).toContain("step two FAILED");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("get_job_logs keeps the tail and drops leading lines when over the cap", async () => {
+		const { handlers, server } = captureHandlers();
+		// Build a log far larger than the 8000-char response cap, with a unique
+		// marker only at the very end so we can assert the tail is retained.
+		const filler = "x".repeat(20000);
+		const octokit = stubOctokit({
+			downloadJobLogsForWorkflowRun: async () => ({
+				data: `${filler}\nTAIL_MARKER_FAILURE`,
+				headers: {},
+			}),
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_job_logs", { owner: "o", repo: "r", job_id: 1 });
+		const body = result.content[0].text;
+		expect(body).toContain("TAIL_MARKER_FAILURE");
+		expect(body).toContain("leading characters omitted");
+		// The head filler must be gone (we can't fit 20k chars under the cap).
+		expect(body).not.toContain(filler);
+	});
+
+	it("get_job_logs reports an empty log", async () => {
+		const { handlers, server } = captureHandlers();
+		registerActionTools(server, () => stubOctokit({}));
+
+		const result = await invoke(handlers, "get_job_logs", { owner: "o", repo: "r", job_id: 9 });
+		expect(result.content[0].text).toBe("(no logs for job 9)");
 	});
 
 	it("get_workflow_run surfaces Octokit errors via wrapTool (isError = true)", async () => {
