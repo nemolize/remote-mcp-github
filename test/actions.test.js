@@ -17,6 +17,8 @@ const stubOctokit = (overrides, { request } = {}) => ({
 			getArtifact: async () => ({ data: {}, headers: {} }),
 			reRunWorkflow: async () => ({ data: {}, headers: {} }),
 			reRunWorkflowFailedJobs: async () => ({ data: {}, headers: {} }),
+			cancelWorkflowRun: async () => ({ data: {}, headers: {} }),
+			createWorkflowDispatch: async () => ({ data: {}, headers: {} }),
 			...overrides,
 		},
 	},
@@ -688,6 +690,133 @@ describe("registerActionTools", () => {
 		});
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("HTTP 404");
+	});
+
+	it("cancel_workflow_run returns confirmation with run ID and repo", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedParams;
+		const octokit = stubOctokit({
+			cancelWorkflowRun: async (params) => {
+				capturedParams = params;
+				return { data: {}, headers: {} };
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "cancel_workflow_run", {
+			owner: "o",
+			repo: "r",
+			run_id: 777,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Cancellation requested");
+		expect(body).toContain("`777`");
+		expect(body).toContain("o/r");
+		expect(body).toContain("cancelled");
+		expect(result.isError).toBeUndefined();
+		expect(capturedParams).toMatchObject({ owner: "o", repo: "r", run_id: 777 });
+	});
+
+	it("cancel_workflow_run surfaces Octokit errors via wrapTool (isError = true)", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit({
+			cancelWorkflowRun: async () => {
+				const err = new Error("Conflict");
+				err.status = 409;
+				throw err;
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "cancel_workflow_run", {
+			owner: "o",
+			repo: "r",
+			run_id: 1,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("HTTP 409");
+	});
+
+	it("trigger_workflow_dispatch returns confirmation and forwards workflow_id, ref, inputs", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedParams;
+		const octokit = stubOctokit({
+			createWorkflowDispatch: async (params) => {
+				capturedParams = params;
+				return { data: {}, headers: {} };
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "trigger_workflow_dispatch", {
+			owner: "o",
+			repo: "r",
+			workflow_id: "ci.yml",
+			ref: "main",
+			inputs: { environment: "staging" },
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Workflow dispatch requested");
+		expect(body).toContain("`ci.yml`");
+		expect(body).toContain("o/r");
+		expect(body).toContain("`main`");
+		expect(body).toContain("workflow_dispatch");
+		expect(result.isError).toBeUndefined();
+		expect(capturedParams).toMatchObject({
+			owner: "o",
+			repo: "r",
+			workflow_id: "ci.yml",
+			ref: "main",
+			inputs: { environment: "staging" },
+		});
+	});
+
+	it("trigger_workflow_dispatch omits inputs when not provided", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedParams;
+		const octokit = stubOctokit({
+			createWorkflowDispatch: async (params) => {
+				capturedParams = params;
+				return { data: {}, headers: {} };
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		await invoke(handlers, "trigger_workflow_dispatch", {
+			owner: "o",
+			repo: "r",
+			workflow_id: 12345,
+			ref: "main",
+		});
+		// stripUndefined drops the absent `inputs` so it never reaches Octokit.
+		expect(capturedParams).toMatchObject({
+			owner: "o",
+			repo: "r",
+			workflow_id: 12345,
+			ref: "main",
+		});
+		expect(capturedParams).not.toHaveProperty("inputs");
+	});
+
+	it("trigger_workflow_dispatch surfaces Octokit errors via wrapTool (isError = true)", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit({
+			createWorkflowDispatch: async () => {
+				const err = new Error("Unprocessable Entity");
+				err.status = 422;
+				throw err;
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "trigger_workflow_dispatch", {
+			owner: "o",
+			repo: "r",
+			workflow_id: "ci.yml",
+			ref: "main",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("HTTP 422");
 	});
 
 	it("get_workflow_run surfaces Octokit errors via wrapTool (isError = true)", async () => {

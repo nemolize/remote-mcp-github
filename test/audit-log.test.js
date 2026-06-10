@@ -196,6 +196,43 @@ describe("write tools emit audit logs", () => {
 		]);
 	});
 
+	it("cancel_workflow_run logs the run_id", async () => {
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const { handlers, server } = captureHandlers();
+		const octokit = {
+			rest: { actions: { cancelWorkflowRun: async () => ({ data: {}, headers: {} }) } },
+		};
+		registerActionTools(server, () => octokit);
+		await invoke(handlers, "cancel_workflow_run", { owner: "o", repo: "r", run_id: 42 });
+		expect(auditEntries(logSpy)).toEqual([
+			{ tool: "cancel_workflow_run", owner: "o", repo: "r", run_id: 42 },
+		]);
+	});
+
+	it("trigger_workflow_dispatch logs the workflow_id and ref", async () => {
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const { handlers, server } = captureHandlers();
+		const octokit = {
+			rest: { actions: { createWorkflowDispatch: async () => ({ data: {}, headers: {} }) } },
+		};
+		registerActionTools(server, () => octokit);
+		await invoke(handlers, "trigger_workflow_dispatch", {
+			owner: "o",
+			repo: "r",
+			workflow_id: "ci.yml",
+			ref: "main",
+		});
+		expect(auditEntries(logSpy)).toEqual([
+			{
+				tool: "trigger_workflow_dispatch",
+				owner: "o",
+				repo: "r",
+				workflow_id: "ci.yml",
+				ref: "main",
+			},
+		]);
+	});
+
 	it("does not emit an audit log when the write fails", async () => {
 		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 		const { handlers, server } = captureHandlers();
@@ -217,7 +254,7 @@ describe("write tools emit audit logs", () => {
 
 // A permissive Octokit stub whose every method resolves with a shape generous
 // enough for any single write handler. Each handler only reads a subset, so one
-// fixture covers all 14 — this keeps the all-tools coverage table below from
+// fixture covers all 18 — this keeps the all-tools coverage table below from
 // repeating a bespoke mock per tool.
 const wideOctokit = () => {
 	const ok = (data) => async () => ({ data, headers: {} });
@@ -257,6 +294,8 @@ const wideOctokit = () => {
 			actions: {
 				reRunWorkflow: ok({}),
 				reRunWorkflowFailedJobs: ok({}),
+				cancelWorkflowRun: ok({}),
+				createWorkflowDispatch: ok({}),
 			},
 		},
 	};
@@ -320,6 +359,12 @@ const WRITE_TOOLS = [
 	],
 	[registerActionTools, "rerun_workflow_run", { owner: "o", repo: "r", run_id: 1 }],
 	[registerActionTools, "rerun_failed_jobs", { owner: "o", repo: "r", run_id: 1 }],
+	[registerActionTools, "cancel_workflow_run", { owner: "o", repo: "r", run_id: 1 }],
+	[
+		registerActionTools,
+		"trigger_workflow_dispatch",
+		{ owner: "o", repo: "r", workflow_id: "ci.yml", ref: "main" },
+	],
 ];
 
 describe("every write tool emits exactly one audit line tagged with its own name", () => {
