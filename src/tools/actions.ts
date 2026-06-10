@@ -369,9 +369,12 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 				});
 				logRateLimit(headers);
 				const expiry = data.expired ? "expired" : `expires ${data.expires_at ?? "(unknown)"}`;
+				// `workflow_run` and its `id` are both optional in the API schema — guard
+				// the id too so a partial block renders "(unknown)" rather than a literal
+				// `undefined` (head_branch / head_sha already have their own fallbacks).
 				const run = data.workflow_run;
 				const runLine =
-					run != null
+					run?.id != null
 						? `- from run: \`${run.id}\` (branch \`${run.head_branch ?? "?"}\` @ \`${run.head_sha?.slice(0, 7) ?? "?"}\`)`
 						: "- from run: (unknown)";
 				const lines = [

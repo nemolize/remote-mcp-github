@@ -504,6 +504,36 @@ describe("registerActionTools", () => {
 		expect(body).toContain("- from run: (unknown)");
 	});
 
+	it("get_artifact handles a workflow_run block whose id is absent", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit({
+			getArtifact: async () => ({
+				data: {
+					id: 2,
+					name: "logs",
+					size_in_bytes: 10,
+					expired: false,
+					expires_at: "2026-09-01T00:00:00Z",
+					created_at: "2026-06-01T00:00:00Z",
+					updated_at: "2026-06-01T00:00:00Z",
+					workflow_run: { head_branch: "main" },
+					archive_download_url: "https://api.github.com/repos/o/r/actions/artifacts/2/zip",
+				},
+				headers: {},
+			}),
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_artifact", {
+			owner: "o",
+			repo: "r",
+			artifact_id: 2,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("- from run: (unknown)");
+		expect(body).not.toContain("undefined");
+	});
+
 	it("get_workflow_run surfaces Octokit errors via wrapTool (isError = true)", async () => {
 		const { handlers, server } = captureHandlers();
 		const octokit = stubOctokit({
