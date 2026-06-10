@@ -592,13 +592,20 @@ describe("registerActionTools", () => {
 
 	it("rerun_workflow_run returns confirmation with run ID and repo", async () => {
 		const { handlers, server } = captureHandlers();
-		const octokit = stubOctokit();
+		let capturedParams;
+		const octokit = stubOctokit({
+			reRunWorkflow: async (params) => {
+				capturedParams = params;
+				return { data: {}, headers: {} };
+			},
+		});
 		registerActionTools(server, () => octokit);
 
 		const result = await invoke(handlers, "rerun_workflow_run", {
 			owner: "o",
 			repo: "r",
 			run_id: 999,
+			enable_debug_logging: true,
 		});
 		const body = result.content[0].text;
 		expect(body).toContain("# Re-run requested");
@@ -606,6 +613,13 @@ describe("registerActionTools", () => {
 		expect(body).toContain("o/r");
 		expect(body).toContain("all jobs");
 		expect(result.isError).toBeUndefined();
+		// Verify the correct Octokit method was called with the right params
+		expect(capturedParams).toMatchObject({
+			owner: "o",
+			repo: "r",
+			run_id: 999,
+			enable_debug_logging: true,
+		});
 	});
 
 	it("rerun_workflow_run surfaces Octokit errors via wrapTool (isError = true)", async () => {
@@ -630,19 +644,30 @@ describe("registerActionTools", () => {
 
 	it("rerun_failed_jobs returns confirmation with run ID and repo", async () => {
 		const { handlers, server } = captureHandlers();
-		const octokit = stubOctokit();
+		let capturedParams;
+		const octokit = stubOctokit({
+			reRunWorkflowFailedJobs: async (params) => {
+				capturedParams = params;
+				return { data: {}, headers: {} };
+			},
+		});
 		registerActionTools(server, () => octokit);
 
 		const result = await invoke(handlers, "rerun_failed_jobs", {
 			owner: "o",
 			repo: "r",
 			run_id: 888,
+			enable_debug_logging: false,
 		});
 		const body = result.content[0].text;
 		expect(body).toContain("# Re-run requested (failed jobs)");
 		expect(body).toContain("`888`");
 		expect(body).toContain("o/r");
 		expect(result.isError).toBeUndefined();
+		// Verify the correct Octokit method was called with the right params
+		// enable_debug_logging: false is stripped by stripUndefined (false is falsy but not
+		// undefined — stripUndefined only removes undefined values, so false passes through)
+		expect(capturedParams).toMatchObject({ owner: "o", repo: "r", run_id: 888 });
 	});
 
 	it("rerun_failed_jobs surfaces Octokit errors via wrapTool (isError = true)", async () => {
