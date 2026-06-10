@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { registerActionTools } from "../src/tools/actions.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
 
-const stubOctokit = (overrides) => ({
+const stubOctokit = (overrides, { request } = {}) => ({
+	request: request ?? (async () => ({ data: "", headers: {} })),
 	rest: {
 		actions: {
 			listWorkflowRuns: async () => ({ data: { workflow_runs: [] }, headers: {} }),
@@ -360,6 +361,59 @@ describe("registerActionTools", () => {
 
 		const result = await invoke(handlers, "get_job_logs", { owner: "o", repo: "r", job_id: 9 });
 		expect(result.content[0].text).toBe("(no logs for job 9)");
+	});
+
+	it("get_workflow_run_logs returns the short-lived archive URL without following the redirect", async () => {
+		const { handlers, server } = captureHandlers();
+		let captured;
+		const octokit = stubOctokit(
+			{},
+			{
+				request: async (route, params) => {
+					captured = { route, params };
+					return {
+						status: 302,
+						data: "",
+						headers: { location: "https://logs.example/archive.zip?sig=abc" },
+					};
+				},
+			},
+		);
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_workflow_run_logs", {
+			owner: "o",
+			repo: "r",
+			run_id: 555,
+		});
+		const body = result.content[0].text;
+		expect(captured.route).toContain("/actions/runs/{run_id}/logs");
+		expect(captured.params).toMatchObject({
+			owner: "o",
+			repo: "r",
+			run_id: 555,
+			request: { redirect: "manual" },
+		});
+		expect(body).toContain("# Logs for run 555 in o/r");
+		expect(body).toContain("https://logs.example/archive.zip?sig=abc");
+		expect(body).toContain("get_job_logs");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("get_workflow_run_logs reports when no archive URL is returned", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(
+			{},
+			{ request: async () => ({ status: 302, data: "", headers: {} }) },
+		);
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_workflow_run_logs", {
+			owner: "o",
+			repo: "r",
+			run_id: 7,
+		});
+		expect(result.content[0].text).toBe("(no log archive URL returned for run 7)");
 	});
 
 	it("list_workflow_run_artifacts renders ID, name, size, expiry, created time", async () => {

@@ -65,6 +65,7 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `list_workflow_run_jobs`      | read  | Jobs of a run with per-step status — the "what failed?" lookup                                     |
 | `list_workflows`              | read  | Workflows defined in the repo (ID, name, state, path) — discover pipelines / find a `workflow_id`  |
 | `get_job_logs`                | read  | Plain-text logs of a single job, tail-truncated — the "why did it fail?" lookup after the job list |
+| `get_workflow_run_logs`       | read  | Full run log archive download URL (zip of all jobs; short-lived URL, metadata only, no download)   |
 | `list_workflow_run_artifacts` | read  | Artifacts produced by a run (ID, name, size, expiry) — the "what did the build produce?" lookup    |
 | `get_artifact`                | read  | Single artifact metadata + archive download URL (zip; metadata only, no download / unzip)          |
 | `list_branches`               | read  | List branches in a repo (name, head SHA, protected flag)                                           |

@@ -302,6 +302,49 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 	);
 
 	server.registerTool(
+		"get_workflow_run_logs",
+		{
+			description:
+				"Get the download URL for a workflow run's full log archive (a zip of every job's logs). Use when the user wants the complete run logs as a file. The URL is a pre-signed storage link, so it is short-lived (expires within minutes) and fetching it needs no authentication (unlike `get_artifact`'s URL, which is an API endpoint). For reading a specific failing job's log inline, prefer `get_job_logs` — this tool returns a URL only and never downloads or unpacks the zip. Logs for an expired run return 410 Gone; an account without sufficient repository access returns 403.",
+			inputSchema: {
+				...RepoTarget,
+				run_id: z.number().int().positive().describe("Workflow run ID."),
+			},
+		},
+		async ({ owner, repo, run_id }) =>
+			wrapTool(async () => {
+				// Raw `request` (not a typed `client().rest.actions.*` call like every
+				// other handler here) because the pinned octokit has no typed method for
+				// this endpoint — `get_job_logs` uses the typed `downloadJobLogsForWorkflowRun`
+				// precisely because that one exists; the run-logs endpoint has no equivalent.
+				// The logs endpoint answers 302 to a short-lived archive URL. Octokit
+				// follows redirects and downloads the zip body by default; `redirect:
+				// "manual"` stops at the 302 so only the `Location` URL is read — the
+				// zip is never fetched into the Worker (binary handling avoided, per the
+				// get_artifact metadata-only convention).
+				const { headers } = await client().request(
+					"GET /repos/{owner}/{repo}/actions/runs/{run_id}/logs",
+					{ owner, repo, run_id, request: { redirect: "manual" } },
+				);
+				logRateLimit(headers);
+				const url = headers.location;
+				if (url == null || url.length === 0) {
+					return text(`(no log archive URL returned for run ${run_id})`);
+				}
+				const lines = [
+					`# Logs for run ${run_id} in ${owner}/${repo}`,
+					"",
+					"> Full run log archive (zip of all jobs' logs).",
+					"",
+					"- the download URL below is short-lived (expires within minutes) and needs no authentication",
+					"- to read a specific job's log inline, use `get_job_logs` instead",
+					`- download (zip): ${url}`,
+				];
+				return text(truncate(lines.join("\n")));
+			}),
+	);
+
+	server.registerTool(
 		"list_workflow_run_artifacts",
 		{
 			description:
