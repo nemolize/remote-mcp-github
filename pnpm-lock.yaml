@@ -19,7 +19,7 @@ importers:
         version: 0.9.0(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260515.1)(ai@6.0.182(zod@4.4.3))(react@19.2.6)(rolldown@1.0.1)(vite@8.0.13(@types/node@24.13.1)(esbuild@0.27.3))(zod@4.4.3)
       hono:
         specifier: ^4.12.9
-        version: 4.12.21
+        version: 4.12.23
       just-pick:
         specifier: ^4.2.0
         version: 4.2.0
@@ -1590,8 +1590,8 @@ packages:
     resolution: {integrity: sha512-ej4AhfhfL2Q2zpMmLo7U1Uv9+PyhIZpgQLGT1F9miIGmiCJIoCgSmczFdrc97mWT4kVY72KA+WnnhJ5pghSvSg==}
     engines: {node: '>= 0.4'}
 
-  hono@4.12.21:
-    resolution: {integrity: sha512-uV63apnb0kyPtAUwoWgaGh9HyIFcv8lgmzPZSiTBQAFOFGIzka5EZ1dZocmGnn0XdX0+XTqJ6Tqv7selMuGLRQ==}
+  hono@4.12.23:
+    resolution: {integrity: sha512-eIaZ9qDgu7XV0pxOCrg7/WhnQ6Ivm22UcxhXx/A3dcbqbbYgBEkc6e/J/s7j2tS96zoB0S9VBdLwQNCWwUo4LA==}
     engines: {node: '>=16.9.0'}
 
   http-errors@2.0.1:
@@ -2894,9 +2894,9 @@ snapshots:
       '@eslint/core': 1.2.1
       levn: 0.4.1
 
-  '@hono/node-server@1.19.14(hono@4.12.21)':
+  '@hono/node-server@1.19.14(hono@4.12.23)':
     dependencies:
-      hono: 4.12.21
+      hono: 4.12.23
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -3038,7 +3038,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.21)
+      '@hono/node-server': 1.19.14(hono@4.12.23)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -3048,7 +3048,7 @@ snapshots:
       eventsource-parser: 3.0.8
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.12.21
+      hono: 4.12.23
       jose: 6.2.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -3909,7 +3909,7 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  hono@4.12.21: {}
+  hono@4.12.23: {}
 
   http-errors@2.0.1:
     dependencies:
