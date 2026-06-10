@@ -12,6 +12,8 @@ const stubOctokit = (overrides) => ({
 			listJobsForWorkflowRun: async () => ({ data: { jobs: [] }, headers: {} }),
 			listRepoWorkflows: async () => ({ data: { workflows: [] }, headers: {} }),
 			downloadJobLogsForWorkflowRun: async () => ({ data: "", headers: {} }),
+			listWorkflowRunArtifacts: async () => ({ data: { artifacts: [] }, headers: {} }),
+			getArtifact: async () => ({ data: {}, headers: {} }),
 			...overrides,
 		},
 	},
@@ -358,6 +360,148 @@ describe("registerActionTools", () => {
 
 		const result = await invoke(handlers, "get_job_logs", { owner: "o", repo: "r", job_id: 9 });
 		expect(result.content[0].text).toBe("(no logs for job 9)");
+	});
+
+	it("list_workflow_run_artifacts renders ID, name, size, expiry, created time", async () => {
+		const { handlers, server } = captureHandlers();
+		let captured;
+		const octokit = stubOctokit({
+			listWorkflowRunArtifacts: async (params) => {
+				captured = params;
+				return {
+					data: {
+						artifacts: [
+							{
+								id: 555,
+								name: "dist",
+								size_in_bytes: 1536,
+								expired: false,
+								expires_at: "2026-09-01T00:00:00Z",
+								created_at: "2026-06-01T00:00:00Z",
+							},
+							{
+								id: 556,
+								name: "coverage",
+								size_in_bytes: 100,
+								expired: true,
+								expires_at: "2026-05-01T00:00:00Z",
+								created_at: "2026-04-01T00:00:00Z",
+							},
+						],
+					},
+					headers: {},
+				};
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_workflow_run_artifacts", {
+			owner: "o",
+			repo: "r",
+			run_id: 7,
+			name: "dist",
+			per_page: 10,
+			page: 2,
+		});
+		const body = result.content[0].text;
+		expect(captured).toMatchObject({
+			owner: "o",
+			repo: "r",
+			run_id: 7,
+			name: "dist",
+			per_page: 10,
+			page: 2,
+		});
+		expect(body).toContain("# Artifacts for run 7 (2)");
+		expect(body).toContain(
+			"`555` **dist** — 1.5 KiB, expires 2026-09-01T00:00:00Z, created 2026-06-01T00:00:00Z",
+		);
+		expect(body).toContain("`556` **coverage** — 100 B, expired, created 2026-04-01T00:00:00Z");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("list_workflow_run_artifacts reports an empty result", async () => {
+		const { handlers, server } = captureHandlers();
+		registerActionTools(server, () => stubOctokit({}));
+
+		const result = await invoke(handlers, "list_workflow_run_artifacts", {
+			owner: "o",
+			repo: "r",
+			run_id: 7,
+		});
+		expect(result.content[0].text).toBe("(no artifacts found for this run)");
+	});
+
+	it("get_artifact renders metadata, producing run, and download URL", async () => {
+		const { handlers, server } = captureHandlers();
+		let captured;
+		const octokit = stubOctokit({
+			getArtifact: async (params) => {
+				captured = params;
+				return {
+					data: {
+						id: 555,
+						name: "dist",
+						size_in_bytes: 2 * 1024 * 1024,
+						expired: false,
+						expires_at: "2026-09-01T00:00:00Z",
+						created_at: "2026-06-01T00:00:00Z",
+						updated_at: "2026-06-01T00:05:00Z",
+						workflow_run: { id: 999, head_branch: "main", head_sha: "abcdef1234567890" },
+						archive_download_url: "https://api.github.com/repos/o/r/actions/artifacts/555/zip",
+					},
+					headers: {},
+				};
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_artifact", {
+			owner: "o",
+			repo: "r",
+			artifact_id: 555,
+		});
+		const body = result.content[0].text;
+		expect(captured).toMatchObject({ owner: "o", repo: "r", artifact_id: 555 });
+		expect(body).toContain("# Artifact `555` in o/r");
+		expect(body).toContain("> dist — 2.0 MiB (zip)");
+		expect(body).toContain("- expires 2026-09-01T00:00:00Z");
+		expect(body).toContain("- from run: `999` (branch `main` @ `abcdef1`)");
+		expect(body).toContain(
+			"- download (authenticated API request): https://api.github.com/repos/o/r/actions/artifacts/555/zip",
+		);
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("get_artifact handles a missing workflow_run block", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit({
+			getArtifact: async () => ({
+				data: {
+					id: 1,
+					name: "logs",
+					size_in_bytes: 10,
+					expired: true,
+					expires_at: null,
+					created_at: null,
+					updated_at: null,
+					workflow_run: null,
+					archive_download_url: "https://api.github.com/repos/o/r/actions/artifacts/1/zip",
+				},
+				headers: {},
+			}),
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_artifact", {
+			owner: "o",
+			repo: "r",
+			artifact_id: 1,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("- expired");
+		expect(body).toContain("- created: (unknown)");
+		expect(body).toContain("- from run: (unknown)");
 	});
 
 	it("get_workflow_run surfaces Octokit errors via wrapTool (isError = true)", async () => {
