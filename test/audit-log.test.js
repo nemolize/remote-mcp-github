@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { logWrite } from "../src/mcp/response.js";
+import { registerActionTools } from "../src/tools/actions.js";
 import { registerBranchTools } from "../src/tools/branches.js";
 import { registerFileTools } from "../src/tools/files.js";
 import { registerIssueTools } from "../src/tools/issues.js";
@@ -253,6 +254,10 @@ const wideOctokit = () => {
 				create: ok({ number: 7, title: "t", draft: false, html_url: "https://x" }),
 				requestReviewers: ok({ requested_reviewers: [{ login: "a" }], requested_teams: [] }),
 			},
+			actions: {
+				reRunWorkflow: ok({}),
+				reRunWorkflowFailedJobs: ok({}),
+			},
 		},
 	};
 };
@@ -313,6 +318,8 @@ const WRITE_TOOLS = [
 		"request_pr_review",
 		{ owner: "o", repo: "r", pull_number: 1, reviewers: ["a"] },
 	],
+	[registerActionTools, "rerun_workflow_run", { owner: "o", repo: "r", run_id: 1 }],
+	[registerActionTools, "rerun_failed_jobs", { owner: "o", repo: "r", run_id: 1 }],
 ];
 
 describe("every write tool emits exactly one audit line tagged with its own name", () => {

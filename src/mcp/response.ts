@@ -154,8 +154,9 @@ export const logRateLimit = (
 
 // Fields a write tool reports about the mutation it performed. `tool` is always
 // present; the rest are tool-specific (e.g. `owner` + `repo` + `branch` +
-// `path` for file commits, `issue_number` for issue/PR edits, `thread_id` for
-// GraphQL review-thread mutations that have no owner/repo at the call boundary).
+// `path` for file commits, `issue_number` for issue/PR edits, `run_id` for
+// workflow-run mutations, `thread_id` for GraphQL review-thread mutations that
+// have no owner/repo at the call boundary).
 // `null`/undefined values are dropped so the emitted line only carries what the
 // call touched.
 export type WriteAuditFields = {
@@ -166,6 +167,7 @@ export type WriteAuditFields = {
 	path?: string;
 	issue_number?: number;
 	pull_number?: number;
+	run_id?: number;
 	file_count?: number;
 	thread_id?: string;
 };
