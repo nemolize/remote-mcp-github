@@ -495,4 +495,69 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 				);
 			}),
 	);
+
+	server.registerTool(
+		"cancel_workflow_run",
+		{
+			description:
+				"Cancel an in-progress GitHub Actions workflow run, stopping its remaining jobs. Use when the user asks to stop / abort a running build. Mutates CI state. A run that has already finished returns 409 Conflict. Cancellation is asynchronous; returns a confirmation, poll `get_workflow_run` until the run's conclusion becomes `cancelled`.",
+			inputSchema: {
+				...RepoTarget,
+				run_id: z.number().int().positive().describe("Workflow run ID to cancel."),
+			},
+		},
+		async ({ owner, repo, run_id }) =>
+			wrapTool(async () => {
+				// cancelWorkflowRun answers 202 Accepted with an empty body — the
+				// cancellation is async, so there is no final state to render. Report
+				// the request; the caller reads the eventual `cancelled` conclusion via
+				// get_workflow_run.
+				const { headers } = await client().rest.actions.cancelWorkflowRun(
+					stripUndefined({ owner, repo, run_id }),
+				);
+				logRateLimit(headers);
+				logWrite({ tool: "cancel_workflow_run", owner, repo, run_id });
+				return text(
+					`# Cancellation requested\n\n- run \`${run_id}\` in ${owner}/${repo} requested to cancel (asynchronous)\n- poll \`get_workflow_run\` (run_id ${run_id}) until its conclusion is \`cancelled\``,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"trigger_workflow_dispatch",
+		{
+			description:
+				"Trigger a `workflow_dispatch`-enabled workflow manually on a given branch or tag, optionally with inputs. Use when the user asks to run / kick off a workflow by hand. Mutates CI state. The workflow's definition must declare a `workflow_dispatch` trigger, or GitHub returns 422. The dispatch endpoint returns no run reference; after triggering, find the new run with `list_workflow_runs` (filter by this `workflow_id` and `event: 'workflow_dispatch'`).",
+			inputSchema: {
+				...RepoTarget,
+				workflow_id: WorkflowId.describe(
+					"Workflow filename (e.g. 'ci.yml') or numeric ID to dispatch.",
+				),
+				ref: z.string().min(1).describe("Branch or tag the workflow runs against (e.g. 'main')."),
+				inputs: z
+					// GitHub accepts string / number / boolean input values (it coerces
+					// per the workflow's declared input types), so accept all three
+					// scalars rather than forcing every value to a string.
+					.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+					.optional()
+					.describe(
+						"`workflow_dispatch` inputs as a string-keyed map of scalar values. Must match the workflow's declared inputs.",
+					),
+			},
+		},
+		async ({ owner, repo, workflow_id, ref, inputs }) =>
+			wrapTool(async () => {
+				// createWorkflowDispatch answers 204 No Content — GitHub returns no run
+				// reference for the dispatched run, so there is nothing to render but the
+				// request. The caller locates the new run via list_workflow_runs.
+				const { headers } = await client().rest.actions.createWorkflowDispatch(
+					stripUndefined({ owner, repo, workflow_id, ref, inputs }),
+				);
+				logRateLimit(headers);
+				logWrite({ tool: "trigger_workflow_dispatch", owner, repo, workflow_id, ref });
+				return text(
+					`# Workflow dispatch requested\n\n- workflow \`${workflow_id}\` in ${owner}/${repo} dispatched on \`${ref}\`\n- the dispatch endpoint returns no run ID; find the new run with \`list_workflow_runs\` (workflow_id \`${workflow_id}\`, event \`workflow_dispatch\`)`,
+				);
+			}),
+	);
 };
