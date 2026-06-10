@@ -28,6 +28,20 @@ const outcomeOf = (status: string | null, conclusion: string | null): string =>
 // re-describes it), so none is set here.
 const WorkflowId = z.union([z.number().int().positive(), z.string().min(1)]);
 
+// Artifact sizes span bytes to gigabytes; a binary-prefixed rendering keeps the
+// list line readable at every scale (raw byte counts are unreadable past ~1 MiB).
+const formatBytes = (bytes: number): string => {
+	if (bytes < 1024) return `${bytes} B`;
+	const units = ["KiB", "MiB", "GiB", "TiB"];
+	let value = bytes / 1024;
+	let unit = 0;
+	while (value >= 1024 && unit < units.length - 1) {
+		value /= 1024;
+		unit += 1;
+	}
+	return `${value.toFixed(1)} ${units[unit]}`;
+};
+
 export const registerActionTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"list_workflow_runs",
@@ -284,6 +298,97 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 						"Inspect a more specific job, or open the run on GitHub, to see earlier output.",
 					)}`,
 				);
+			}),
+	);
+
+	server.registerTool(
+		"list_workflow_run_artifacts",
+		{
+			description:
+				"List the artifacts produced by a workflow run (one line per artifact: ID, name, size, expiry). Use when the user asks what a build produced or wants a build output. Returns each artifact's ID for `get_artifact`. Artifacts are zip archives; this tool reports metadata only and never downloads or unpacks them.",
+			inputSchema: {
+				...RepoTarget,
+				run_id: z.number().int().positive().describe("Workflow run ID."),
+				name: z
+					.string()
+					.optional()
+					.describe(
+						"Only artifacts with exactly this name (the name set by `actions/upload-artifact`).",
+					),
+				per_page: z.number().int().min(1).max(100).optional().default(30),
+				page: z
+					.number()
+					.int()
+					.min(1)
+					.optional()
+					.describe("Page number (1-indexed). Defaults to 1."),
+			},
+		},
+		async ({ owner, repo, run_id, name, per_page, page }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.actions.listWorkflowRunArtifacts(
+					stripUndefined({ owner, repo, run_id, name, per_page, page }),
+				);
+				logRateLimit(headers);
+				if (data.artifacts.length === 0) return text("(no artifacts found for this run)");
+				const lines = data.artifacts.map((a) => {
+					const expiry = a.expired ? "expired" : `expires ${a.expires_at ?? "(unknown)"}`;
+					return `- \`${a.id}\` **${a.name}** — ${formatBytes(a.size_in_bytes)}, ${expiry}, created ${a.created_at ?? "(unknown)"}`;
+				});
+				const hasMore = (headers.link ?? "").includes('rel="next"');
+				const header = restListHeader({
+					title: `Artifacts for run ${run_id}`,
+					count: data.artifacts.length,
+					page,
+					hasMore,
+				});
+				return text(truncate(`${header}\n\n${lines.join("\n")}`));
+			}),
+	);
+
+	server.registerTool(
+		"get_artifact",
+		{
+			description:
+				"Fetch a single artifact's metadata: name, size, expiry, the producing workflow run, and the archive download URL. Use after `list_workflow_run_artifacts` to inspect one artifact by ID. The artifact is a zip archive — this tool returns its metadata and download URL only (no download / unzip); fetching the URL requires an authenticated GitHub API request.",
+			inputSchema: {
+				...RepoTarget,
+				artifact_id: z
+					.number()
+					.int()
+					.positive()
+					.describe("Artifact ID (from `list_workflow_run_artifacts`)."),
+			},
+		},
+		async ({ owner, repo, artifact_id }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.actions.getArtifact({
+					owner,
+					repo,
+					artifact_id,
+				});
+				logRateLimit(headers);
+				const expiry = data.expired ? "expired" : `expires ${data.expires_at ?? "(unknown)"}`;
+				// `workflow_run` and its `id` are both optional in the API schema — guard
+				// the id too so a partial block renders "(unknown)" rather than a literal
+				// `undefined` (head_branch / head_sha already have their own fallbacks).
+				const run = data.workflow_run;
+				const runLine =
+					run?.id != null
+						? `- from run: \`${run.id}\` (branch \`${run.head_branch ?? "?"}\` @ \`${run.head_sha?.slice(0, 7) ?? "?"}\`)`
+						: "- from run: (unknown)";
+				const lines = [
+					`# Artifact \`${data.id}\` in ${owner}/${repo}`,
+					"",
+					`> ${data.name} — ${formatBytes(data.size_in_bytes)} (zip)`,
+					"",
+					`- ${expiry}`,
+					`- created: ${data.created_at ?? "(unknown)"}`,
+					`- updated: ${data.updated_at ?? "(unknown)"}`,
+					runLine,
+					`- download (authenticated API request): ${data.archive_download_url}`,
+				];
+				return text(truncate(lines.join("\n")));
 			}),
 	);
 };

@@ -12,23 +12,23 @@ Several GitHub MCP servers exist, alongside GitHub's own `gh` CLI. This server's
 
 The table below compares coverage by **feature area** against the two most common alternatives. It stays deliberately coarse-grained — the [tool table](#whats-included) is the source of truth for which tools exist right now, and `gh`'s coverage is documented in the [GitHub CLI manual](https://cli.github.com/manual/). Legend: ✅ first-class · ⚠️ only via a lower-level escape hatch (`gh api`, local `git`) · ❌ absent.
 
-| Feature area                                                  | This server                                                                                                                                      | Official `mcp__github__*` | `gh` CLI                         |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------- | -------------------------------- |
-| Repo metadata & discovery                                     | ✅                                                                                                                                               | ✅                        | ✅                               |
-| Issue read / triage / lifecycle (labels, assignees, comments) | ✅                                                                                                                                               | ✅                        | ✅                               |
-| Code & repo search                                            | ✅                                                                                                                                               | ✅                        | ✅                               |
-| File content read + remote commit (single & multi-file)       | ✅                                                                                                                                               | ✅                        | ⚠️ `gh api` only                 |
-| Branch list / create / delete                                 | ✅                                                                                                                                               | ✅                        | ⚠️ `gh api` / local `git`        |
-| PR open / diff / request reviewers                            | ✅                                                                                                                                               | ✅                        | ✅                               |
-| PR read detail / merge / update lifecycle                     | ✅                                                                                                                                               | ✅                        | ✅                               |
-| PR reviews & review comments (read + reply)                   | ⚠️ read only (`list_pr_reviews` + threads); reply not yet                                                                                        | ✅                        | ⚠️ partial (`gh api` for inline) |
-| **PR review thread resolve / unresolve**                      | ✅                                                                                                                                               | ❌                        | ⚠️ `gh api graphql` only         |
-| Commit history (list / show / compare)                        | ✅                                                                                                                                               | ✅                        | ⚠️ `gh api` only                 |
-| Workflow / Actions (CI status, logs, rerun)                   | ⚠️ read only (runs, jobs, workflows, job logs); rerun / cancel / dispatch planned ([#8](https://github.com/nemolize/remote-mcp-github/issues/8)) | ✅                        | ✅                               |
-| Releases & tags                                               | ❌                                                                                                                                               | ✅                        | ✅                               |
-| Repo admin (create / fork / delete)                           | ❌                                                                                                                                               | ✅                        | ✅                               |
-| Security scanning (secret / code / Dependabot)                | ❌                                                                                                                                               | ✅                        | ⚠️ `gh api` only                 |
-| Local working-tree ops (clone, checkout, …)                   | ❌ — out of scope (remote-only)                                                                                                                  | ❌                        | ✅                               |
+| Feature area                                                  | This server                                                                                                                                                 | Official `mcp__github__*` | `gh` CLI                         |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | -------------------------------- |
+| Repo metadata & discovery                                     | ✅                                                                                                                                                          | ✅                        | ✅                               |
+| Issue read / triage / lifecycle (labels, assignees, comments) | ✅                                                                                                                                                          | ✅                        | ✅                               |
+| Code & repo search                                            | ✅                                                                                                                                                          | ✅                        | ✅                               |
+| File content read + remote commit (single & multi-file)       | ✅                                                                                                                                                          | ✅                        | ⚠️ `gh api` only                 |
+| Branch list / create / delete                                 | ✅                                                                                                                                                          | ✅                        | ⚠️ `gh api` / local `git`        |
+| PR open / diff / request reviewers                            | ✅                                                                                                                                                          | ✅                        | ✅                               |
+| PR read detail / merge / update lifecycle                     | ✅                                                                                                                                                          | ✅                        | ✅                               |
+| PR reviews & review comments (read + reply)                   | ⚠️ read only (`list_pr_reviews` + threads); reply not yet                                                                                                   | ✅                        | ⚠️ partial (`gh api` for inline) |
+| **PR review thread resolve / unresolve**                      | ✅                                                                                                                                                          | ❌                        | ⚠️ `gh api graphql` only         |
+| Commit history (list / show / compare)                        | ✅                                                                                                                                                          | ✅                        | ⚠️ `gh api` only                 |
+| Workflow / Actions (CI status, logs, rerun)                   | ⚠️ read only (runs, jobs, workflows, job logs, artifacts); rerun / cancel / dispatch planned ([#8](https://github.com/nemolize/remote-mcp-github/issues/8)) | ✅                        | ✅                               |
+| Releases & tags                                               | ❌                                                                                                                                                          | ✅                        | ✅                               |
+| Repo admin (create / fork / delete)                           | ❌                                                                                                                                                          | ✅                        | ✅                               |
+| Security scanning (secret / code / Dependabot)                | ❌                                                                                                                                                          | ✅                        | ⚠️ `gh api` only                 |
+| Local working-tree ops (clone, checkout, …)                   | ❌ — out of scope (remote-only)                                                                                                                             | ❌                        | ✅                               |
 
 Also outside this server's scope today: notifications, Copilot delegation, gists, and projects — reach for the official server or `gh` for those.
 
@@ -41,49 +41,51 @@ Also outside this server's scope today: notifications, Copilot delegation, gists
 
 All tools respond in Markdown (not raw JSON) so the model can read them efficiently, and large payloads (diff, file content) are truncated at the boundary.
 
-| Tool                      | Kind  | Purpose                                                                                            |
-| ------------------------- | ----- | -------------------------------------------------------------------------------------------------- |
-| `list_my_repos`           | read  | Authenticated user's repositories, with visibility / sort options                                  |
-| `get_repo`                | read  | Repo metadata (default branch, visibility, flags, stars, language, timestamps)                     |
-| `get_authenticated_user`  | read  | Identity bound to the current OAuth token (login, profile, repo counts)                            |
-| `search_repositories`     | read  | Cross-GitHub repo search (uses GitHub search qualifiers like `org:`, `user:<login>`, `stars:>N`)   |
-| `search_issues`           | read  | Issue / PR search inside a specific repo                                                           |
-| `get_issue`               | read  | Single issue / PR detail (title, body, state, labels, assignees, milestone)                        |
-| `list_issue_comments`     | read  | Conversation comments on an issue or PR                                                            |
-| `list_labels`             | read  | Labels defined in the repo (companion read for `add_labels` / `update_issue`)                      |
-| `get_file_content`        | read  | Raw file contents at a path + ref (directory listings supported)                                   |
-| `list_commits`            | read  | Commit history (git log) filtered by branch / path / author / date window                          |
-| `get_commit`              | read  | Single commit detail — message, author, parents, per-file stats, diff                              |
-| `compare_commits`         | read  | Diff between two refs (ahead / behind counts, merge base, per-file stats, diff)                    |
-| `get_pr_diff`             | read  | Unified diff for a pull request                                                                    |
-| `get_pull_request`        | read  | Full PR detail — state, mergeable state, head/base SHAs, reviewers, commit/diff counts             |
-| `list_pr_reviews`         | read  | Submitted reviews — state (APPROVED / CHANGES_REQUESTED / …), reviewer, summary body, submitted_at |
-| `list_pr_review_threads`  | read  | PR review threads with node IDs (`PRRT_…`) + resolved state (companion read for resolve/unresolve) |
-| `search_code`             | read  | Code search across GitHub                                                                          |
-| `list_workflow_runs`      | read  | Recent Actions workflow runs filtered by workflow / branch / event / status                        |
-| `get_workflow_run`        | read  | Single run detail — status / conclusion, event, actor, head branch / SHA, attempt, timestamps      |
-| `list_workflow_run_jobs`  | read  | Jobs of a run with per-step status — the "what failed?" lookup                                     |
-| `list_workflows`          | read  | Workflows defined in the repo (ID, name, state, path) — discover pipelines / find a `workflow_id`  |
-| `get_job_logs`            | read  | Plain-text logs of a single job, tail-truncated — the "why did it fail?" lookup after the job list |
-| `list_branches`           | read  | List branches in a repo (name, head SHA, protected flag)                                           |
-| `create_branch`           | write | Branch from a base (or the repo's default)                                                         |
-| `delete_branch`           | write | Delete a branch (default branch refused)                                                           |
-| `commit_file`             | write | Create or update a single file on a branch in one commit                                           |
-| `commit_files`            | write | Create or update multiple files on a branch in one commit (Tree API, per-file mode / encoding)     |
-| `delete_file`             | write | Delete a single file on a branch in one commit (auto-SHA lookup like `commit_file`)                |
-| `create_pull_request`     | write | Open a PR (same-repo `head` by default; `cross_repo_head` for fork PRs)                            |
-| `update_pull_request`     | write | Edit a PR's title / body / state (close / reopen) / base branch                                    |
-| `merge_pull_request`      | write | Merge a PR (merge / squash / rebase; optional commit message and `sha` concurrency guard)          |
-| `request_pr_review`       | write | Request reviewers (users and/or teams) on a PR                                                     |
-| `resolve_review_thread`   | write | Mark a PR review thread resolved (GraphQL; thread node ID)                                         |
-| `unresolve_review_thread` | write | Re-open a resolved PR review thread (GraphQL; thread node ID)                                      |
-| `create_issue`            | write | Title + body + labels + assignees                                                                  |
-| `update_issue`            | write | Edit title / body / state / labels / assignees / milestone (labels and assignees replace)          |
-| `add_labels`              | write | Append labels to an issue or PR without restating the existing set                                 |
-| `remove_label`            | write | Remove a single label from an issue or PR                                                          |
-| `add_assignees`           | write | Append assignees to an issue or PR without restating the existing set                              |
-| `remove_assignees`        | write | Remove specific assignees from an issue or PR                                                      |
-| `add_comment`             | write | Comment on an issue or PR                                                                          |
+| Tool                          | Kind  | Purpose                                                                                            |
+| ----------------------------- | ----- | -------------------------------------------------------------------------------------------------- |
+| `list_my_repos`               | read  | Authenticated user's repositories, with visibility / sort options                                  |
+| `get_repo`                    | read  | Repo metadata (default branch, visibility, flags, stars, language, timestamps)                     |
+| `get_authenticated_user`      | read  | Identity bound to the current OAuth token (login, profile, repo counts)                            |
+| `search_repositories`         | read  | Cross-GitHub repo search (uses GitHub search qualifiers like `org:`, `user:<login>`, `stars:>N`)   |
+| `search_issues`               | read  | Issue / PR search inside a specific repo                                                           |
+| `get_issue`                   | read  | Single issue / PR detail (title, body, state, labels, assignees, milestone)                        |
+| `list_issue_comments`         | read  | Conversation comments on an issue or PR                                                            |
+| `list_labels`                 | read  | Labels defined in the repo (companion read for `add_labels` / `update_issue`)                      |
+| `get_file_content`            | read  | Raw file contents at a path + ref (directory listings supported)                                   |
+| `list_commits`                | read  | Commit history (git log) filtered by branch / path / author / date window                          |
+| `get_commit`                  | read  | Single commit detail — message, author, parents, per-file stats, diff                              |
+| `compare_commits`             | read  | Diff between two refs (ahead / behind counts, merge base, per-file stats, diff)                    |
+| `get_pr_diff`                 | read  | Unified diff for a pull request                                                                    |
+| `get_pull_request`            | read  | Full PR detail — state, mergeable state, head/base SHAs, reviewers, commit/diff counts             |
+| `list_pr_reviews`             | read  | Submitted reviews — state (APPROVED / CHANGES_REQUESTED / …), reviewer, summary body, submitted_at |
+| `list_pr_review_threads`      | read  | PR review threads with node IDs (`PRRT_…`) + resolved state (companion read for resolve/unresolve) |
+| `search_code`                 | read  | Code search across GitHub                                                                          |
+| `list_workflow_runs`          | read  | Recent Actions workflow runs filtered by workflow / branch / event / status                        |
+| `get_workflow_run`            | read  | Single run detail — status / conclusion, event, actor, head branch / SHA, attempt, timestamps      |
+| `list_workflow_run_jobs`      | read  | Jobs of a run with per-step status — the "what failed?" lookup                                     |
+| `list_workflows`              | read  | Workflows defined in the repo (ID, name, state, path) — discover pipelines / find a `workflow_id`  |
+| `get_job_logs`                | read  | Plain-text logs of a single job, tail-truncated — the "why did it fail?" lookup after the job list |
+| `list_workflow_run_artifacts` | read  | Artifacts produced by a run (ID, name, size, expiry) — the "what did the build produce?" lookup    |
+| `get_artifact`                | read  | Single artifact metadata + archive download URL (zip; metadata only, no download / unzip)          |
+| `list_branches`               | read  | List branches in a repo (name, head SHA, protected flag)                                           |
+| `create_branch`               | write | Branch from a base (or the repo's default)                                                         |
+| `delete_branch`               | write | Delete a branch (default branch refused)                                                           |
+| `commit_file`                 | write | Create or update a single file on a branch in one commit                                           |
+| `commit_files`                | write | Create or update multiple files on a branch in one commit (Tree API, per-file mode / encoding)     |
+| `delete_file`                 | write | Delete a single file on a branch in one commit (auto-SHA lookup like `commit_file`)                |
+| `create_pull_request`         | write | Open a PR (same-repo `head` by default; `cross_repo_head` for fork PRs)                            |
+| `update_pull_request`         | write | Edit a PR's title / body / state (close / reopen) / base branch                                    |
+| `merge_pull_request`          | write | Merge a PR (merge / squash / rebase; optional commit message and `sha` concurrency guard)          |
+| `request_pr_review`           | write | Request reviewers (users and/or teams) on a PR                                                     |
+| `resolve_review_thread`       | write | Mark a PR review thread resolved (GraphQL; thread node ID)                                         |
+| `unresolve_review_thread`     | write | Re-open a resolved PR review thread (GraphQL; thread node ID)                                      |
+| `create_issue`                | write | Title + body + labels + assignees                                                                  |
+| `update_issue`                | write | Edit title / body / state / labels / assignees / milestone (labels and assignees replace)          |
+| `add_labels`                  | write | Append labels to an issue or PR without restating the existing set                                 |
+| `remove_label`                | write | Remove a single label from an issue or PR                                                          |
+| `add_assignees`               | write | Append assignees to an issue or PR without restating the existing set                              |
+| `remove_assignees`            | write | Remove specific assignees from an issue or PR                                                      |
+| `add_comment`                 | write | Comment on an issue or PR                                                                          |
 
 Both `/mcp` (Streamable HTTP) and `/sse` endpoints are exposed; Claude.ai currently uses `/sse`.
 
