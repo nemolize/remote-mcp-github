@@ -15,6 +15,8 @@ const stubOctokit = (overrides, { request } = {}) => ({
 			downloadJobLogsForWorkflowRun: async () => ({ data: "", headers: {} }),
 			listWorkflowRunArtifacts: async () => ({ data: { artifacts: [] }, headers: {} }),
 			getArtifact: async () => ({ data: {}, headers: {} }),
+			reRunWorkflow: async () => ({ data: {}, headers: {} }),
+			reRunWorkflowFailedJobs: async () => ({ data: {}, headers: {} }),
 			...overrides,
 		},
 	},
@@ -586,6 +588,81 @@ describe("registerActionTools", () => {
 		const body = result.content[0].text;
 		expect(body).toContain("- from run: (unknown)");
 		expect(body).not.toContain("undefined");
+	});
+
+	it("rerun_workflow_run returns confirmation with run ID and repo", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit();
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "rerun_workflow_run", {
+			owner: "o",
+			repo: "r",
+			run_id: 999,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Re-run requested");
+		expect(body).toContain("`999`");
+		expect(body).toContain("o/r");
+		expect(body).toContain("all jobs");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("rerun_workflow_run surfaces Octokit errors via wrapTool (isError = true)", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit({
+			reRunWorkflow: async () => {
+				const err = new Error("Forbidden");
+				err.status = 403;
+				throw err;
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "rerun_workflow_run", {
+			owner: "o",
+			repo: "r",
+			run_id: 1,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("HTTP 403");
+	});
+
+	it("rerun_failed_jobs returns confirmation with run ID and repo", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit();
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "rerun_failed_jobs", {
+			owner: "o",
+			repo: "r",
+			run_id: 888,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Re-run requested (failed jobs)");
+		expect(body).toContain("`888`");
+		expect(body).toContain("o/r");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("rerun_failed_jobs surfaces Octokit errors via wrapTool (isError = true)", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit({
+			reRunWorkflowFailedJobs: async () => {
+				const err = new Error("Not Found");
+				err.status = 404;
+				throw err;
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "rerun_failed_jobs", {
+			owner: "o",
+			repo: "r",
+			run_id: 1,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("HTTP 404");
 	});
 
 	it("get_workflow_run surfaces Octokit errors via wrapTool (isError = true)", async () => {

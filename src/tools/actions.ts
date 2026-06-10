@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
 	logRateLimit,
+	logWrite,
 	MAX_RESPONSE_CHARS,
 	restListHeader,
 	text,
@@ -432,6 +433,66 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 					`- download (authenticated API request): ${data.archive_download_url}`,
 				];
 				return text(truncate(lines.join("\n")));
+			}),
+	);
+	server.registerTool(
+		"rerun_workflow_run",
+		{
+			description:
+				"Re-run an entire workflow run (all jobs), creating a new attempt. Use when the user asks to retry / re-run a whole run — typically after a transient failure. Mutates CI state. For retrying only the jobs that failed, prefer `rerun_failed_jobs`. Returns a confirmation; poll `get_workflow_run` for the new attempt's status.",
+			inputSchema: {
+				...RepoTarget,
+				run_id: z.number().int().positive().describe("Workflow run ID to re-run."),
+				enable_debug_logging: z
+					.boolean()
+					.optional()
+					.describe("Re-run with step debug logging enabled (GitHub's `enable_debug_logging`)."),
+			},
+		},
+		async ({ owner, repo, run_id, enable_debug_logging }) =>
+			wrapTool(async () => {
+				// reRunWorkflow answers 201 with an empty body, so there is no run
+				// detail to render — only the new attempt's eventual state, which the
+				// caller reads via get_workflow_run. Report the action, not a body.
+				const { headers } = await client().rest.actions.reRunWorkflow(
+					stripUndefined({ owner, repo, run_id, enable_debug_logging }),
+				);
+				logRateLimit(headers);
+				logWrite({ tool: "rerun_workflow_run", owner, repo, run_id });
+				return text(
+					`# Re-run requested\n\n- run \`${run_id}\` in ${owner}/${repo} queued for a new attempt (all jobs)\n- check progress with \`get_workflow_run\` (run_id ${run_id})`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"rerun_failed_jobs",
+		{
+			description:
+				"Re-run only the failed jobs of a workflow run (plus any jobs that depend on them), creating a new attempt. Use when the user asks to retry just the failures rather than the whole run. Mutates CI state. For re-running the entire run, use `rerun_workflow_run`. Returns a confirmation; poll `get_workflow_run` for the new attempt's status.",
+			inputSchema: {
+				...RepoTarget,
+				run_id: z
+					.number()
+					.int()
+					.positive()
+					.describe("Workflow run ID whose failed jobs to re-run."),
+				enable_debug_logging: z
+					.boolean()
+					.optional()
+					.describe("Re-run with step debug logging enabled (GitHub's `enable_debug_logging`)."),
+			},
+		},
+		async ({ owner, repo, run_id, enable_debug_logging }) =>
+			wrapTool(async () => {
+				const { headers } = await client().rest.actions.reRunWorkflowFailedJobs(
+					stripUndefined({ owner, repo, run_id, enable_debug_logging }),
+				);
+				logRateLimit(headers);
+				logWrite({ tool: "rerun_failed_jobs", owner, repo, run_id });
+				return text(
+					`# Re-run requested (failed jobs)\n\n- failed jobs of run \`${run_id}\` in ${owner}/${repo} queued for a new attempt\n- check progress with \`get_workflow_run\` (run_id ${run_id})`,
+				);
 			}),
 	);
 };
