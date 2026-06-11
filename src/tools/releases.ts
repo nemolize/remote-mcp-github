@@ -13,12 +13,18 @@ import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
-// A release is exactly one of draft / prerelease / published — GitHub models
-// the first two as boolean flags on top of the published state, so collapse
-// the pair into the single human-facing label a "what's the latest release?"
-// reader scans for.
+// GitHub models draft and prerelease as independent boolean flags, so a
+// release can be both at once (an unpublished draft of a prerelease).
+// Collapse the pair into the single human-facing label a "what's the latest
+// release?" reader scans for, keeping both facets visible when they combine.
 const releaseState = (draft: boolean, prerelease: boolean): string =>
-	draft ? "draft" : prerelease ? "prerelease" : "published";
+	draft && prerelease
+		? "draft prerelease"
+		: draft
+			? "draft"
+			: prerelease
+				? "prerelease"
+				: "published";
 
 export const registerReleaseTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(

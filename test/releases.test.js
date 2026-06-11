@@ -56,6 +56,7 @@ describe("registerReleaseTools", () => {
 				data: [
 					sampleRelease({ id: 1, draft: true, name: null, published_at: null }),
 					sampleRelease({ id: 2, prerelease: true, tag_name: "v2.0.0-rc.1" }),
+					sampleRelease({ id: 3, draft: true, prerelease: true, published_at: null }),
 				],
 				headers: {},
 			}),
@@ -66,6 +67,7 @@ describe("registerReleaseTools", () => {
 		const body = result.content[0].text;
 		expect(body).toContain("`1` **v1.2.0** (`v1.2.0`) — draft, unpublished, by alice");
 		expect(body).toContain("`2` **Spring release** (`v2.0.0-rc.1`) — prerelease");
+		expect(body).toContain("`3` **Spring release** (`v1.2.0`) — draft prerelease, unpublished");
 	});
 
 	it("list_releases shows a pagination hint when a next link is present", async () => {
