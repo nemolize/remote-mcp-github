@@ -171,7 +171,7 @@ export type WriteAuditFields = {
 	run_id?: number;
 	workflow_id?: number | string; // trigger_workflow_dispatch
 	ref?: string; // trigger_workflow_dispatch
-	release_id?: number; // update_release / delete_release
+	release_id?: number; // create_release / update_release / delete_release
 	tag_name?: string; // create_release
 	file_count?: number;
 	thread_id?: string;
