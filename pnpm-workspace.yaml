@@ -3,8 +3,10 @@ allowBuilds:
   # Not used on the Workers runtime, so their build scripts are intentionally skipped.
   "@mongodb-js/zstd": false
   node-liblzma: false
-  core-js-pure: true
+  # No-op postinstall (donation banner only) — nothing to build.
+  core-js-pure: false
+  # Native image lib pulled in via miniflare; image transforms unused here.
+  sharp: false
   esbuild: true
   lefthook: true
-  sharp: true
   workerd: true
