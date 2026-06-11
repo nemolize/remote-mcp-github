@@ -1,4 +1,8 @@
 allowBuilds:
+  # Optional native compression deps pulled in transitively via agents -> just-bash.
+  # Not used on the Workers runtime, so their build scripts are intentionally skipped.
+  "@mongodb-js/zstd": false
+  node-liblzma: false
   core-js-pure: true
   esbuild: true
   lefthook: true
