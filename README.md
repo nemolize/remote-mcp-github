@@ -25,7 +25,7 @@ The table below compares coverage by **feature area** against the two most commo
 | **PR review thread resolve / unresolve**                      | ✅                                                                                                      | ❌                        | ⚠️ `gh api graphql` only         |
 | Commit history (list / show / compare)                        | ✅                                                                                                      | ✅                        | ⚠️ `gh api` only                 |
 | Workflow / Actions (CI status, logs, rerun)                   | ✅ read + write (runs, jobs, workflows, job logs, artifacts, rerun all / failed jobs, cancel, dispatch) | ✅                        | ✅                               |
-| Releases & tags                                               | ❌                                                                                                      | ✅                        | ✅                               |
+| Releases & tags                                               | ⚠️ read only (`list_releases`, `get_release`, `list_tags`); create / update not yet                     | ✅                        | ✅                               |
 | Repo admin (create / fork / delete)                           | ❌                                                                                                      | ✅                        | ✅                               |
 | Security scanning (secret / code / Dependabot)                | ❌                                                                                                      | ✅                        | ⚠️ `gh api` only                 |
 | Local working-tree ops (clone, checkout, …)                   | ❌ — out of scope (remote-only)                                                                         | ❌                        | ✅                               |
@@ -72,6 +72,9 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `rerun_failed_jobs`           | write | Re-run only the failed jobs of a run — new attempt; poll `get_workflow_run` for status             |
 | `cancel_workflow_run`         | write | Cancel an in-progress run (async); poll `get_workflow_run` until conclusion is `cancelled`         |
 | `trigger_workflow_dispatch`   | write | Manually dispatch a `workflow_dispatch` workflow on a ref with optional inputs                     |
+| `list_releases`               | read  | Releases newest first (ID, name, tag, draft / prerelease / published state, date, author)          |
+| `get_release`                 | read  | Single release detail + notes body — by `release_id`, by `tag`, or the latest when neither given   |
+| `list_tags`                   | read  | Git tags (name, commit SHA) — for release metadata on a tag, use `get_release` with the tag        |
 | `list_branches`               | read  | List branches in a repo (name, head SHA, protected flag)                                           |
 | `create_branch`               | write | Branch from a base (or the repo's default)                                                         |
 | `delete_branch`               | write | Delete a branch (default branch refused)                                                           |

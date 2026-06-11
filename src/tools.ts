@@ -7,6 +7,7 @@ import { registerCommitTools } from "./tools/commits.js";
 import { registerFileTools } from "./tools/files.js";
 import { registerIssueTools } from "./tools/issues.js";
 import { registerPullTools } from "./tools/pulls.js";
+import { registerReleaseTools } from "./tools/releases.js";
 import { registerRepoTools } from "./tools/repos.js";
 import { registerSearchTools } from "./tools/search.js";
 
@@ -23,4 +24,5 @@ export const registerTools = (server: McpServer, getAccessToken: () => string): 
 	registerPullTools(server, client);
 	registerSearchTools(server, client);
 	registerActionTools(server, client);
+	registerReleaseTools(server, client);
 };
