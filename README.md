@@ -25,7 +25,7 @@ The table below compares coverage by **feature area** against the two most commo
 | **PR review thread resolve / unresolve**                      | ✅                                                                                                      | ❌                        | ⚠️ `gh api graphql` only         |
 | Commit history (list / show / compare)                        | ✅                                                                                                      | ✅                        | ⚠️ `gh api` only                 |
 | Workflow / Actions (CI status, logs, rerun)                   | ✅ read + write (runs, jobs, workflows, job logs, artifacts, rerun all / failed jobs, cancel, dispatch) | ✅                        | ✅                               |
-| Releases & tags                                               | ⚠️ read only (`list_releases`, `get_release`, `list_tags`); create / update not yet                     | ✅                        | ✅                               |
+| Releases & tags                                               | ✅ read + write (`list_releases`, `get_release`, `list_tags`, create / update / delete release)         | ✅                        | ✅                               |
 | Repo admin (create / fork / delete)                           | ❌                                                                                                      | ✅                        | ✅                               |
 | Security scanning (secret / code / Dependabot)                | ❌                                                                                                      | ✅                        | ⚠️ `gh api` only                 |
 | Local working-tree ops (clone, checkout, …)                   | ❌ — out of scope (remote-only)                                                                         | ❌                        | ✅                               |
@@ -75,6 +75,9 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `list_releases`               | read  | Releases newest first (ID, name, tag, draft / prerelease / published state, date, author)          |
 | `get_release`                 | read  | Single release detail + notes body — by `release_id`, by `tag`, or the latest when neither given   |
 | `list_tags`                   | read  | Git tags (name, commit SHA) — for release metadata on a tag, use `get_release` with the tag        |
+| `create_release`              | write | Create a release (and its tag) from `tag_name` (+ name, body, draft, prerelease, generated notes)  |
+| `update_release`              | write | Edit a release by `release_id` (rename, edit notes, publish a draft, toggle prerelease)            |
+| `delete_release`              | write | Delete a release by `release_id` (leaves the git tag in place)                                     |
 | `list_branches`               | read  | List branches in a repo (name, head SHA, protected flag)                                           |
 | `create_branch`               | write | Branch from a base (or the repo's default)                                                         |
 | `delete_branch`               | write | Delete a branch (default branch refused)                                                           |

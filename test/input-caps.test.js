@@ -10,6 +10,7 @@ import {
 import { registerFileTools } from "../src/tools/files.js";
 import { registerIssueTools } from "../src/tools/issues.js";
 import { registerPullTools } from "../src/tools/pulls.js";
+import { registerReleaseTools } from "../src/tools/releases.js";
 
 // The MCP SDK validates a tool's inputSchema before the handler runs, so the
 // handler-level tests elsewhere never exercise these caps. Here we capture the
@@ -42,6 +43,7 @@ const captureHandlers = (register, client) => {
 const fileSchemas = captureSchemas(registerFileTools);
 const issueSchemas = captureSchemas(registerIssueTools);
 const pullSchemas = captureSchemas(registerPullTools);
+const releaseSchemas = captureSchemas(registerReleaseTools);
 
 const repo = { owner: "o", repo: "r" };
 const overLimit = (max) => "x".repeat(max + 1);
@@ -176,6 +178,26 @@ describe("input size caps", () => {
 			...repo,
 			title: "t",
 			head: "feature",
+			body: overLimit(MAX_TEXT_FIELD_LENGTH),
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("create_release rejects an oversized body but accepts one at the limit", () => {
+		const schema = releaseSchemas.get("create_release");
+		expect(
+			schema.safeParse({ ...repo, tag_name: "v1", body: overLimit(MAX_TEXT_FIELD_LENGTH) }).success,
+		).toBe(false);
+		expect(
+			schema.safeParse({ ...repo, tag_name: "v1", body: atLimit(MAX_TEXT_FIELD_LENGTH) }).success,
+		).toBe(true);
+	});
+
+	it("update_release rejects an oversized body", () => {
+		const schema = releaseSchemas.get("update_release");
+		const result = schema.safeParse({
+			...repo,
+			release_id: 1,
 			body: overLimit(MAX_TEXT_FIELD_LENGTH),
 		});
 		expect(result.success).toBe(false);
