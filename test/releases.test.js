@@ -11,6 +11,9 @@ const stubOctokit = (overrides) => ({
 			getReleaseByTag: async () => ({ data: {}, headers: {} }),
 			getLatestRelease: async () => ({ data: {}, headers: {} }),
 			listTags: async () => ({ data: [], headers: {} }),
+			createRelease: async () => ({ data: sampleRelease(), headers: {} }),
+			updateRelease: async () => ({ data: sampleRelease(), headers: {} }),
+			deleteRelease: async () => ({ data: {}, headers: {} }),
 			...overrides,
 		},
 	},
@@ -204,5 +207,121 @@ describe("registerReleaseTools", () => {
 
 		const result = await invoke(handlers, "list_tags", { owner: "o", repo: "r" });
 		expect(result.content[0].text).toBe("(no tags found)");
+	});
+
+	it("create_release passes the fields through and renders the new release detail", async () => {
+		const { handlers, server } = captureHandlers();
+		let captured;
+		const octokit = stubOctokit({
+			createRelease: async (params) => {
+				captured = params;
+				return {
+					data: sampleRelease({ id: 99, tag_name: "v2.0.0", name: "Big bang", draft: true }),
+					headers: {},
+				};
+			},
+		});
+		registerReleaseTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_release", {
+			owner: "o",
+			repo: "r",
+			tag_name: "v2.0.0",
+			name: "Big bang",
+			body: "Lots of changes.",
+			draft: true,
+		});
+		expect(captured).toMatchObject({
+			owner: "o",
+			repo: "r",
+			tag_name: "v2.0.0",
+			name: "Big bang",
+			body: "Lots of changes.",
+			draft: true,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Release `99` in o/r");
+		expect(body).toContain("> Big bang — draft");
+		expect(body).toContain("tag: `v2.0.0`");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("create_release surfaces an API error via wrapTool", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit({
+			createRelease: async () => {
+				throw new Error("422 Validation Failed: tag_name already exists");
+			},
+		});
+		registerReleaseTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_release", {
+			owner: "o",
+			repo: "r",
+			tag_name: "v1.2.0",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("422");
+	});
+
+	it("update_release edits only the passed fields and renders the result", async () => {
+		const { handlers, server } = captureHandlers();
+		let captured;
+		const octokit = stubOctokit({
+			updateRelease: async (params) => {
+				captured = params;
+				return {
+					data: sampleRelease({ id: 4242, draft: false, name: "Renamed" }),
+					headers: {},
+				};
+			},
+		});
+		registerReleaseTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_release", {
+			owner: "o",
+			repo: "r",
+			release_id: 4242,
+			name: "Renamed",
+			draft: false,
+		});
+		expect(captured).toMatchObject({
+			owner: "o",
+			repo: "r",
+			release_id: 4242,
+			name: "Renamed",
+			draft: false,
+		});
+		// Only the passed fields reach the API — omitted ones are stripped.
+		expect(captured).not.toHaveProperty("body");
+		expect(captured).not.toHaveProperty("prerelease");
+		const body = result.content[0].text;
+		expect(body).toContain("# Release `4242` in o/r");
+		expect(body).toContain("> Renamed — published");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("delete_release confirms the deletion and notes the tag is left in place", async () => {
+		const { handlers, server } = captureHandlers();
+		let captured;
+		const octokit = stubOctokit({
+			deleteRelease: async (params) => {
+				captured = params;
+				return { data: {}, headers: {} };
+			},
+		});
+		registerReleaseTools(server, () => octokit);
+
+		const result = await invoke(handlers, "delete_release", {
+			owner: "o",
+			repo: "r",
+			release_id: 4242,
+		});
+		expect(captured).toMatchObject({ owner: "o", repo: "r", release_id: 4242 });
+		const body = result.content[0].text;
+		expect(body).toContain("# Release deleted");
+		expect(body).toContain("release `4242` in o/r deleted");
+		expect(body).toContain("git tag is left in place");
+		expect(result.isError).toBeUndefined();
 	});
 });
