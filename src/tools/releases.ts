@@ -29,21 +29,13 @@ const releaseState = (draft: boolean, prerelease: boolean): string =>
 
 // The release shape returned by getRelease / createRelease / updateRelease is
 // identical, so the detail rendering is shared across the read and write tools
-// rather than duplicated per call site.
-type ReleaseDetail = {
-	id: number;
-	tag_name: string;
-	name: string | null;
-	draft: boolean;
-	prerelease: boolean;
-	target_commitish: string;
-	published_at: string | null;
-	created_at: string;
-	author: { login: string } | null;
-	assets: unknown[];
-	html_url: string;
-	body?: string | null;
-};
+// rather than duplicated per call site. Derive the type from the SDK's
+// getRelease response rather than hand-writing it, so the renderer stays pinned
+// to the real API contract and can't drift silently when a field is renamed or
+// retyped upstream.
+type ReleaseDetail = Awaited<
+	ReturnType<ReturnType<OctokitFactory>["rest"]["repos"]["getRelease"]>
+>["data"];
 
 const renderReleaseDetail = (owner: string, repo: string, data: ReleaseDetail): string => {
 	const state = releaseState(data.draft, data.prerelease);
@@ -288,6 +280,21 @@ export const registerReleaseTools = (server: McpServer, client: OctokitFactory):
 			prerelease,
 		}) =>
 			wrapTool(async () => {
+				// All editable fields are optional, so a call passing none would be a
+				// no-op API round-trip that still logs a misleading successful write.
+				// Reject it up front and ask for at least one field to change.
+				if (
+					tag_name == null &&
+					target_commitish == null &&
+					name == null &&
+					body == null &&
+					draft == null &&
+					prerelease == null
+				) {
+					return errorResult(
+						"Pass at least one field to change (tag_name, target_commitish, name, body, draft, or prerelease).",
+					);
+				}
 				const { data, headers } = await client().rest.repos.updateRelease(
 					stripUndefined({
 						owner,

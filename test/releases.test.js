@@ -301,6 +301,27 @@ describe("registerReleaseTools", () => {
 		expect(result.isError).toBeUndefined();
 	});
 
+	it("update_release rejects a call with no editable fields before hitting the API", async () => {
+		const { handlers, server } = captureHandlers();
+		let called = false;
+		const octokit = stubOctokit({
+			updateRelease: async () => {
+				called = true;
+				return { data: sampleRelease(), headers: {} };
+			},
+		});
+		registerReleaseTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_release", {
+			owner: "o",
+			repo: "r",
+			release_id: 1,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("at least one field");
+		expect(called).toBe(false);
+	});
+
 	it("delete_release confirms the deletion and notes the tag is left in place", async () => {
 		const { handlers, server } = captureHandlers();
 		let captured;
