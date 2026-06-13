@@ -49,7 +49,8 @@ rendering, audit log, multi-tool chaining). When that matters, run the same
 handler-capture script against a **throwaway PR in a disposable private repo**
 (`nemolize/dotfiles`; no auto-deploy on PR), perform the real mutations, then
 close the PR + delete the branch. Caveat: a self-authored PR can't be `APPROVE`d —
-use `COMMENT` for the success path, keep `APPROVE` on the error path (`404`).
+use `COMMENT` for the success path, keep `APPROVE` on the error path (it returns a
+real `422 Can not approve your own pull request`, exercising the review path).
 
 ## Gotcha — the Workers vitest pool does NOT expose `process.env` to the isolate
 
