@@ -40,6 +40,7 @@ describe("registerPullTools — review thread tools", () => {
 					comments: {
 						nodes: [
 							{
+								databaseId: 4242,
 								author: { login: "alice" },
 								path: "src/foo.ts",
 								line: 12,
@@ -62,6 +63,7 @@ describe("registerPullTools — review thread tools", () => {
 		expect(body).toContain("`PRRT_aaa`");
 		expect(body).toContain("unresolved");
 		expect(body).toContain("@alice on src/foo.ts:12");
+		expect(body).toContain("reply to comment 4242");
 		expect(body).toContain("> Please fix this");
 		expect(body).not.toContain("second line ignored");
 		expect(result.isError).toBeUndefined();
@@ -824,5 +826,254 @@ describe("registerPullTools — merge_pull_request", () => {
 		});
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("Rebase merges are not allowed");
+	});
+});
+
+const stubCreateReply = (impl) => {
+	const calls = [];
+	const octokit = {
+		rest: {
+			pulls: {
+				createReplyForReviewComment: (args) => {
+					calls.push(args);
+					return impl(args);
+				},
+			},
+		},
+	};
+	return { octokit, calls };
+};
+
+const replyData = (overrides = {}) => ({
+	user: { login: "octocat" },
+	html_url: "https://github.com/o/r/pull/42#discussion_r999",
+	...overrides,
+});
+
+describe("registerPullTools — add_pr_review_comment_reply", () => {
+	it("registers add_pr_review_comment_reply", () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubCreateReply(async () => ({ data: replyData(), headers: {} }));
+		registerPullTools(server, () => octokit);
+		expect(handlers.has("add_pr_review_comment_reply")).toBe(true);
+	});
+
+	it("posts a reply and renders the author and url", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubCreateReply(async () => ({ data: replyData(), headers: {} }));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "add_pr_review_comment_reply", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			comment_id: 555,
+			body: "Thanks, fixed.",
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Review comment reply posted");
+		expect(body).toContain("in reply to comment 555 on o/r#42");
+		expect(body).toContain("@octocat");
+		expect(body).toContain("#discussion_r999");
+		expect(calls[0]).toEqual({
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			comment_id: 555,
+			body: "Thanks, fixed.",
+		});
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("renders (unknown) when the reply has no user", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubCreateReply(async () => ({
+			data: replyData({ user: null }),
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "add_pr_review_comment_reply", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			comment_id: 555,
+			body: "ok",
+		});
+		expect(result.content[0].text).toContain("by (unknown)");
+	});
+});
+
+const stubCreateReview = (impl) => {
+	const calls = [];
+	const octokit = {
+		rest: {
+			pulls: {
+				createReview: (args) => {
+					calls.push(args);
+					return impl(args);
+				},
+			},
+		},
+	};
+	return { octokit, calls };
+};
+
+const reviewData = (overrides = {}) => ({
+	id: 12345,
+	state: "APPROVED",
+	html_url: "https://github.com/o/r/pull/42#pullrequestreview-12345",
+	...overrides,
+});
+
+describe("registerPullTools — create_pr_review", () => {
+	it("registers create_pr_review", () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubCreateReview(async () => ({ data: reviewData(), headers: {} }));
+		registerPullTools(server, () => octokit);
+		expect(handlers.has("create_pr_review")).toBe(true);
+	});
+
+	it("submits an APPROVE without a body and renders the state", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubCreateReview(async () => ({
+			data: reviewData(),
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			event: "APPROVE",
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Review submitted");
+		expect(body).toContain("**APPROVED** on o/r#42");
+		expect(body).not.toContain("inline comment");
+		expect(calls[0]).toEqual({ owner: "o", repo: "r", pull_number: 42, event: "APPROVE" });
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("requires a body for REQUEST_CHANGES without hitting the API", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubCreateReview(async () => ({
+			data: reviewData(),
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			event: "REQUEST_CHANGES",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("non-empty `body` is required");
+		expect(calls).toHaveLength(0);
+	});
+
+	it("submits inline comments and strips per-element undefined", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubCreateReview(async () => ({
+			data: reviewData({ state: "COMMENTED" }),
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			event: "COMMENT",
+			body: "A couple of notes.",
+			comments: [{ path: "src/foo.ts", line: 10, body: "rename this" }],
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("**COMMENTED** on o/r#42 with 1 inline comment(s)");
+		// `side` / `start_line` were omitted; they must not reach Octokit as undefined.
+		expect(calls[0].comments).toEqual([{ path: "src/foo.ts", line: 10, body: "rename this" }]);
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("passes a multi-line comment's side / start_line / start_side through unchanged", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubCreateReview(async () => ({
+			data: reviewData({ state: "CHANGES_REQUESTED" }),
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			event: "REQUEST_CHANGES",
+			body: "Range finding.",
+			comments: [
+				{
+					path: "src/foo.ts",
+					line: 20,
+					side: "RIGHT",
+					start_line: 18,
+					start_side: "RIGHT",
+					body: "this whole block",
+				},
+			],
+		});
+		expect(result.content[0].text).toContain(
+			"**CHANGES_REQUESTED** on o/r#42 with 1 inline comment(s)",
+		);
+		// Provided values must survive the per-element strip (it drops only undefined).
+		expect(calls[0].comments).toEqual([
+			{
+				path: "src/foo.ts",
+				line: 20,
+				side: "RIGHT",
+				start_line: 18,
+				start_side: "RIGHT",
+				body: "this whole block",
+			},
+		]);
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("rejects a whitespace-only body for REQUEST_CHANGES without hitting the API", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubCreateReview(async () => ({
+			data: reviewData(),
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			event: "REQUEST_CHANGES",
+			body: "   ",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("non-empty `body` is required");
+		expect(calls).toHaveLength(0);
+	});
+
+	it("surfaces the GitHub error when approving your own PR", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubCreateReview(async () => {
+			throw new Error("Unprocessable Entity: Can not approve your own pull request");
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			event: "APPROVE",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Can not approve your own pull request");
 	});
 });

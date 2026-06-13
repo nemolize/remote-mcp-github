@@ -175,6 +175,8 @@ export type WriteAuditFields = {
 	tag_name?: string; // create_release
 	file_count?: number;
 	thread_id?: string;
+	comment_id?: number; // add_pr_review_comment_reply
+	review_id?: number; // create_pr_review
 };
 
 // Emits one structured JSON line per successful write operation, giving
