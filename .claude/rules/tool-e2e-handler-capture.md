@@ -44,6 +44,13 @@ and `wrapTool` error surfacing with **no side effect**:
 - `trigger_workflow_dispatch` on `ci.yml` (which has **no** `workflow_dispatch`
   trigger) → real `422 Workflow does not have 'workflow_dispatch' trigger`.
 
+The error path proves the live binding but never the **success** path (response
+rendering, audit log, multi-tool chaining). When that matters, run the same
+handler-capture script against a **throwaway PR in a disposable private repo**
+(`nemolize/dotfiles`; no auto-deploy on PR), perform the real mutations, then
+close the PR + delete the branch. Caveat: a self-authored PR can't be `APPROVE`d —
+use `COMMENT` for the success path, keep `APPROVE` on the error path (`404`).
+
 ## Gotcha — the Workers vitest pool does NOT expose `process.env` to the isolate
 
 This repo's `vitest.config.mts` runs **every** spec in `@cloudflare/vitest-pool-workers`,
