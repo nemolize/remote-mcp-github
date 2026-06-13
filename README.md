@@ -21,7 +21,7 @@ The table below compares coverage by **feature area** against the two most commo
 | Branch list / create / delete                                 | ✅                                                                                                      | ✅                        | ⚠️ `gh api` / local `git`        |
 | PR open / diff / request reviewers                            | ✅                                                                                                      | ✅                        | ✅                               |
 | PR read detail / merge / update lifecycle                     | ✅                                                                                                      | ✅                        | ✅                               |
-| PR reviews & review comments (read + reply)                   | ⚠️ read only (`list_pr_reviews` + threads); reply not yet                                               | ✅                        | ⚠️ partial (`gh api` for inline) |
+| PR reviews & review comments (read + reply + submit)          | ✅ read + reply + submit (`create_pr_review`, `add_pr_review_comment_reply`)                            | ✅                        | ⚠️ partial (`gh api` for inline) |
 | **PR review thread resolve / unresolve**                      | ✅                                                                                                      | ❌                        | ⚠️ `gh api graphql` only         |
 | Commit history (list / show / compare)                        | ✅                                                                                                      | ✅                        | ⚠️ `gh api` only                 |
 | Workflow / Actions (CI status, logs, rerun)                   | ✅ read + write (runs, jobs, workflows, job logs, artifacts, rerun all / failed jobs, cancel, dispatch) | ✅                        | ✅                               |
@@ -88,6 +88,8 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `update_pull_request`         | write | Edit a PR's title / body / state (close / reopen) / base branch                                    |
 | `merge_pull_request`          | write | Merge a PR (merge / squash / rebase; optional commit message and `sha` concurrency guard)          |
 | `request_pr_review`           | write | Request reviewers (users and/or teams) on a PR                                                     |
+| `create_pr_review`            | write | Submit a review (APPROVE / REQUEST_CHANGES / COMMENT) with optional body + batched inline comments |
+| `add_pr_review_comment_reply` | write | Reply to an existing PR review comment thread (by `comment_id`)                                    |
 | `resolve_review_thread`       | write | Mark a PR review thread resolved (GraphQL; thread node ID)                                         |
 | `unresolve_review_thread`     | write | Re-open a resolved PR review thread (GraphQL; thread node ID)                                      |
 | `create_issue`                | write | Title + body + labels + assignees                                                                  |

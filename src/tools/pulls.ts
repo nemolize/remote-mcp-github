@@ -435,6 +435,138 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 			}),
 	);
 
+	server.registerTool(
+		"add_pr_review_comment_reply",
+		{
+			description:
+				"Reply to an existing pull request review comment thread. Use when the user wants to respond to a reviewer's inline comment. `comment_id` is the numeric ID of a comment in the target thread; the reply is added to that comment's thread (GitHub resolves the thread from the comment). Discover the numeric id via list_pr_review_threads (it prints `reply to comment <id>` per thread) or the GitHub UI. To start a *new* review (with or without inline findings), use create_pr_review instead.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				comment_id: z
+					.number()
+					.int()
+					.positive()
+					.describe(
+						"Numeric ID of a comment in the target thread to reply to. Discover via list_pr_review_threads (the `reply to comment <id>` field).",
+					),
+				body: z
+					.string()
+					.min(1)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Reply body", MAX_TEXT_FIELD_LENGTH))
+					.describe("Reply text (Markdown supported)."),
+			},
+		},
+		async ({ owner, repo, pull_number, comment_id, body }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.pulls.createReplyForReviewComment({
+					owner,
+					repo,
+					pull_number,
+					comment_id,
+					body,
+				});
+				logRateLimit(headers);
+				logWrite({ tool: "add_pr_review_comment_reply", owner, repo, pull_number, comment_id });
+				const author = data.user?.login != null ? `@${data.user.login}` : "(unknown)";
+				return text(
+					`# Review comment reply posted\n\n- in reply to comment ${comment_id} on ${owner}/${repo}#${pull_number}\n- by ${author}\n- ${data.html_url}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"create_pr_review",
+		{
+			description:
+				"Submit a review on a pull request — an approval, a change request, or a plain comment, with an optional summary body and optional inline findings. Use when the user wants to approve / request changes on / review a PR, or post several inline findings as one review (firing a single notification). `event` selects the verdict: `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`. `comments` anchors inline findings to specific lines of the diff. GitHub forbids approving your own PR (the error is surfaced as-is). To reply to a single existing thread, use add_pr_review_comment_reply instead.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				event: z
+					.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"])
+					.describe(
+						"Review verdict. `REQUEST_CHANGES` and `COMMENT` require a non-empty `body`; `APPROVE` does not.",
+					),
+				body: z
+					.string()
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Review body", MAX_TEXT_FIELD_LENGTH))
+					.optional()
+					.describe(
+						"Summary comment for the review (Markdown supported). Required for `REQUEST_CHANGES` and `COMMENT`.",
+					),
+				comments: z
+					.array(
+						z.object({
+							path: z.string().min(1).describe("File path the comment applies to."),
+							body: z
+								.string()
+								.min(1)
+								.max(
+									MAX_TEXT_FIELD_LENGTH,
+									maxCharsMessage("Inline comment body", MAX_TEXT_FIELD_LENGTH),
+								)
+								.describe("Inline comment text."),
+							line: z
+								.number()
+								.int()
+								.positive()
+								.describe("Line in the file's new version (RIGHT side) the comment anchors to."),
+							side: z
+								.enum(["LEFT", "RIGHT"])
+								.optional()
+								.describe(
+									"Diff side the line refers to (LEFT = deletion, RIGHT = addition/context). Defaults to RIGHT.",
+								),
+							start_line: z
+								.number()
+								.int()
+								.positive()
+								.optional()
+								.describe("For a multi-line comment, the first line of the range."),
+							start_side: z
+								.enum(["LEFT", "RIGHT"])
+								.optional()
+								.describe(
+									"Starting diff side for a multi-line comment. Required by GitHub when `start_line` is set.",
+								),
+						}),
+					)
+					.optional()
+					.describe(
+						"Inline findings to anchor to specific lines, all posted as part of this one review.",
+					),
+			},
+		},
+		async ({ owner, repo, pull_number, event, body, comments }) =>
+			wrapTool(async () => {
+				if (event !== "APPROVE" && (body == null || body.trim().length === 0)) {
+					return errorResult(`A non-empty \`body\` is required when event is \`${event}\`.`);
+				}
+				// Strip per-element undefined too: `stripUndefined` only clears the
+				// top-level keys, so an omitted `side` / `start_line` would otherwise
+				// reach Octokit as `undefined`, which its exactOptional param type rejects.
+				const normalisedComments = comments?.map((c) => stripUndefined(c));
+				const { data, headers } = await client().rest.pulls.createReview(
+					stripUndefined({
+						owner,
+						repo,
+						pull_number,
+						event,
+						body,
+						comments: normalisedComments,
+					}),
+				);
+				logRateLimit(headers);
+				logWrite({ tool: "create_pr_review", owner, repo, pull_number, review_id: data.id });
+				const inlineCount = comments?.length ?? 0;
+				const inlineNote = inlineCount > 0 ? ` with ${inlineCount} inline comment(s)` : "";
+				return text(
+					`# Review submitted\n\n- **${data.state}** on ${owner}/${repo}#${pull_number}${inlineNote}\n- ${data.html_url}`,
+				);
+			}),
+	);
+
 	registerReviewThreadTools(server, client);
 };
 
@@ -445,6 +577,7 @@ type ReviewThreadNode = {
 	isOutdated: boolean;
 	comments: {
 		nodes: Array<{
+			databaseId: number | null;
 			author: { login: string } | null;
 			path: string | null;
 			line: number | null;
@@ -482,6 +615,7 @@ const REVIEW_THREADS_QUERY = `
 						isOutdated
 						comments(first: 1) {
 							nodes {
+								databaseId
 								author { login }
 								path
 								line
@@ -516,7 +650,7 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 		"list_pr_review_threads",
 		{
 			description:
-				"List the review threads on a pull request, including each thread's node ID (`PRRT_...`) and resolved state. Use this to discover thread IDs before calling resolve_review_thread / unresolve_review_thread, or to check which review threads are still unresolved. Supports cursor pagination via `after` for PRs with more than 100 threads. Backed by GraphQL since the REST review-comment surface does not expose thread IDs.",
+				"List the review threads on a pull request, including each thread's node ID (`PRRT_...`), resolved state, and the numeric ID of its first comment (for replying). Use this to discover thread IDs before resolve_review_thread / unresolve_review_thread, the comment ID before add_pr_review_comment_reply, or to check which review threads are still unresolved. Supports cursor pagination via `after` for PRs with more than 100 threads. Backed by GraphQL since the REST review-comment surface does not expose thread IDs.",
 			inputSchema: {
 				...RepoTarget,
 				pull_number: z.number().int().positive().describe("Pull request number."),
@@ -571,7 +705,12 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 					const state = t.isResolved ? "resolved" : "unresolved";
 					const outdated = t.isOutdated ? ", outdated" : "";
 					const snippet = snippetBlock(firstComment?.body);
-					return `- \`${t.id}\` — ${state}${outdated} — ${author} on ${location}${snippet}`;
+					// The numeric comment id (GraphQL `databaseId`) is what
+					// add_pr_review_comment_reply needs; the `PRRT_…` thread node id is for
+					// resolve/unresolve. Surface both so each downstream tool has its handle.
+					const commentId =
+						firstComment?.databaseId != null ? `, reply to comment ${firstComment.databaseId}` : "";
+					return `- \`${t.id}\` — ${state}${outdated} — ${author} on ${location}${commentId}${snippet}`;
 				});
 				const more = cursorMoreHint({
 					shown: threads.length,
