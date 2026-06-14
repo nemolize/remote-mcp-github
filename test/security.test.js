@@ -85,6 +85,47 @@ describe("registerSecurityTools", () => {
 			expect(result.isError).toBeUndefined();
 		});
 
+		it("passes hide_secret: true so GitHub omits the raw secret from the response", async () => {
+			const { handlers, server } = captureHandlers();
+			let receivedParams;
+			const octokit = withRest({
+				secretScanning: {
+					listAlertsForRepo: async (params) => {
+						receivedParams = params;
+						return { data: [], headers: {} };
+					},
+				},
+			});
+			registerSecurityTools(server, () => octokit);
+
+			await invoke(handlers, "list_secret_scanning_alerts", { owner: "o", repo: "r" });
+			expect(receivedParams.hide_secret).toBe(true);
+		});
+
+		it("never leaks the raw secret even when the display name is absent (fallback path)", async () => {
+			const { handlers, server } = captureHandlers();
+			const octokit = withRest({
+				secretScanning: {
+					listAlertsForRepo: async () => ({
+						// Drop secret_type_display_name to force the `?? secret_type` fallback,
+						// which reads adjacent fields on the same alert object.
+						data: [sampleSecretAlert({ secret_type_display_name: undefined })],
+						headers: {},
+					}),
+				},
+			});
+			registerSecurityTools(server, () => octokit);
+
+			const result = await invoke(handlers, "list_secret_scanning_alerts", {
+				owner: "o",
+				repo: "r",
+			});
+			const body = result.content[0].text;
+			// Falls back to the raw secret_type identifier, still never the secret value.
+			expect(body).toContain("github_personal_access_token");
+			expect(body).not.toContain("ghp_THIS_MUST_NOT_LEAK");
+		});
+
 		it("shows the resolution for a resolved alert", async () => {
 			const { handlers, server } = captureHandlers();
 			const octokit = withRest({

@@ -17,19 +17,26 @@ import { RepoTarget } from "./common.js";
 // credential into the model's context. The renderers below deliberately surface
 // only the secret *type* and metadata, never `secret` itself.
 
+// All three alert types render the same lead — `` `#<number>` **<state>** `` —
+// before their type-specific metadata. Centralise it so a future format tweak
+// (and the missing-state fallback) stays uniform across the three renderers
+// rather than drifting per call site.
+const alertLead = (number: number | undefined, state: string | null | undefined): string =>
+	`- \`#${number ?? "?"}\` **${state ?? "(unknown)"}**`;
+
 export const registerSecurityTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"list_secret_scanning_alerts",
 		{
 			description:
-				"List a repository's secret-scanning alerts (one line per alert: number, state, secret type, resolution, updated date). Use when the user asks whether the repo has leaked secrets / credentials. Read-only. Never returns the raw secret value — only its type and metadata. Filter by `state` (`open` / `resolved`). Requires a token with `repo` (or `security_events`) scope and push access to the repo; 403s cleanly otherwise.",
+				"List a repository's secret-scanning alerts (one line per alert: number, state, secret type, resolution, updated date). Use when the user asks whether the repo has leaked secrets / credentials. Read-only. Never returns the raw secret value — only its type and metadata. Filter by `state` (`open` / `resolved`). Requires a token with `repo` (or `security_events`) scope and admin access to the repository; 403s cleanly otherwise.",
 			inputSchema: {
 				...RepoTarget,
 				state: z
 					.enum(["open", "resolved"])
 					.optional()
 					.describe("Filter by alert state. Omit for all states."),
-				per_page: z.number().int().min(1).max(100).optional().default(30),
+				per_page: z.number().int().min(1).max(100).optional().default(20),
 				page: z
 					.number()
 					.int()
@@ -40,8 +47,11 @@ export const registerSecurityTools = (server: McpServer, client: OctokitFactory)
 		},
 		async ({ owner, repo, state, per_page, page }) =>
 			wrapTool(async () => {
+				// `hide_secret: true` makes GitHub omit the raw secret from the
+				// response entirely, so the live credential never even reaches Worker
+				// memory — defence-in-depth on top of the renderer never emitting it.
 				const { data, headers } = await client().rest.secretScanning.listAlertsForRepo(
-					stripUndefined({ owner, repo, state, per_page, page }),
+					stripUndefined({ owner, repo, state, per_page, page, hide_secret: true }),
 				);
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no secret-scanning alerts found)");
@@ -50,7 +60,7 @@ export const registerSecurityTools = (server: McpServer, client: OctokitFactory)
 					const type = a.secret_type_display_name ?? a.secret_type ?? "(unknown type)";
 					const resolution = a.state === "resolved" ? ` (${a.resolution ?? "resolved"})` : "";
 					const when = a.updated_at ?? a.created_at ?? "(unknown date)";
-					return `- \`#${a.number}\` **${a.state ?? "(unknown)"}**${resolution} — ${type}, ${when}`;
+					return `${alertLead(a.number, a.state)}${resolution} — ${type}, ${when}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
 				const header = restListHeader({
@@ -83,7 +93,7 @@ export const registerSecurityTools = (server: McpServer, client: OctokitFactory)
 					.min(1)
 					.optional()
 					.describe("Filter by the analysis tool name (e.g. 'CodeQL')."),
-				per_page: z.number().int().min(1).max(100).optional().default(30),
+				per_page: z.number().int().min(1).max(100).optional().default(20),
 				page: z
 					.number()
 					.int()
@@ -110,7 +120,7 @@ export const registerSecurityTools = (server: McpServer, client: OctokitFactory)
 						loc?.path != null
 							? `, ${loc.path}${loc.start_line != null ? `:${loc.start_line}` : ""}`
 							: "";
-					return `- \`#${a.number}\` **${a.state ?? "(unknown)"}** — \`${rule}\` (${sev}), ${tool}${where}`;
+					return `${alertLead(a.number, a.state)} — \`${rule}\` (${sev}), ${tool}${where}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
 				const header = restListHeader({
@@ -138,7 +148,7 @@ export const registerSecurityTools = (server: McpServer, client: OctokitFactory)
 					.enum(["low", "medium", "high", "critical"])
 					.optional()
 					.describe("Filter by advisory severity. Omit for all severities."),
-				per_page: z.number().int().min(1).max(100).optional().default(30),
+				per_page: z.number().int().min(1).max(100).optional().default(20),
 				page: z
 					.number()
 					.int()
@@ -163,7 +173,7 @@ export const registerSecurityTools = (server: McpServer, client: OctokitFactory)
 					const sev = a.security_advisory?.severity ?? "(no severity)";
 					const ghsa = a.security_advisory?.ghsa_id ?? "(no GHSA)";
 					const summary = a.security_advisory?.summary ?? "";
-					return `- \`#${a.number}\` **${a.state}** — ${pkgLabel} (${sev}), \`${ghsa}\`${summary.length > 0 ? ` — ${summary}` : ""}`;
+					return `${alertLead(a.number, a.state)} — ${pkgLabel} (${sev}), \`${ghsa}\`${summary.length > 0 ? ` — ${summary}` : ""}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
 				const header = restListHeader({
