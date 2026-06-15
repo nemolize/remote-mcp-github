@@ -126,7 +126,8 @@ describe("MCP transport E2E", () => {
 		// in the README and would drift here on every new tool — don't enumerate.
 		expect(names.length, "tool count regressed").toBeGreaterThanOrEqual(26);
 		for (const required of [
-			"list_my_repos", // repos
+			"list_my_repos", // repos read
+			"create_repository", // repos write
 			"search_issues", // issues read
 			"add_comment", // issues write
 			"list_branches", // branches
