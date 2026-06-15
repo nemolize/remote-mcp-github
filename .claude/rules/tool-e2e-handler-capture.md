@@ -52,6 +52,28 @@ close the PR + delete the branch. Caveat: a self-authored PR can't be `APPROVE`d
 use `COMMENT` for the success path, keep `APPROVE` on the error path (it returns a
 real `422 Can not approve your own pull request`, exercising the review path).
 
+## Adding a write tool — register it in the audit-log coverage matrix
+
+`test/audit-log.test.js` holds an **exhaustive** `WRITE_TOOLS` table driving the
+"every write tool emits exactly one audit line tagged with its own name" test
+(read tools are intentionally absent — they must NOT emit an audit line). When
+you add a new **write** tool, you must:
+
+1. Add the tool's `[registerXxxTools, "tool_name", { …minimal params… }]` row to
+   `WRITE_TOOLS`.
+2. Add any Octokit method the tool calls to the `wideOctokit()` stub, returning a
+   response shaped so the tool's `logWrite(...)` resolves `owner`/`repo`. If the
+   tool derives those from the API response (e.g. `data.owner?.login`,
+   `data.name`) rather than the input args, the stub must return
+   `{ owner: { login: "o" }, name: "r" }` so the table's
+   `toMatchObject({ owner: "o", repo: "r" })` assertion passes.
+
+Skipping this leaves the new mutation without audit-log regression coverage —
+the table won't fail (it only iterates rows it has), so the gap is silent. (codex
+flagged exactly this miss on the `create_repository`/`fork_repository` PR #111.)
+Also add the tool to the `test/mcp-e2e.test.js` transport spot-check list so a
+"stopped registering over the wire" regression is caught.
+
 ## Gotcha — the Workers vitest pool does NOT expose `process.env` to the isolate
 
 This repo's `vitest.config.mts` runs **every** spec in `@cloudflare/vitest-pool-workers`,
