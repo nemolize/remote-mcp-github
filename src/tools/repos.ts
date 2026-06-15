@@ -268,14 +268,12 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 						? await octo.rest.repos.createInOrg({ org, ...params })
 						: await octo.rest.repos.createForAuthenticatedUser(params);
 				logRateLimit(headers);
-				logWrite(
-					stripUndefined({
-						tool: "create_repository",
-						owner: data.owner?.login,
-						repo: data.name,
-						org,
-					}),
-				);
+				logWrite({
+					tool: "create_repository",
+					owner: data.owner?.login,
+					repo: data.name,
+					...(org != null ? { org } : {}),
+				});
 				return text(truncate(renderRepoSummary("Repository created", data)));
 			}),
 	);
@@ -306,14 +304,12 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 					stripUndefined({ owner, repo, organization, default_branch_only }),
 				);
 				logRateLimit(headers);
-				logWrite(
-					stripUndefined({
-						tool: "fork_repository",
-						owner: data.owner?.login,
-						repo: data.name,
-						org: organization,
-					}),
-				);
+				logWrite({
+					tool: "fork_repository",
+					owner: data.owner?.login,
+					repo: data.name,
+					...(organization != null ? { org: organization } : {}),
+				});
 				const extra =
 					data.parent != null
 						? [`- Forked from: ${data.parent.full_name} (${data.parent.html_url})`]

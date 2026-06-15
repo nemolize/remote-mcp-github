@@ -302,6 +302,29 @@ describe("registerRepoTools — create_repository", () => {
 		expect(body).toContain("- Default branch: `main`");
 	});
 
+	it("passes the security-relevant private/auto_init params through to Octokit", async () => {
+		let captured;
+		const handlers = register(
+			stubOctokit({
+				repos: {
+					createForAuthenticatedUser: async (params) => {
+						captured = params;
+						return { data: { ...created, private: true, visibility: "private" }, headers: {} };
+					},
+				},
+			}),
+		);
+		const result = await invoke(handlers, "create_repository", {
+			name: "secret",
+			private: true,
+			auto_init: true,
+		});
+		expect(result.isError).toBeUndefined();
+		expect(captured.private).toBe(true);
+		expect(captured.auto_init).toBe(true);
+		expect(result.content[0].text).toContain("(private)");
+	});
+
 	it("routes to createInOrg when `org` is given", async () => {
 		let usedOrg = false;
 		const handlers = register(

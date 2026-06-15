@@ -128,6 +128,7 @@ describe("MCP transport E2E", () => {
 		for (const required of [
 			"list_my_repos", // repos read
 			"create_repository", // repos write
+			"fork_repository", // repos write
 			"search_issues", // issues read
 			"add_comment", // issues write
 			"list_branches", // branches
