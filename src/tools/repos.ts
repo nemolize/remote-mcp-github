@@ -1,7 +1,14 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { logRateLimit, restListHeader, text, truncate, wrapTool } from "../mcp/response.js";
+import {
+	logRateLimit,
+	logWrite,
+	restListHeader,
+	text,
+	truncate,
+	wrapTool,
+} from "../mcp/response.js";
 import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
@@ -199,4 +206,149 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
 	);
+
+	server.registerTool(
+		"create_repository",
+		{
+			description:
+				"Create a new repository for the authenticated user, or for an organisation when `org` is given. Use when the user asks to create, make, or initialise a new repo. Returns the new repo's metadata (name, visibility, default branch, URL). Requires the `repo` OAuth scope (org repos also require membership permitting repo creation).",
+			inputSchema: {
+				name: z.string().min(1).max(100).describe("Repository name (without the owner prefix)."),
+				org: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Organisation login to own the repo. Omit to create under the authenticated user.",
+					),
+				description: z.string().max(350).optional().describe("Short repo description."),
+				private: z
+					.boolean()
+					.optional()
+					.default(false)
+					.describe("Create a private repository (default: public)."),
+				auto_init: z
+					.boolean()
+					.optional()
+					.default(false)
+					.describe("Initialise with an empty README commit so the repo has a default branch."),
+				gitignore_template: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Language `.gitignore` template name, e.g. `Node` (requires auto_init)."),
+				license_template: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("License keyword, e.g. `mit` (requires auto_init)."),
+			},
+		},
+		async ({
+			name,
+			org,
+			description,
+			private: isPrivate,
+			auto_init,
+			gitignore_template,
+			license_template,
+		}) =>
+			wrapTool(async () => {
+				const octo = client();
+				const params = stripUndefined({
+					name,
+					description,
+					private: isPrivate,
+					auto_init,
+					gitignore_template,
+					license_template,
+				});
+				const { data, headers } =
+					org != null
+						? await octo.rest.repos.createInOrg({ org, ...params })
+						: await octo.rest.repos.createForAuthenticatedUser(params);
+				logRateLimit(headers);
+				logWrite(
+					stripUndefined({
+						tool: "create_repository",
+						owner: data.owner?.login,
+						repo: data.name,
+						org,
+					}),
+				);
+				return text(truncate(renderRepoSummary("Repository created", data)));
+			}),
+	);
+
+	server.registerTool(
+		"fork_repository",
+		{
+			description:
+				"Fork an existing repository to the authenticated user, or to an organisation when `organization` is given. Use when the user asks to fork a repo to contribute to it. Forking is asynchronous on GitHub's side — the fork may take a moment to fully populate. Returns the fork's metadata. Requires the `repo` OAuth scope.",
+			inputSchema: {
+				...RepoTarget,
+				organization: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Organisation login to own the fork. Omit to fork to the authenticated user."),
+				default_branch_only: z
+					.boolean()
+					.optional()
+					.default(false)
+					.describe("Fork only the source repo's default branch instead of all branches."),
+			},
+		},
+		async ({ owner, repo, organization, default_branch_only }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const { data, headers } = await octo.rest.repos.createFork(
+					stripUndefined({ owner, repo, organization, default_branch_only }),
+				);
+				logRateLimit(headers);
+				logWrite(
+					stripUndefined({
+						tool: "fork_repository",
+						owner: data.owner?.login,
+						repo: data.name,
+						org: organization,
+					}),
+				);
+				const extra =
+					data.parent != null
+						? [`- Forked from: ${data.parent.full_name} (${data.parent.html_url})`]
+						: [];
+				return text(truncate(renderRepoSummary("Repository forked", data, extra)));
+			}),
+	);
+};
+
+/**
+ * Render the post-mutation summary for a created or forked repository. Mirrors
+ * the field selection of `get_repo` but keyed off a heading rather than the full
+ * `# full_name` block, since these are confirmation outputs for a write.
+ */
+const renderRepoSummary = (
+	heading: string,
+	data: {
+		full_name: string;
+		private: boolean;
+		visibility?: string;
+		html_url: string;
+		default_branch?: string;
+		description?: string | null;
+	},
+	extra: string[] = [],
+): string => {
+	const visibility = data.visibility ?? (data.private ? "private" : "public");
+	const lines = [
+		`# ${heading}`,
+		"",
+		`- **${data.full_name}** (${visibility})`,
+		isNonEmpty(data.description) ? `- ${data.description}` : null,
+		`- URL: ${data.html_url}`,
+		isNonEmpty(data.default_branch) ? `- Default branch: \`${data.default_branch}\`` : null,
+		...extra,
+	].filter((l): l is string => l != null);
+	return lines.join("\n");
 };

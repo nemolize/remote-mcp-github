@@ -164,6 +164,7 @@ export type WriteAuditFields = {
 	tool: string;
 	owner?: string;
 	repo?: string;
+	org?: string; // create_repository (org-owned), fork_repository (org destination)
 	branch?: string;
 	path?: string;
 	issue_number?: number;

@@ -26,7 +26,7 @@ The table below compares coverage by **feature area** against the two most commo
 | Commit history (list / show / compare)                        | ✅                                                                                                           | ✅                        | ⚠️ `gh api` only                 |
 | Workflow / Actions (CI status, logs, rerun)                   | ✅ read + write (runs, jobs, workflows, job logs, artifacts, rerun all / failed jobs, cancel, dispatch)      | ✅                        | ✅                               |
 | Releases & tags                                               | ✅ read + write (`list_releases`, `get_release`, `list_tags`, create / update / delete release)              | ✅                        | ✅                               |
-| Repo admin (create / fork / delete)                           | ❌                                                                                                           | ✅                        | ✅                               |
+| Repo admin (create / fork / delete)                           | ⚠️ create / fork (`create_repository`, `fork_repository`); delete not yet implemented                        | ✅                        | ✅                               |
 | Security scanning (secret / code / Dependabot)                | ✅ read — list alerts (`list_secret_scanning_alerts`, `list_code_scanning_alerts`, `list_dependabot_alerts`) | ✅                        | ⚠️ `gh api` only                 |
 | Local working-tree ops (clone, checkout, …)                   | ❌ — out of scope (remote-only)                                                                              | ❌                        | ✅                               |
 
@@ -47,6 +47,8 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `get_repo`                    | read  | Repo metadata (default branch, visibility, flags, stars, language, timestamps)                     |
 | `get_authenticated_user`      | read  | Identity bound to the current OAuth token (login, profile, repo counts)                            |
 | `search_repositories`         | read  | Cross-GitHub repo search (uses GitHub search qualifiers like `org:`, `user:<login>`, `stars:>N`)   |
+| `create_repository`           | write | Create a repo for the authenticated user (or an `org`) — visibility, auto-init, gitignore/license  |
+| `fork_repository`             | write | Fork `owner/repo` to the authenticated user (or an `organization`); optional default-branch-only   |
 | `search_issues`               | read  | Issue / PR search inside a specific repo                                                           |
 | `get_issue`                   | read  | Single issue / PR detail (title, body, state, labels, assignees, milestone)                        |
 | `list_issue_comments`         | read  | Conversation comments on an issue or PR                                                            |
