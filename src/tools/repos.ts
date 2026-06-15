@@ -14,6 +14,36 @@ import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 import { searchHeader } from "./search-helpers.js";
 
+/**
+ * Render the post-mutation summary for a created or forked repository. Mirrors
+ * the field selection of `get_repo` but keyed off a heading rather than the full
+ * `# full_name` block, since these are confirmation outputs for a write.
+ */
+const renderRepoSummary = (
+	heading: string,
+	data: {
+		full_name: string;
+		private: boolean;
+		visibility?: string;
+		html_url: string;
+		default_branch?: string;
+		description?: string | null;
+	},
+	extra: string[] = [],
+): string => {
+	const visibility = data.visibility ?? (data.private ? "private" : "public");
+	const lines = [
+		`# ${heading}`,
+		"",
+		`- **${data.full_name}** (${visibility})`,
+		isNonEmpty(data.description) ? `- ${data.description}` : null,
+		`- URL: ${data.html_url}`,
+		isNonEmpty(data.default_branch) ? `- Default branch: \`${data.default_branch}\`` : null,
+		...extra,
+	].filter((l): l is string => l != null);
+	return lines.join("\n");
+};
+
 export const registerRepoTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"list_my_repos",
@@ -317,34 +347,4 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 				return text(truncate(renderRepoSummary("Repository forked", data, extra)));
 			}),
 	);
-};
-
-/**
- * Render the post-mutation summary for a created or forked repository. Mirrors
- * the field selection of `get_repo` but keyed off a heading rather than the full
- * `# full_name` block, since these are confirmation outputs for a write.
- */
-const renderRepoSummary = (
-	heading: string,
-	data: {
-		full_name: string;
-		private: boolean;
-		visibility?: string;
-		html_url: string;
-		default_branch?: string;
-		description?: string | null;
-	},
-	extra: string[] = [],
-): string => {
-	const visibility = data.visibility ?? (data.private ? "private" : "public");
-	const lines = [
-		`# ${heading}`,
-		"",
-		`- **${data.full_name}** (${visibility})`,
-		isNonEmpty(data.description) ? `- ${data.description}` : null,
-		`- URL: ${data.html_url}`,
-		isNonEmpty(data.default_branch) ? `- Default branch: \`${data.default_branch}\`` : null,
-		...extra,
-	].filter((l): l is string => l != null);
-	return lines.join("\n");
 };
