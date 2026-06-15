@@ -8,6 +8,9 @@ const stubOctokit = (overrides = {}) => ({
 		repos: {
 			listForAuthenticatedUser: async () => ({ data: [], headers: {} }),
 			get: async () => ({ data: {}, headers: {} }),
+			createForAuthenticatedUser: async () => ({ data: {}, headers: {} }),
+			createInOrg: async () => ({ data: {}, headers: {} }),
+			createFork: async () => ({ data: {}, headers: {} }),
 			...overrides.repos,
 		},
 		users: {
@@ -258,5 +261,190 @@ describe("registerRepoTools — search_repositories", () => {
 		});
 		const body = result.content[0].text;
 		expect(body).toContain("(page 1, showing 20 of 100; pass next `page` for more)");
+	});
+});
+
+describe("registerRepoTools — create_repository", () => {
+	const created = {
+		full_name: "nemolize/new-repo",
+		name: "new-repo",
+		owner: { login: "nemolize" },
+		private: false,
+		visibility: "public",
+		html_url: "https://example.test/nemolize/new-repo",
+		default_branch: "main",
+		description: "A fresh repo",
+	};
+
+	it("creates a user-owned repo and renders its summary", async () => {
+		let captured;
+		const handlers = register(
+			stubOctokit({
+				repos: {
+					createForAuthenticatedUser: async (params) => {
+						captured = params;
+						return { data: created, headers: {} };
+					},
+				},
+			}),
+		);
+		const result = await invoke(handlers, "create_repository", {
+			name: "new-repo",
+			description: "A fresh repo",
+		});
+		const body = result.content[0].text;
+		expect(result.isError).toBeUndefined();
+		expect(captured.name).toBe("new-repo");
+		expect(captured.org).toBeUndefined();
+		expect(body).toContain("# Repository created");
+		expect(body).toContain("**nemolize/new-repo** (public)");
+		expect(body).toContain("A fresh repo");
+		expect(body).toContain("- Default branch: `main`");
+	});
+
+	it("passes the security-relevant private/auto_init params through to Octokit", async () => {
+		let captured;
+		const handlers = register(
+			stubOctokit({
+				repos: {
+					createForAuthenticatedUser: async (params) => {
+						captured = params;
+						return { data: { ...created, private: true, visibility: "private" }, headers: {} };
+					},
+				},
+			}),
+		);
+		const result = await invoke(handlers, "create_repository", {
+			name: "secret",
+			private: true,
+			auto_init: true,
+		});
+		expect(result.isError).toBeUndefined();
+		expect(captured.private).toBe(true);
+		expect(captured.auto_init).toBe(true);
+		expect(result.content[0].text).toContain("(private)");
+	});
+
+	it("routes to createInOrg when `org` is given", async () => {
+		let usedOrg = false;
+		const handlers = register(
+			stubOctokit({
+				repos: {
+					createInOrg: async (params) => {
+						usedOrg = params.org;
+						return {
+							data: { ...created, full_name: "acme/new-repo", owner: { login: "acme" } },
+							headers: {},
+						};
+					},
+					createForAuthenticatedUser: async () => {
+						throw new Error("should not call user-create path when org is set");
+					},
+				},
+			}),
+		);
+		const result = await invoke(handlers, "create_repository", { name: "new-repo", org: "acme" });
+		expect(result.isError).toBeUndefined();
+		expect(usedOrg).toBe("acme");
+		expect(result.content[0].text).toContain("**acme/new-repo** (public)");
+	});
+
+	it("surfaces API errors via wrapTool", async () => {
+		const handlers = register(
+			stubOctokit({
+				repos: {
+					createForAuthenticatedUser: async () => {
+						const err = new Error("name already exists on this account");
+						err.status = 422;
+						throw err;
+					},
+				},
+			}),
+		);
+		const result = await invoke(handlers, "create_repository", { name: "dup" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("name already exists");
+	});
+});
+
+describe("registerRepoTools — fork_repository", () => {
+	const fork = {
+		full_name: "nemolize/forked",
+		name: "forked",
+		owner: { login: "nemolize" },
+		private: false,
+		visibility: "public",
+		html_url: "https://example.test/nemolize/forked",
+		default_branch: "main",
+		description: null,
+		parent: {
+			full_name: "upstream/forked",
+			html_url: "https://example.test/upstream/forked",
+		},
+	};
+
+	it("forks to the authenticated user and shows the parent", async () => {
+		let captured;
+		const handlers = register(
+			stubOctokit({
+				repos: {
+					createFork: async (params) => {
+						captured = params;
+						return { data: fork, headers: {} };
+					},
+				},
+			}),
+		);
+		const result = await invoke(handlers, "fork_repository", {
+			owner: "upstream",
+			repo: "forked",
+		});
+		const body = result.content[0].text;
+		expect(result.isError).toBeUndefined();
+		expect(captured.owner).toBe("upstream");
+		expect(captured.repo).toBe("forked");
+		expect(captured.organization).toBeUndefined();
+		expect(body).toContain("# Repository forked");
+		expect(body).toContain("**nemolize/forked** (public)");
+		expect(body).toContain("- Forked from: upstream/forked (https://example.test/upstream/forked)");
+	});
+
+	it("passes the organization and default_branch_only through", async () => {
+		let captured;
+		const handlers = register(
+			stubOctokit({
+				repos: {
+					createFork: async (params) => {
+						captured = params;
+						return { data: { ...fork, parent: null }, headers: {} };
+					},
+				},
+			}),
+		);
+		await invoke(handlers, "fork_repository", {
+			owner: "upstream",
+			repo: "forked",
+			organization: "acme",
+			default_branch_only: true,
+		});
+		expect(captured.organization).toBe("acme");
+		expect(captured.default_branch_only).toBe(true);
+	});
+
+	it("surfaces API errors via wrapTool", async () => {
+		const handlers = register(
+			stubOctokit({
+				repos: {
+					createFork: async () => {
+						const err = new Error("Not Found");
+						err.status = 404;
+						throw err;
+					},
+				},
+			}),
+		);
+		const result = await invoke(handlers, "fork_repository", { owner: "ghost", repo: "nope" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Not Found");
 	});
 });

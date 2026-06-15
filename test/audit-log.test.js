@@ -6,6 +6,7 @@ import { registerBranchTools } from "../src/tools/branches.js";
 import { registerFileTools } from "../src/tools/files.js";
 import { registerIssueTools } from "../src/tools/issues.js";
 import { registerPullTools } from "../src/tools/pulls.js";
+import { registerRepoTools } from "../src/tools/repos.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
 
 // Returns every `[github-audit]` JSON payload logged during the spy's lifetime,
@@ -268,6 +269,30 @@ const wideOctokit = () => {
 					content: { html_url: "https://x/file" },
 				}),
 				deleteFile: ok({ commit: { sha: "deadbeef0000", html_url: "https://x/commit" } }),
+				createForAuthenticatedUser: ok({
+					owner: { login: "o" },
+					name: "r",
+					full_name: "o/r",
+					private: false,
+					html_url: "https://x/o/r",
+					default_branch: "main",
+				}),
+				createInOrg: ok({
+					owner: { login: "o" },
+					name: "r",
+					full_name: "o/r",
+					private: false,
+					html_url: "https://x/o/r",
+					default_branch: "main",
+				}),
+				createFork: ok({
+					owner: { login: "o" },
+					name: "r",
+					full_name: "o/r",
+					private: false,
+					html_url: "https://x/o/r",
+					default_branch: "main",
+				}),
 			},
 			git: {
 				getRef: ok({ object: { sha: "parent000000" } }),
@@ -365,6 +390,8 @@ const WRITE_TOOLS = [
 		"trigger_workflow_dispatch",
 		{ owner: "o", repo: "r", workflow_id: "ci.yml", ref: "main" },
 	],
+	[registerRepoTools, "create_repository", { name: "r" }],
+	[registerRepoTools, "fork_repository", { owner: "o", repo: "r" }],
 ];
 
 describe("every write tool emits exactly one audit line tagged with its own name", () => {
