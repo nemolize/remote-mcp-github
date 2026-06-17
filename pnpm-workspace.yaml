@@ -1,3 +1,8 @@
+# Supply-chain wait window. Matches the `minimumReleaseAge: "3 days"` in the
+# shared Renovate config (nemolize/renovate-config) so a Renovate-authored PR
+# never trips pnpm's policy on its own update. Default since pnpm v11 is 1440.
+minimumReleaseAge: 4320
+
 allowBuilds:
   # Optional native compression deps pulled in transitively via agents -> just-bash.
   # Not used on the Workers runtime, so their build scripts are intentionally skipped.
