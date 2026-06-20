@@ -208,6 +208,19 @@ curl https://remote-mcp-github.<your-subdomain>.workers.dev/.well-known/oauth-au
 
 In a new chat, prompt Claude with something like _"List my GitHub repositories by most recently updated"_ — Claude will pick `list_my_repos` and call it.
 
+### 9. Connect a Bearer-only client (Codex desktop)
+
+Some MCP clients can't perform the OAuth consent flow. The **Codex desktop** "Streaming HTTP" custom-MCP form, for example, offers only a URL and a Bearer-token field — no "Connect / authorize" affordance. For these clients the server accepts a [GitHub Personal Access Token](https://github.com/settings/tokens) directly on a dedicated route:
+
+- **URL**: `https://remote-mcp-github.<your-subdomain>.workers.dev/pat/mcp` (note the `/pat/` prefix — **not** the canonical `/mcp`)
+- **Bearer token**: a GitHub PAT (classic `ghp_…` or fine-grained `github_pat_…`) with `repo` + `read:user` scope
+
+The PAT is used exactly like the OAuth-issued token (it lands in `props.accessToken` and drives Octokit per request). Validity is checked by use — an invalid or under-scoped PAT surfaces as a `401`/`403` on the first tool call.
+
+**Token-custody trade-off.** Unlike the OAuth path — where the GitHub token is minted and encrypted in KV and never sent by the client — a PAT is held by the client and transits in the `Authorization` header on every request. The Worker never persists it. Rotate or revoke the PAT from GitHub at any time (no server-side session to invalidate). Treat the PAT URL like any Bearer credential.
+
+This path is **symmetric with the OAuth path**: anyone presenting a valid PAT can use it, acting only under their own GitHub identity (the same posture as the OAuth flow, which has no user allowlist either). Restricting _who_ may use the server — across both auth paths — is tracked separately in [#129](https://github.com/nemolize/remote-mcp-github/issues/129). See [`docs/decisions/0004-pat-bearer-auth-for-non-oauth-clients.md`](docs/decisions/0004-pat-bearer-auth-for-non-oauth-clients.md) for the design rationale.
+
 ## Code quality
 
 ```bash
@@ -255,9 +268,10 @@ The server requests `read:user repo` from GitHub. The `repo` portion is what ena
 
 ```
 src/
-├── index.ts             # OAuthProvider + MyMCP class wiring
+├── index.ts             # OAuthProvider + MyMCP class wiring (+ /pat/* mount)
 ├── tools.ts             # GitHub tools + helpers (truncation, rate-limit log)
 ├── github-handler.ts    # OAuth redirect handler (scope set here)
+├── pat-auth.ts          # PAT Bearer auth path (/pat/* route + resolver)
 ├── workers-oauth-utils.ts
 └── utils.ts
 wrangler.jsonc           # Cloudflare Workers config; KV id goes here
@@ -274,7 +288,8 @@ Two prefixed axes: `type:*` mirror the repo's conventional-commit types (`feat` 
 - The Worker is the OAuth _server_ for Claude.ai (and any other MCP client) and the OAuth _client_ for GitHub. The GitHub access token never leaves the Worker — it sits in `this.props.accessToken` inside the Durable Object instance, used by Octokit per request.
 - All tool calls go through a `wrapTool()` boundary that converts thrown errors into `{ isError: true, content: [{ type: "text", text: "Error: …" }] }` so the model sees the failure mode rather than the connection dropping. The error text is forwarded verbatim; Octokit already redacts the Authorization header, so tokens do not leak, though other fields are not sanitised (defence-in-depth, not done today).
 - Write-tool payloads carry input-size caps (file content, commit/PR/issue/comment text, per-commit file count, and the aggregate content size of a multi-file commit — see `src/tools/common.ts`) as defence-in-depth, so a runaway model can't burn Worker CPU/memory with a multi-megabyte payload well under the platform's 100 MiB request limit. Oversized input is rejected with a descriptive error (per-field caps at schema validation; the aggregate-commit cap in the `commit_files` handler before any API call).
-- This is still a small server. Audit before exposing to untrusted users; consider tightening CORS, limiting allowed origins, or restricting `ALLOWED_USERNAMES` for sensitive write tools.
+- The optional PAT path (`/pat/*`, see step 9) accepts a client-held GitHub token on every request rather than a server-minted one. It is symmetric with the OAuth path (any caller, acting as themselves) and the PAT is never persisted, but it does transit the `Authorization` header per request — keep it out of logs and treat the URL as credential-bearing.
+- This is still a small server. Audit before exposing to untrusted users; consider tightening CORS, limiting allowed origins, or adding a cross-cutting GitHub-login allowlist (tracked in [#129](https://github.com/nemolize/remote-mcp-github/issues/129)) for both auth paths.
 
 ## License
 

@@ -24,11 +24,12 @@ export const parseMcpBody = async (resp) => {
 	throw new Error(`unparseable /mcp response (ct=${ct}):\n${raw}`);
 };
 
-export const makeMcpClient = ({ fetch: fetchImpl, baseUrl, bearer }) => {
+export const makeMcpClient = ({ fetch: fetchImpl, baseUrl, bearer, path = "/mcp" }) => {
 	// Tolerate baseUrl values that include a trailing slash (e.g. MCP_BASE=…:8788/)
 	// so callers don't have to remember; `${base}/mcp` would otherwise emit `//mcp`,
-	// which some servers and intermediaries route distinctly.
-	const mcpUrl = `${baseUrl.replace(/\/+$/, "")}/mcp`;
+	// which some servers and intermediaries route distinctly. `path` lets the PAT
+	// E2E target `/pat/mcp` instead of the canonical `/mcp`.
+	const mcpUrl = `${baseUrl.replace(/\/+$/, "")}${path}`;
 	let sessionId = null;
 	let id = 0;
 	const call = async (method, params) => {
