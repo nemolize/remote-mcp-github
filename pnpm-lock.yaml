@@ -16,7 +16,7 @@ importers:
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
       agents:
         specifier: ^0.16.0
-        version: 0.16.1(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/workers-types@4.20260613.1)(ai@6.0.205(zod@4.4.3))(react@19.2.7)(rolldown@1.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(yaml@2.9.0))(zod@4.4.3)
+        version: 0.16.2(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/workers-types@4.20260613.1)(ai@6.0.205(zod@4.4.3))(react@19.2.7)(rolldown@1.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(yaml@2.9.0))(zod@4.4.3)
       hono:
         specifier: ^4.12.9
         version: 4.12.25
@@ -1399,8 +1399,8 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  agents@0.16.1:
-    resolution: {integrity: sha512-IIROiKMW3RxZMrLFuwjYpfYdakXsBQcfR3sSQPEvMhLz2lmkbUG7zyxt4Z45dp3/3r9RSocvANqf5KMsGERs8g==}
+  agents@0.16.2:
+    resolution: {integrity: sha512-pSWRw4l5j14cGsCPLDhXGjEfv4RX/kUHdgYsqCohd3AfutPNUEyGhbqfNzg8HklfQdZLpjJj+X7vsRAect5/4Q==}
     hasBin: true
     peerDependencies:
       '@cloudflare/ai-chat': '>=0.8.5 <1.0.0'
@@ -1774,8 +1774,8 @@ packages:
   fast-xml-builder@1.2.0:
     resolution: {integrity: sha512-00aAWieqff+ZJhsXA4g1g7M8k+7AYoMUUHF+/zFb5U6Uv/P0Vl4QZo84/IcufzYalLuEj9928bXN9PbbFzMF0Q==}
 
-  fast-xml-parser@5.9.0:
-    resolution: {integrity: sha512-duBuXbyIhEeNO4GjFuVqr0nF047oNwr18aum+zJyqo0MUG/n7Afgs3Qv3D6VN3ONedUKxiuFlPiMGIa0Z11chA==}
+  fast-xml-parser@5.9.2:
+    resolution: {integrity: sha512-DYPkXnVSJHAGAkSBeVYhEo/seIpz2SLr9OQcX7m6lXaX3gvoB+DCKzFdZIEhZGI3I1DUhObBAUOT/v2xfoXz/w==}
     hasBin: true
 
   fdir@6.5.0:
@@ -3983,7 +3983,7 @@ snapshots:
 
   acorn@8.17.0: {}
 
-  agents@0.16.1(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/workers-types@4.20260613.1)(ai@6.0.205(zod@4.4.3))(react@19.2.7)(rolldown@1.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(yaml@2.9.0))(zod@4.4.3):
+  agents@0.16.2(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/workers-types@4.20260613.1)(ai@6.0.205(zod@4.4.3))(react@19.2.7)(rolldown@1.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(yaml@2.9.0))(zod@4.4.3):
     dependencies:
       '@babel/plugin-proposal-decorators': 7.29.7(@babel/core@7.29.7)
       '@cfworker/json-schema': 4.1.1
@@ -4415,7 +4415,7 @@ snapshots:
       path-expression-matcher: 1.5.0
       xml-naming: 0.1.0
 
-  fast-xml-parser@5.9.0:
+  fast-xml-parser@5.9.2:
     dependencies:
       '@nodable/entities': 2.2.0
       fast-xml-builder: 1.2.0
@@ -4593,7 +4593,7 @@ snapshots:
   just-bash@3.0.1:
     dependencies:
       diff: 8.0.4
-      fast-xml-parser: 5.9.0
+      fast-xml-parser: 5.9.2
       file-type: 21.3.4
       ini: 6.0.0
       minimatch: 10.2.5
