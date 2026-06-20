@@ -47,9 +47,10 @@ export const makeMcpClient = ({ fetch: fetchImpl, baseUrl, bearer, path = "/mcp"
 		});
 		const respSession = r.headers.get("mcp-session-id");
 		if (respSession != null && sessionId == null) sessionId = respSession;
-		if (!r.ok) throw new Error(`/mcp ${method} returned ${r.status}: ${await r.text()}`);
+		if (!r.ok) throw new Error(`${path} ${method} returned ${r.status}: ${await r.text()}`);
 		const body = await parseMcpBody(r);
-		if (body.error != null) throw new Error(`/mcp ${method} error: ${JSON.stringify(body.error)}`);
+		if (body.error != null)
+			throw new Error(`${path} ${method} error: ${JSON.stringify(body.error)}`);
 		return body.result;
 	};
 	const initialize = async ({ clientInfo }) => {

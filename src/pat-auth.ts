@@ -23,7 +23,20 @@ export const isPatRoute = (pathname: string): boolean =>
 
 /** True when `token` looks like a GitHub PAT (sanity check, not the route gate). */
 export const looksLikePat = (token: string): boolean =>
-	PAT_TOKEN_PREFIXES.some((p) => token.startsWith(p));
+	typeof token === "string" && PAT_TOKEN_PREFIXES.some((p) => token.startsWith(p));
+
+/**
+ * The `Props` an accepted PAT yields: the token in `accessToken` (the same field
+ * the OAuth callback populates) and empty identity fields, since no tool reads
+ * `login`/`name`/`email` and the PAT path makes no `GET /user` call. Single point
+ * of truth for the shape so adding a `Props` field touches one place.
+ */
+export const patProps = (token: string): Props => ({
+	accessToken: token,
+	login: "",
+	name: "",
+	email: "",
+});
 
 /**
  * Resolves an external Bearer token into MCP `Props` for the PAT path.
@@ -49,5 +62,5 @@ export const resolvePatToken = ({
 }): { props: Props } | null => {
 	if (!isPatRoute(pathname)) return null;
 	if (!looksLikePat(token)) return null;
-	return { props: { accessToken: token, login: "", name: "", email: "" } };
+	return { props: patProps(token) };
 };

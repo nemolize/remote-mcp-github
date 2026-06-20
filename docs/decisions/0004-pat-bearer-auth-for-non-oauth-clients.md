@@ -104,8 +104,9 @@ These restrict _who_ may use the server. They belong to the cross-cutting access
 
 ## Confirmation
 
-- New test exercises the `/pat/mcp` route with a fake `resolveExternalToken` (injected through an extended `buildOAuthProvider` signature) returning sentinel props for a PAT Bearer, and asserts an **actual tool call** (not merely `tools/list`, which only enumerates registered tools and makes no GitHub request) succeeds with the PAT and **no** OAuth dance — confirming the `Authorization` token is threaded through to the Octokit client.
-- A test confirms the canonical `/mcp` route still rejects an unknown Bearer with `401` (the PAT resolver accepts only on `/pat/*`).
+- `test/pat-auth.test.js` covers two tiers: unit tests of `resolvePatToken` / `isPatRoute` / `looksLikePat` (route + PAT-shape gating, empty-token rejection), and a transport E2E that drives `/pat/mcp` with a PAT Bearer through a fake `resolveExternalToken` (injected via `buildOAuthProvider`, delegating to the production `resolvePatToken` so the gate is single-sourced). The transport tier asserts `initialize` + `tools/list` succeed with **no** OAuth dance — proving the resolver → `ctx.props` → MCP-session seam. It deliberately does **not** call GitHub; that `tools/list` only enumerates registered tools.
+- A transport test confirms the canonical `/mcp` route rejects the same PAT Bearer with `401` (the resolver accepts only on `/pat/*`), plus a non-PAT-shaped and an empty Bearer on `/pat/mcp` are rejected.
+- That an actual tool call threads the PAT through to Octokit against **real** GitHub is confirmed out-of-band by a manual live run (`list_my_repos` over `/pat/mcp` returned real repos) and is the standing job of the handler-capture tier (`.claude/rules/tool-e2e-handler-capture.md`), not this transport test.
 - The existing OAuth transport E2E (`test/mcp-e2e.test.js`) still passes unchanged.
 - `pnpm type-check` / `pnpm lint` / `pnpm test` pass.
 

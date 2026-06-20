@@ -1,7 +1,7 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
-import { isPatRoute, looksLikePat, resolvePatToken } from "../src/pat-auth.js";
+import { isPatRoute, looksLikePat, patProps, resolvePatToken } from "../src/pat-auth.js";
 import { makeMcpClient } from "./_fixtures/mcp-client.mjs";
 
 // Transport-layer E2E for the GitHub-PAT Bearer auth path (issue #128 / ADR-0004).
@@ -18,7 +18,7 @@ const FAKE_PAT = "ghp_faketokenforpatauthtest0000000000";
 describe("PAT auth — unit (resolvePatToken gating)", () => {
 	it("accepts a PAT-shaped Bearer on a /pat/* route", () => {
 		expect(resolvePatToken({ token: FAKE_PAT, pathname: "/pat/mcp" })).toEqual({
-			props: { accessToken: FAKE_PAT, login: "", name: "", email: "" },
+			props: patProps(FAKE_PAT),
 		});
 		expect(resolvePatToken({ token: "github_pat_abc", pathname: "/pat/sse" })).not.toBeNull();
 	});
@@ -27,8 +27,9 @@ describe("PAT auth — unit (resolvePatToken gating)", () => {
 		expect(resolvePatToken({ token: FAKE_PAT, pathname: "/mcp" })).toBeNull();
 	});
 
-	it("rejects (null) a non-PAT-shaped Bearer even on /pat/*", () => {
+	it("rejects (null) a non-PAT-shaped or empty Bearer even on /pat/*", () => {
 		expect(resolvePatToken({ token: "gho_oauthtoken", pathname: "/pat/mcp" })).toBeNull();
+		expect(resolvePatToken({ token: "", pathname: "/pat/mcp" })).toBeNull();
 	});
 
 	it("isPatRoute / looksLikePat helpers", () => {
@@ -80,6 +81,18 @@ describe("PAT auth — transport E2E", () => {
 			method: "POST",
 			headers: {
 				authorization: "Bearer gho_notapattoken",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+		});
+		expect(r.status).toBe(401);
+	});
+
+	it("rejects an empty Bearer on /pat/mcp", async () => {
+		const r = await SELF.fetch(`${ORIGIN}/pat/mcp`, {
+			method: "POST",
+			headers: {
+				authorization: "Bearer ",
 				"content-type": "application/json",
 			},
 			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),

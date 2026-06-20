@@ -31,11 +31,9 @@ const corsOptions = {
 	maxAge: 86400,
 };
 
-// Resolver for the PAT (GitHub Personal Access Token) Bearer auth path, wired as
-// OAuthProvider's `resolveExternalToken`. It fires only on a KV-miss (a Bearer the
-// provider did not issue) and accepts the token only on the `/pat/*` route.
-// Injectable so tests can supply a fake without standing up real GitHub.
-// See docs/decisions/0004-pat-bearer-auth-for-non-oauth-clients.md.
+// Signature of OAuthProvider's `resolveExternalToken` for the PAT path (the
+// mechanism lives in `src/pat-auth.ts`). Injectable so tests can swap in a fake
+// without standing up real GitHub.
 export type PatResolver = (input: {
 	token: string;
 	request: Request;
