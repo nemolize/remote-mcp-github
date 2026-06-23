@@ -496,7 +496,7 @@ describe("registerRepoTools — delete_repository", () => {
 		expect(body).toContain("HTTP 404");
 	});
 
-	it("surfaces 403 when the token lacks delete_repo scope or admin", async () => {
+	it("surfaces 403 when the authenticated user lacks admin rights", async () => {
 		const handlers = register(
 			stubOctokit({
 				repos: {

@@ -49,7 +49,7 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `search_repositories`         | read  | Cross-GitHub repo search (uses GitHub search qualifiers like `org:`, `user:<login>`, `stars:>N`)   |
 | `create_repository`           | write | Create a repo for the authenticated user (or an `org`) — visibility, auto-init, gitignore/license  |
 | `fork_repository`             | write | Fork `owner/repo` to the authenticated user (or an `organization`); optional default-branch-only   |
-| `delete_repository`           | write | Permanently delete `owner/repo` (irreversible; requires `delete_repo` scope + admin rights)        |
+| `delete_repository`           | write | Permanently delete `owner/repo` (destructive; GitHub keeps a 90-day restoration window for orgs)   |
 | `search_issues`               | read  | Issue / PR search inside a specific repo                                                           |
 | `get_issue`                   | read  | Single issue / PR detail (title, body, state, labels, assignees, milestone)                        |
 | `list_issue_comments`         | read  | Conversation comments on an issue or PR                                                            |
@@ -250,7 +250,7 @@ Other knobs: `MCP_BASE` (default `http://localhost:8788`), `CALLBACK_PORT` (defa
 
 ## OAuth scopes
 
-The server requests `read:user repo delete_repo` from GitHub. The `repo` portion is what enables private-repo visibility for read tools and the create/comment/branch capabilities of the write tools; `delete_repo` is required only by `delete_repository`. To run the read tools only against public repositories, change `src/github-handler.ts` to `read:user public_repo` (and drop `delete_repo` if `delete_repository` is not needed).
+The server requests `read:user repo delete_repo` from GitHub. The `repo` portion is what enables private-repo visibility for read tools and the create/comment/branch capabilities of the write tools; `delete_repo` is required only by `delete_repository`. To run the read tools only against public repositories, change `src/github-handler.ts` to `read:user public_repo`.
 
 ## Project structure
 

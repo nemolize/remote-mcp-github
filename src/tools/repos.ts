@@ -352,7 +352,7 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 		"delete_repository",
 		{
 			description:
-				"Permanently delete a repository. Both `owner` and `repo` are required so a repo can never be deleted by name alone. This action is irreversible — GitHub does not move deleted repos to a trash; the API returns 204 No Content on success. Requires the `delete_repo` OAuth scope, and the authenticated user must have admin rights on the repo.",
+				"Permanently delete `owner/repo`. Destructive — GitHub retains a 90-day restoration window (org-owned: Settings → Deleted repositories; user-owned: contact GitHub Support, not guaranteed). Requires the `delete_repo` OAuth scope and admin rights on the repo.",
 			inputSchema: { ...RepoTarget },
 		},
 		async ({ owner, repo }) =>
@@ -360,7 +360,9 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 				const { headers } = await client().rest.repos.delete({ owner, repo });
 				logRateLimit(headers);
 				logWrite({ tool: "delete_repository", owner, repo });
-				return text(`# Repository deleted\n\n- **${owner}/${repo}** has been permanently deleted.`);
+				return text(
+					`# Repository deleted\n\n- **${owner}/${repo}** deleted. GitHub retains a 90-day restoration window for org-owned repos.`,
+				);
 			}),
 	);
 };
