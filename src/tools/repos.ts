@@ -347,4 +347,22 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 				return text(truncate(renderRepoSummary("Repository forked", data, extra)));
 			}),
 	);
+
+	server.registerTool(
+		"delete_repository",
+		{
+			description:
+				"Permanently delete `owner/repo`. Destructive — GitHub retains a 90-day restoration window (org-owned: Settings → Deleted repositories; user-owned: contact GitHub Support, not guaranteed). Requires the `delete_repo` OAuth scope and admin rights on the repo.",
+			inputSchema: { ...RepoTarget },
+		},
+		async ({ owner, repo }) =>
+			wrapTool(async () => {
+				const { headers } = await client().rest.repos.delete({ owner, repo });
+				logRateLimit(headers);
+				logWrite({ tool: "delete_repository", owner, repo });
+				return text(
+					`# Repository deleted\n\n- **${owner}/${repo}** deleted. GitHub retains a 90-day restoration window for org-owned repos.`,
+				);
+			}),
+	);
 };
