@@ -124,11 +124,12 @@ describe("MCP transport E2E", () => {
 		// Count floor catches "tools silently dropped from registration"; spot-checks
 		// catch "this specific tool stopped registering". The exact inventory lives
 		// in the README and would drift here on every new tool — don't enumerate.
-		expect(names.length, "tool count regressed").toBeGreaterThanOrEqual(26);
+		expect(names.length, "tool count regressed").toBeGreaterThanOrEqual(27);
 		for (const required of [
 			"list_my_repos", // repos read
 			"create_repository", // repos write
 			"fork_repository", // repos write
+			"delete_repository", // repos write
 			"search_issues", // issues read
 			"add_comment", // issues write
 			"list_branches", // branches

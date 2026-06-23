@@ -347,4 +347,20 @@ export const registerRepoTools = (server: McpServer, client: OctokitFactory): vo
 				return text(truncate(renderRepoSummary("Repository forked", data, extra)));
 			}),
 	);
+
+	server.registerTool(
+		"delete_repository",
+		{
+			description:
+				"Permanently delete a repository. Both `owner` and `repo` are required so a repo can never be deleted by name alone. This action is irreversible — GitHub does not move deleted repos to a trash; the API returns 204 No Content on success. Requires the `delete_repo` OAuth scope, and the authenticated user must have admin rights on the repo.",
+			inputSchema: { ...RepoTarget },
+		},
+		async ({ owner, repo }) =>
+			wrapTool(async () => {
+				const { headers } = await client().rest.repos.delete({ owner, repo });
+				logRateLimit(headers);
+				logWrite({ tool: "delete_repository", owner, repo });
+				return text(`# Repository deleted\n\n- **${owner}/${repo}** has been permanently deleted.`);
+			}),
+	);
 };

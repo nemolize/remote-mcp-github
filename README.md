@@ -12,23 +12,23 @@ Several GitHub MCP servers exist, alongside GitHub's own `gh` CLI. This server's
 
 The table below compares coverage by **feature area** against the two most common alternatives. It stays deliberately coarse-grained — the [tool table](#whats-included) is the source of truth for which tools exist right now, and `gh`'s coverage is documented in the [GitHub CLI manual](https://cli.github.com/manual/). Legend: ✅ first-class · ⚠️ only via a lower-level escape hatch (`gh api`, local `git`) · ❌ absent.
 
-| Feature area                                                  | This server                                                                                                                                   | Official `mcp__github__*` | `gh` CLI                         |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | -------------------------------- |
-| Repo metadata & discovery                                     | ✅                                                                                                                                            | ✅                        | ✅                               |
-| Issue read / triage / lifecycle (labels, assignees, comments) | ✅                                                                                                                                            | ✅                        | ✅                               |
-| Code & repo search                                            | ✅                                                                                                                                            | ✅                        | ✅                               |
-| File content read + remote commit (single & multi-file)       | ✅                                                                                                                                            | ✅                        | ⚠️ `gh api` only                 |
-| Branch list / create / delete                                 | ✅                                                                                                                                            | ✅                        | ⚠️ `gh api` / local `git`        |
-| PR open / diff / request reviewers                            | ✅                                                                                                                                            | ✅                        | ✅                               |
-| PR read detail / merge / update lifecycle                     | ✅                                                                                                                                            | ✅                        | ✅                               |
-| PR reviews & review comments (read + reply + submit)          | ✅ read + reply + submit (`create_pr_review`, `add_pr_review_comment_reply`)                                                                  | ✅                        | ⚠️ partial (`gh api` for inline) |
-| **PR review thread resolve / unresolve**                      | ✅                                                                                                                                            | ❌                        | ⚠️ `gh api graphql` only         |
-| Commit history (list / show / compare)                        | ✅                                                                                                                                            | ✅                        | ⚠️ `gh api` only                 |
-| Workflow / Actions (CI status, logs, rerun)                   | ✅ read + write (runs, jobs, workflows, job logs, artifacts, rerun all / failed jobs, cancel, dispatch)                                       | ✅                        | ✅                               |
-| Releases & tags                                               | ✅ read + write (`list_releases`, `get_release`, `list_tags`, create / update / delete release)                                               | ✅                        | ✅                               |
-| Repo admin (create / fork / delete)                           | ⚠️ create / fork (`create_repository`, `fork_repository`); delete tracked in [#137](https://github.com/nemolize/remote-mcp-github/issues/137) | ✅                        | ✅                               |
-| Security scanning (secret / code / Dependabot)                | ✅ read — list alerts (`list_secret_scanning_alerts`, `list_code_scanning_alerts`, `list_dependabot_alerts`)                                  | ✅                        | ⚠️ `gh api` only                 |
-| Local working-tree ops (clone, checkout, …)                   | ❌ — out of scope (remote-only)                                                                                                               | ❌                        | ✅                               |
+| Feature area                                                  | This server                                                                                                  | Official `mcp__github__*` | `gh` CLI                         |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------- | -------------------------------- |
+| Repo metadata & discovery                                     | ✅                                                                                                           | ✅                        | ✅                               |
+| Issue read / triage / lifecycle (labels, assignees, comments) | ✅                                                                                                           | ✅                        | ✅                               |
+| Code & repo search                                            | ✅                                                                                                           | ✅                        | ✅                               |
+| File content read + remote commit (single & multi-file)       | ✅                                                                                                           | ✅                        | ⚠️ `gh api` only                 |
+| Branch list / create / delete                                 | ✅                                                                                                           | ✅                        | ⚠️ `gh api` / local `git`        |
+| PR open / diff / request reviewers                            | ✅                                                                                                           | ✅                        | ✅                               |
+| PR read detail / merge / update lifecycle                     | ✅                                                                                                           | ✅                        | ✅                               |
+| PR reviews & review comments (read + reply + submit)          | ✅ read + reply + submit (`create_pr_review`, `add_pr_review_comment_reply`)                                 | ✅                        | ⚠️ partial (`gh api` for inline) |
+| **PR review thread resolve / unresolve**                      | ✅                                                                                                           | ❌                        | ⚠️ `gh api graphql` only         |
+| Commit history (list / show / compare)                        | ✅                                                                                                           | ✅                        | ⚠️ `gh api` only                 |
+| Workflow / Actions (CI status, logs, rerun)                   | ✅ read + write (runs, jobs, workflows, job logs, artifacts, rerun all / failed jobs, cancel, dispatch)      | ✅                        | ✅                               |
+| Releases & tags                                               | ✅ read + write (`list_releases`, `get_release`, `list_tags`, create / update / delete release)              | ✅                        | ✅                               |
+| Repo admin (create / fork / delete)                           | ✅ create / fork / delete (`create_repository`, `fork_repository`, `delete_repository`)                      | ✅                        | ✅                               |
+| Security scanning (secret / code / Dependabot)                | ✅ read — list alerts (`list_secret_scanning_alerts`, `list_code_scanning_alerts`, `list_dependabot_alerts`) | ✅                        | ⚠️ `gh api` only                 |
+| Local working-tree ops (clone, checkout, …)                   | ❌ — out of scope (remote-only)                                                                              | ❌                        | ✅                               |
 
 Also outside this server's scope today: notifications ([#139](https://github.com/nemolize/remote-mcp-github/issues/139)), Copilot delegation, gists ([#138](https://github.com/nemolize/remote-mcp-github/issues/138)), and projects ([#140](https://github.com/nemolize/remote-mcp-github/issues/140)) — reach for the official server or `gh` for those.
 
@@ -49,6 +49,7 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `search_repositories`         | read  | Cross-GitHub repo search (uses GitHub search qualifiers like `org:`, `user:<login>`, `stars:>N`)   |
 | `create_repository`           | write | Create a repo for the authenticated user (or an `org`) — visibility, auto-init, gitignore/license  |
 | `fork_repository`             | write | Fork `owner/repo` to the authenticated user (or an `organization`); optional default-branch-only   |
+| `delete_repository`           | write | Permanently delete `owner/repo` (irreversible; requires `delete_repo` scope + admin rights)        |
 | `search_issues`               | read  | Issue / PR search inside a specific repo                                                           |
 | `get_issue`                   | read  | Single issue / PR detail (title, body, state, labels, assignees, milestone)                        |
 | `list_issue_comments`         | read  | Conversation comments on an issue or PR                                                            |
@@ -249,7 +250,7 @@ Other knobs: `MCP_BASE` (default `http://localhost:8788`), `CALLBACK_PORT` (defa
 
 ## OAuth scopes
 
-The server requests `read:user repo` from GitHub. The `repo` portion is what enables private-repo visibility for read tools and the create/comment/branch capabilities of the write tools. To run the read tools only against public repositories, change `src/github-handler.ts` to `read:user public_repo`.
+The server requests `read:user repo delete_repo` from GitHub. The `repo` portion is what enables private-repo visibility for read tools and the create/comment/branch capabilities of the write tools; `delete_repo` is required only by `delete_repository`. To run the read tools only against public repositories, change `src/github-handler.ts` to `read:user public_repo` (and drop `delete_repo` if `delete_repository` is not needed).
 
 ## Project structure
 

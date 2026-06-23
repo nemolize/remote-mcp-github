@@ -293,6 +293,7 @@ const wideOctokit = () => {
 					html_url: "https://x/o/r",
 					default_branch: "main",
 				}),
+				delete: ok(undefined),
 			},
 			git: {
 				getRef: ok({ object: { sha: "parent000000" } }),
@@ -392,6 +393,7 @@ const WRITE_TOOLS = [
 	],
 	[registerRepoTools, "create_repository", { name: "r" }],
 	[registerRepoTools, "fork_repository", { owner: "o", repo: "r" }],
+	[registerRepoTools, "delete_repository", { owner: "o", repo: "r" }],
 ];
 
 describe("every write tool emits exactly one audit line tagged with its own name", () => {

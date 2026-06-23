@@ -11,6 +11,7 @@ const stubOctokit = (overrides = {}) => ({
 			createForAuthenticatedUser: async () => ({ data: {}, headers: {} }),
 			createInOrg: async () => ({ data: {}, headers: {} }),
 			createFork: async () => ({ data: {}, headers: {} }),
+			delete: async () => ({ data: undefined, headers: {} }),
 			...overrides.repos,
 		},
 		users: {
@@ -446,5 +447,72 @@ describe("registerRepoTools — fork_repository", () => {
 		const result = await invoke(handlers, "fork_repository", { owner: "ghost", repo: "nope" });
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("Not Found");
+	});
+});
+
+describe("registerRepoTools — delete_repository", () => {
+	it("deletes the repo and renders a confirmation", async () => {
+		let captured;
+		const handlers = register(
+			stubOctokit({
+				repos: {
+					delete: async (params) => {
+						captured = params;
+						return { data: undefined, headers: {} };
+					},
+				},
+			}),
+		);
+		const result = await invoke(handlers, "delete_repository", {
+			owner: "nemolize",
+			repo: "doomed",
+		});
+		const body = result.content[0].text;
+		expect(result.isError).toBeUndefined();
+		expect(captured).toEqual({ owner: "nemolize", repo: "doomed" });
+		expect(body).toContain("# Repository deleted");
+		expect(body).toContain("**nemolize/doomed**");
+	});
+
+	it("surfaces API errors via wrapTool (e.g. 404 on a missing repo)", async () => {
+		const handlers = register(
+			stubOctokit({
+				repos: {
+					delete: async () => {
+						const err = new Error("Not Found");
+						err.status = 404;
+						throw err;
+					},
+				},
+			}),
+		);
+		const result = await invoke(handlers, "delete_repository", {
+			owner: "ghost",
+			repo: "nope",
+		});
+		expect(result.isError).toBe(true);
+		const body = result.content[0].text;
+		expect(body).toContain("Not Found");
+		expect(body).toContain("HTTP 404");
+	});
+
+	it("surfaces 403 when the token lacks delete_repo scope or admin", async () => {
+		const handlers = register(
+			stubOctokit({
+				repos: {
+					delete: async () => {
+						const err = new Error("Must have admin rights to Repository.");
+						err.status = 403;
+						throw err;
+					},
+				},
+			}),
+		);
+		const result = await invoke(handlers, "delete_repository", {
+			owner: "o",
+			repo: "r",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Must have admin rights");
 	});
 });
