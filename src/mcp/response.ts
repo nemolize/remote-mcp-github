@@ -174,6 +174,7 @@ export type WriteAuditFields = {
 	ref?: string; // trigger_workflow_dispatch
 	release_id?: number; // create_release / update_release / delete_release
 	tag_name?: string; // create_release
+	gist_id?: string; // create_gist / update_gist / delete_gist
 	file_count?: number;
 	thread_id?: string;
 	comment_id?: number; // add_pr_review_comment_reply
