@@ -56,9 +56,8 @@ real `422 Can not approve your own pull request`, exercising the review path).
 
 When a tool exposes **multiple mutation sub-paths inside one entry point** (e.g.
 `update_gist` can add / replace / rename / **delete** a file; `update_issue` can
-change state / labels / assignees independently; `commit_files` can write +
-delete + rename in one tree), running ONE round-trip through ONE sub-path and
-declaring "verified" misses the others. Wire shapes for sibling sub-paths can be
+change state / labels / assignees independently), running ONE round-trip through
+ONE sub-path and declaring "verified" misses the others. Wire shapes for sibling sub-paths can be
 **different** (and one of them can be broken) even when the entry point and SDK
 binding are the same — gist file deletion is the canonical case here: the SDK's
 "set the entry to `null`" path works, but `{ content: null }` returns
