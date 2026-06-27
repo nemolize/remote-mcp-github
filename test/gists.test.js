@@ -146,6 +146,37 @@ describe("registerGistTools", () => {
 		expect(body).toContain("`99` **bob** (2026-06-27T03:00:00Z) — looks good");
 	});
 
+	it("list_gist_comments collapses whitespace in multi-line bodies and guards a missing body", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit({
+			listComments: async () => ({
+				data: [
+					{
+						id: 1,
+						user: { login: "alice" },
+						created_at: "2026-06-27T03:00:00Z",
+						body: "first line\nsecond line\n\nthird",
+					},
+					// body absent — guard must not throw.
+					{
+						id: 2,
+						user: null,
+						created_at: "2026-06-27T03:01:00Z",
+						body: null,
+					},
+				],
+				headers: {},
+			}),
+		});
+		registerGistTools(server, () => octokit);
+		const result = await invoke(handlers, "list_gist_comments", { gist_id: "abc123" });
+		const body = result.content[0].text;
+		// No raw newline inside the comment bullet — whitespace collapsed.
+		expect(body).toContain("`1` **alice** (2026-06-27T03:00:00Z) — first line second line third");
+		// Missing body renders as empty preview without throwing.
+		expect(body).toContain("`2` **(unknown)** (2026-06-27T03:01:00Z) — ");
+	});
+
 	it("create_gist passes through to gists.create and renders the new gist detail", async () => {
 		const { handlers, server } = captureHandlers();
 		const calls = [];
@@ -196,7 +227,7 @@ describe("registerGistTools", () => {
 			description: "edited",
 			files: {
 				"keep.py": { content: "new content" },
-				"drop.txt": { content: null },
+				"drop.txt": null,
 				"rename.txt": { filename: "renamed.txt" },
 			},
 		});
@@ -206,7 +237,7 @@ describe("registerGistTools", () => {
 			description: "edited",
 			files: {
 				"keep.py": { content: "new content" },
-				"drop.txt": { content: null },
+				"drop.txt": null,
 				"rename.txt": { filename: "renamed.txt" },
 			},
 		});

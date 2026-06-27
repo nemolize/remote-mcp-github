@@ -10,7 +10,7 @@ import {
 	truncate,
 	wrapTool,
 } from "../mcp/response.js";
-import { stripUndefined } from "../utils.js";
+import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { MAX_FILE_CONTENT_LENGTH, MAX_TEXT_FIELD_LENGTH, maxCharsMessage } from "./common.js";
 
@@ -20,20 +20,13 @@ import { MAX_FILE_CONTENT_LENGTH, MAX_TEXT_FIELD_LENGTH, maxCharsMessage } from 
 // single big file crowd out the rest of the gist.
 const MAX_GIST_FILE_EXCERPT = 2000;
 
-// Shared "filename → content" schema for create + update bodies. Both use
-// `record(string, …)`; the optional/nullable shape lives in the per-tool
-// validators (create requires non-empty content; update allows null).
-const filesShapeDescription =
-	"Map of filename → file content. Filenames must be unique within the gist.";
-
 // Gist detail shape returned by every read + write endpoint that yields a full
 // gist (`get`, `create`, `update`). Derive from the SDK's `get` response so the
 // renderer stays pinned to the real API contract.
 type GistDetail = Awaited<ReturnType<ReturnType<OctokitFactory>["rest"]["gists"]["get"]>>["data"];
 
 const renderGistDetail = (data: GistDetail): string => {
-	const description =
-		data.description != null && data.description.length > 0 ? data.description : "(no description)";
+	const description = isNonEmpty(data.description) ? data.description : "(no description)";
 	const owner = data.owner?.login ?? "(unknown)";
 	const files = data.files ?? {};
 	const fileEntries = Object.entries(files);
@@ -67,21 +60,22 @@ const renderGistDetail = (data: GistDetail): string => {
 	return truncate(`${lines.join("\n")}${body}`);
 };
 
-// `files` is required by the create + update tools but zod's `z.record(...)`
-// permits an empty object; surface that as a validation error rather than a
-// no-op API call.
-const validateFilesRecord = (files: Record<string, unknown>): string | null => {
-	const names = Object.keys(files);
-	if (names.length === 0) return "Pass at least one file.";
-	return null;
-};
+// SDK's typed `files` parameter for `gists.update` keys to
+// `{ content?: string; filename?: string | null }`. It does **not** model the
+// entry-level `null` delete shape (`{ "drop.txt": null }`) that the REST API
+// requires to remove a file, nor `filename: null` for renames. The adapter
+// below isolates the cast so the type mismatch lives in one labelled spot.
+type SdkFileEntry = { content?: string; filename?: string | null };
 
-// SDK's typed `files` parameter for `gists.update` does not model the per-file
-// delete-via-`null` content path (its files map keys to `{ content?: string;
-// filename?: string | null }`), so the handler casts through this looser type
-// when handing the payload to the SDK — the underlying REST endpoint accepts
-// both shapes.
-type GistUpdateFilesSdk = Record<string, { content?: string; filename?: string | null }>;
+const toSdkFiles = (
+	files: Record<string, unknown> | undefined,
+): Record<string, SdkFileEntry> | undefined => {
+	if (files == null) return undefined;
+	// The wire-true value includes `null` entries (delete); the SDK type does
+	// not, so we cast. Single localised escape hatch.
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+	return files as Record<string, SdkFileEntry>;
+};
 
 export const registerGistTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
@@ -113,8 +107,7 @@ export const registerGistTools = (server: McpServer, client: OctokitFactory): vo
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no gists found)");
 				const lines = data.map((g) => {
-					const description =
-						g.description != null && g.description.length > 0 ? g.description : "(no description)";
+					const description = isNonEmpty(g.description) ? g.description : "(no description)";
 					const fileCount = Object.keys(g.files ?? {}).length;
 					const visibility = g.public ? "public" : "secret";
 					return `- \`${g.id}\` **${description}** — ${visibility}, ${fileCount} file(s), ${g.updated_at}`;
@@ -170,9 +163,13 @@ export const registerGistTools = (server: McpServer, client: OctokitFactory): vo
 				);
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no comments found)");
+				// Match the comment-preview style used by `list_issue_comments`:
+				// collapse whitespace so newlines don't break the bullet list, then
+				// cap at 200 chars; guard `body` in case the API omits it.
 				const lines = data.map((c) => {
 					const author = c.user?.login ?? "(unknown)";
-					const preview = c.body.length > 120 ? `${c.body.slice(0, 120)}…` : c.body;
+					const body = (c.body ?? "").replace(/\s+/g, " ").trim();
+					const preview = body.length > 200 ? `${body.slice(0, 200)}…` : body;
 					return `- \`${c.id}\` **${author}** (${c.created_at}) — ${preview}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
@@ -211,7 +208,7 @@ export const registerGistTools = (server: McpServer, client: OctokitFactory): vo
 								.describe("File contents (utf-8 text)."),
 						}),
 					)
-					.describe(filesShapeDescription),
+					.describe("Map of filename → { content }. At least one file required."),
 				public: z
 					.boolean()
 					.optional()
@@ -220,8 +217,9 @@ export const registerGistTools = (server: McpServer, client: OctokitFactory): vo
 		},
 		async ({ description, files, public: isPublic }) =>
 			wrapTool(async () => {
-				const error = validateFilesRecord(files);
-				if (error != null) return errorResult(error);
+				if (Object.keys(files).length === 0) {
+					return errorResult("Pass at least one file.");
+				}
 				const { data, headers } = await client().rest.gists.create(
 					stripUndefined({
 						description,
@@ -239,7 +237,7 @@ export const registerGistTools = (server: McpServer, client: OctokitFactory): vo
 		"update_gist",
 		{
 			description:
-				"Edit a gist by `gist_id`: change `description`, and/or add / replace / rename / delete files via `files`. To delete a file, pass `{ content: null }` for it; to rename, pass `{ filename: '<new name>' }` (paired with `content` to also change its contents). Files you do not mention are left untouched. Mutates account state.",
+				"Edit a gist by `gist_id`: change `description`, and/or add / replace / rename / delete files via `files`. To delete a file, set its whole entry to `null` (e.g. `{ \"drop.txt\": null }`); to rename, pass `{ filename: '<new name>' }` (paired with `content` to also change its contents); to replace content, pass `{ content: '<new>' }`. Files you do not mention are left untouched. Mutates account state.",
 			inputSchema: {
 				gist_id: z.string().min(1).describe("Gist ID to edit (from `list_gists`)."),
 				description: z
@@ -254,26 +252,29 @@ export const registerGistTools = (server: McpServer, client: OctokitFactory): vo
 							.object({
 								content: z
 									.string()
+									.min(1)
 									.max(
 										MAX_FILE_CONTENT_LENGTH,
 										maxCharsMessage("File content", MAX_FILE_CONTENT_LENGTH),
 									)
-									.nullable()
 									.optional()
-									.describe("New file content. Pass null to delete the file."),
+									.describe("New file content (utf-8 text)."),
 								filename: z
 									.string()
 									.min(1)
-									.nullable()
 									.optional()
 									.describe("New filename to rename the file to."),
 							})
 							.refine((v) => v.content !== undefined || v.filename !== undefined, {
-								message: "Each file entry must set `content` and/or `filename`.",
-							}),
+								message:
+									"Each file entry must set `content` and/or `filename` (or be `null` to delete).",
+							})
+							.nullable(),
 					)
 					.optional()
-					.describe(filesShapeDescription),
+					.describe(
+						"Map of filename → change spec. Pass `null` as the value to delete the file; otherwise pass `{ content?, filename? }` to replace content and/or rename.",
+					),
 			},
 		},
 		async ({ gist_id, description, files }) =>
@@ -281,17 +282,15 @@ export const registerGistTools = (server: McpServer, client: OctokitFactory): vo
 				if (description == null && files == null) {
 					return errorResult("Pass at least one of `description` or `files` to change.");
 				}
-				if (files != null) {
-					const error = validateFilesRecord(files);
-					if (error != null) return errorResult(error);
+				if (files != null && Object.keys(files).length === 0) {
+					return errorResult("Pass at least one file.");
 				}
-				// SDK's typed `files` parameter does not model the delete-via-`null`
-				// content path (see `GistUpdateFilesSdk` comment above). The validated
-				// zod schema permits `content: null`, which the underlying REST
-				// endpoint accepts; cast through `unknown` so TS sees the SDK-narrow
-				// shape it expects to type-check the call.
-				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-				const sdkFiles = files as unknown as GistUpdateFilesSdk | undefined;
+				// SDK's typed `files` parameter does not model the entry-level
+				// `null` delete shape — see `GistUpdateFilesSdk` above. The validated
+				// zod schema admits both `null` entries and `{ content?, filename? }`
+				// objects; the underlying REST endpoint accepts both. Cast through
+				// `unknown` to the SDK's narrower view at the call site.
+				const sdkFiles = toSdkFiles(files);
 				const { data, headers } = await client().rest.gists.update(
 					stripUndefined({
 						gist_id,
