@@ -108,6 +108,15 @@ export const truncateTail = (
 			`... (truncated; ${omitted} leading characters omitted to save context — the tail, where failures surface, is kept. ${instruction})\n\n`,
 	);
 
+// One-line preview of a free-form body field — whitespace-collapsed, capped at
+// `max` chars with a single-character ellipsis. Shared by list-of-comments
+// tools so they render the same shape; `max` lets each caller keep its own cap
+// (PR review snippets at 120, issue/gist comments at 200) without re-deciding.
+export const previewLine = (body: string | null | undefined, max = 200): string => {
+	const collapsed = (body ?? "").replace(/\s+/g, " ").trim();
+	return collapsed.length > max ? `${collapsed.slice(0, max)}…` : collapsed;
+};
+
 export const text = (body: string): ToolResult => ({
 	content: [{ type: "text", text: body }],
 });

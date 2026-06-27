@@ -5,6 +5,7 @@ import {
 	errorResult,
 	logRateLimit,
 	logWrite,
+	previewLine,
 	restListHeader,
 	text,
 	truncate,
@@ -165,11 +166,10 @@ export const registerGistTools = (server: McpServer, client: OctokitFactory): vo
 				if (data.length === 0) return text("(no comments found)");
 				// Match the comment-preview style used by `list_issue_comments`:
 				// collapse whitespace so newlines don't break the bullet list, then
-				// cap at 200 chars; guard `body` in case the API omits it.
+				// cap at 200 chars (via the shared `previewLine` helper).
 				const lines = data.map((c) => {
 					const author = c.user?.login ?? "(unknown)";
-					const body = (c.body ?? "").replace(/\s+/g, " ").trim();
-					const preview = body.length > 200 ? `${body.slice(0, 200)}…` : body;
+					const preview = previewLine(c.body);
 					return `- \`${c.id}\` **${author}** (${c.created_at}) — ${preview}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');

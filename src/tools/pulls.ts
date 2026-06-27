@@ -8,6 +8,7 @@ import {
 	logRateLimit,
 	logWrite,
 	MAX_RESPONSE_CHARS,
+	previewLine,
 	restListHeader,
 	text,
 	truncate,
@@ -24,16 +25,6 @@ import {
 } from "./common.js";
 
 /**
- * Trim a one-line comment preview to a fixed width with a plain ellipsis. The
- * shared `truncate()` is for the whole tool response (it appends a "paginate to
- * see more" hint that is nonsensical for an inline snippet), so the snippet uses
- * a simple slice instead.
- */
-const SNIPPET_MAX = 120;
-const snippetOf = (line: string): string =>
-	line.length <= SNIPPET_MAX ? line : `${line.slice(0, SNIPPET_MAX)}…`;
-
-/**
  * Render the indented one-line preview block (`\n  > <snippet>`) for a comment
  * body, or an empty string when there is no body text. Centralises the
  * "snippet only when there is body text" intent so the review-level and
@@ -41,8 +32,8 @@ const snippetOf = (line: string): string =>
  * empty, whitespace-only, null, or undefined all collapse to no block.
  */
 const snippetBlock = (body: string | null | undefined): string => {
-	const firstLine = body?.split("\n")[0]?.trim() ?? "";
-	return firstLine === "" ? "" : `\n  > ${snippetOf(firstLine)}`;
+	const snippet = previewLine(body?.split("\n")[0], 120);
+	return snippet === "" ? "" : `\n  > ${snippet}`;
 };
 
 /**

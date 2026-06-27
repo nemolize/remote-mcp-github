@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
 	logRateLimit,
 	logWrite,
+	previewLine,
 	restListHeader,
 	text,
 	truncate,
@@ -173,8 +174,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 				// who need the full text should fetch the issue or the individual comment.
 				const lines = data.map((c) => {
 					const author = c.user ? `@${c.user.login}` : "(unknown)";
-					const body = (c.body ?? "").replace(/\s+/g, " ").trim();
-					const preview = body.length > 200 ? `${body.slice(0, 200)}…` : body;
+					const preview = previewLine(c.body);
 					// Show `updated_at` — that's what `since` filters by; the created timestamp
 					// is appended only when the comment has been edited.
 					const ts =
