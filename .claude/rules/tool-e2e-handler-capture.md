@@ -52,6 +52,43 @@ close the PR + delete the branch. Caveat: a self-authored PR can't be `APPROVE`d
 use `COMMENT` for the success path, keep `APPROVE` on the error path (it returns a
 real `422 Can not approve your own pull request`, exercising the review path).
 
+### A "round-trip" must exercise every mutation BRANCH, not one happy path
+
+When a tool exposes **multiple mutation sub-paths inside one entry point** (e.g.
+`update_gist` can add / replace / rename / **delete** a file; `update_issue` can
+change state / labels / assignees independently), running ONE round-trip through
+ONE sub-path and declaring "verified" misses the others. Wire shapes for sibling sub-paths can be
+**different** (and one of them can be broken) even when the entry point and SDK
+binding are the same — gist file deletion is the canonical case here: the SDK's
+"set the entry to `null`" path works, but `{ content: null }` returns
+`422 "data cannot be null"`. A single content-update round-trip never touches
+the delete branch.
+
+Before declaring a mutation tool's live-verify done:
+
+1. **Enumerate the sub-paths** from the input schema. List add / replace / rename
+   / delete / mixed / invalid-input combinations the tool accepts.
+2. **Exercise each sub-path against the real API** in the verify script — for
+   destructive sub-paths, use a freshly-created throwaway resource.
+3. **Probe post-state**, don't trust the rendered response — re-list / re-fetch
+   and assert what *actually* changed (`Object.keys(files).length` shrunk, the
+   label list dropped the expected name, the state reads `closed`). A no-op
+   request often still returns 200 with unchanged state — Markdown rendering
+   alone is not proof.
+4. If a sub-path is **genuinely unsafe** to exercise live (would mutate prod
+   state), say so explicitly and lock the wire shape in a unit test instead, so
+   the unverified surface is visible rather than implicit.
+
+Tells that a "happy round-trip" is hiding gaps: the verify script's call graph
+shows only one path through the tool; the rendered output is the *only*
+assertion (no post-state probe); the tool's docstring describes a sub-path the
+script never invokes.
+
+Sibling axis: cross-model review (`/team-review` codex layer) and Copilot's
+inline review have caught this class of gap when the script missed it — treat
+those reviewer signals as a backstop, but the cheap fix is the branch-matrix
+enumeration at design time, not waiting for review to flag the missed path.
+
 ## Adding a write tool — register it in the audit-log coverage matrix
 
 `test/audit-log.test.js` holds an **exhaustive** `WRITE_TOOLS` table driving the
