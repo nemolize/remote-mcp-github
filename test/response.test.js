@@ -136,6 +136,14 @@ describe("previewLine", () => {
 		const body = "z".repeat(200);
 		expect(previewLine(body)).toBe(body);
 	});
+
+	it("trims leading and trailing whitespace before the cap is measured", () => {
+		// The cap-vs-trim ordering matters: a body of 200 visible chars surrounded
+		// by whitespace should NOT trigger the ellipsis, because trimming runs
+		// first and the measured length stays at the cap.
+		expect(previewLine("  hello  ")).toBe("hello");
+		expect(previewLine(`  ${"x".repeat(200)}  `)).toBe("x".repeat(200));
+	});
 });
 
 describe("cursorMoreHint", () => {

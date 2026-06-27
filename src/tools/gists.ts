@@ -164,9 +164,6 @@ export const registerGistTools = (server: McpServer, client: OctokitFactory): vo
 				);
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no comments found)");
-				// Match the comment-preview style used by `list_issue_comments`:
-				// collapse whitespace so newlines don't break the bullet list, then
-				// cap at 200 chars (via the shared `previewLine` helper).
 				const lines = data.map((c) => {
 					const author = c.user?.login ?? "(unknown)";
 					const preview = previewLine(c.body);
