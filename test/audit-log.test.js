@@ -4,6 +4,7 @@ import { logWrite } from "../src/mcp/response.js";
 import { registerActionTools } from "../src/tools/actions.js";
 import { registerBranchTools } from "../src/tools/branches.js";
 import { registerFileTools } from "../src/tools/files.js";
+import { registerGistTools } from "../src/tools/gists.js";
 import { registerIssueTools } from "../src/tools/issues.js";
 import { registerPullTools } from "../src/tools/pulls.js";
 import { registerRepoTools } from "../src/tools/repos.js";
@@ -323,13 +324,39 @@ const wideOctokit = () => {
 				cancelWorkflowRun: ok({}),
 				createWorkflowDispatch: ok({}),
 			},
+			gists: {
+				create: ok({
+					id: "g1",
+					description: "d",
+					public: false,
+					owner: { login: "o" },
+					files: {},
+					updated_at: "2026-06-27T00:00:00Z",
+					created_at: "2026-06-27T00:00:00Z",
+					html_url: "https://gist.github.com/o/g1",
+				}),
+				update: ok({
+					id: "g1",
+					description: "d",
+					public: false,
+					owner: { login: "o" },
+					files: {},
+					updated_at: "2026-06-27T00:00:00Z",
+					created_at: "2026-06-27T00:00:00Z",
+					html_url: "https://gist.github.com/o/g1",
+				}),
+				delete: ok({}),
+			},
 		},
 	};
 };
 
 // Every write tool, the register function that owns it, the minimal params it
-// needs, and the audit `tool` name it must log. Read tools are intentionally
-// absent — they must NOT emit an audit line.
+// needs, the audit `tool` name it must log, and (optionally) a per-tool extra
+// set of audit fields that must appear on the emitted line. Tools that don't
+// supply the 4th element default to `{ owner: "o", repo: "r" }`; tools whose
+// mutation is account-scoped rather than repo-scoped (gists) provide their own.
+// Read tools are intentionally absent — they must NOT emit an audit line.
 const WRITE_TOOLS = [
 	[
 		registerFileTools,
@@ -394,6 +421,9 @@ const WRITE_TOOLS = [
 	[registerRepoTools, "create_repository", { name: "r" }],
 	[registerRepoTools, "fork_repository", { owner: "o", repo: "r" }],
 	[registerRepoTools, "delete_repository", { owner: "o", repo: "r" }],
+	[registerGistTools, "create_gist", { files: { "a.txt": { content: "x" } } }, { gist_id: "g1" }],
+	[registerGistTools, "update_gist", { gist_id: "g1", description: "new" }, { gist_id: "g1" }],
+	[registerGistTools, "delete_gist", { gist_id: "g1" }, { gist_id: "g1" }],
 ];
 
 describe("every write tool emits exactly one audit line tagged with its own name", () => {
@@ -401,16 +431,20 @@ describe("every write tool emits exactly one audit line tagged with its own name
 		vi.restoreAllMocks();
 	});
 
-	it.each(WRITE_TOOLS.map(([register, toolName, params]) => ({ register, toolName, params })))(
-		"$toolName",
-		async ({ register, toolName, params }) => {
-			const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-			const { handlers, server } = captureHandlers();
-			register(server, () => wideOctokit());
-			await invoke(handlers, toolName, params);
-			const entries = auditEntries(logSpy);
-			expect(entries).toHaveLength(1);
-			expect(entries[0]).toMatchObject({ tool: toolName, owner: "o", repo: "r" });
-		},
-	);
+	it.each(
+		WRITE_TOOLS.map(([register, toolName, params, extraExpected]) => ({
+			register,
+			toolName,
+			params,
+			extraExpected: extraExpected ?? { owner: "o", repo: "r" },
+		})),
+	)("$toolName", async ({ register, toolName, params, extraExpected }) => {
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const { handlers, server } = captureHandlers();
+		register(server, () => wideOctokit());
+		await invoke(handlers, toolName, params);
+		const entries = auditEntries(logSpy);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({ tool: toolName, ...extraExpected });
+	});
 });

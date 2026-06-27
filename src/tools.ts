@@ -5,6 +5,7 @@ import { registerActionTools } from "./tools/actions.js";
 import { registerBranchTools } from "./tools/branches.js";
 import { registerCommitTools } from "./tools/commits.js";
 import { registerFileTools } from "./tools/files.js";
+import { registerGistTools } from "./tools/gists.js";
 import { registerIssueTools } from "./tools/issues.js";
 import { registerPullTools } from "./tools/pulls.js";
 import { registerReleaseTools } from "./tools/releases.js";
@@ -27,4 +28,5 @@ export const registerTools = (server: McpServer, getAccessToken: () => string): 
 	registerActionTools(server, client);
 	registerReleaseTools(server, client);
 	registerSecurityTools(server, client);
+	registerGistTools(server, client);
 };
