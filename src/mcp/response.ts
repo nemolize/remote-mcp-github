@@ -108,6 +108,12 @@ export const truncateTail = (
 			`... (truncated; ${omitted} leading characters omitted to save context — the tail, where failures surface, is kept. ${instruction})\n\n`,
 	);
 
+// `max` is per-caller (different list tools cap at different widths).
+export const previewLine = (body: string | null | undefined, max = 200): string => {
+	const collapsed = (body ?? "").replace(/\s+/g, " ").trim();
+	return collapsed.length > max ? `${collapsed.slice(0, max)}…` : collapsed;
+};
+
 export const text = (body: string): ToolResult => ({
 	content: [{ type: "text", text: body }],
 });

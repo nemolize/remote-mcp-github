@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	cursorMoreHint,
 	MAX_RESPONSE_CHARS,
+	previewLine,
 	restListHeader,
 	truncate,
 	truncateTail,
@@ -101,6 +102,47 @@ describe("restListHeader", () => {
 		expect(restListHeader({ title: "Repositories", count: 5, hasMore: true })).toBe(
 			"# Repositories (page 1, 5 shown; more available — pass next `page` or raise `per_page` up to 100)",
 		);
+	});
+});
+
+describe("previewLine", () => {
+	it("collapses every whitespace run (newlines, tabs, multiple spaces) into a single space", () => {
+		expect(previewLine("a\n\nb\tc   d")).toBe("a b c d");
+	});
+
+	it("returns '' for null, undefined, empty, and whitespace-only bodies", () => {
+		expect(previewLine(null)).toBe("");
+		expect(previewLine(undefined)).toBe("");
+		expect(previewLine("")).toBe("");
+		expect(previewLine("   \n\t ")).toBe("");
+	});
+
+	it("caps overflow with a single-character ellipsis using the default 200-char max", () => {
+		const body = "x".repeat(250);
+		const result = previewLine(body);
+		// 200 sliced chars + 1 ellipsis char = 201 total.
+		expect(result.length).toBe(201);
+		expect(result.endsWith("…")).toBe(true);
+		expect(result.slice(0, 200)).toBe("x".repeat(200));
+	});
+
+	it("honours a custom max so callers can keep their own cap (e.g. pulls snippets at 120)", () => {
+		const body = "y".repeat(200);
+		const result = previewLine(body, 120);
+		expect(result).toBe(`${"y".repeat(120)}…`);
+	});
+
+	it("returns the input as-is at exactly max chars (no ellipsis at the boundary)", () => {
+		const body = "z".repeat(200);
+		expect(previewLine(body)).toBe(body);
+	});
+
+	it("trims leading and trailing whitespace before the cap is measured", () => {
+		// The cap-vs-trim ordering matters: a body of 200 visible chars surrounded
+		// by whitespace should NOT trigger the ellipsis, because trimming runs
+		// first and the measured length stays at the cap.
+		expect(previewLine("  hello  ")).toBe("hello");
+		expect(previewLine(`  ${"x".repeat(200)}  `)).toBe("x".repeat(200));
 	});
 });
 
