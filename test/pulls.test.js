@@ -467,7 +467,10 @@ describe("registerPullTools — get_pull_request_files", () => {
 					additions: 10,
 					deletions: 2,
 					changes: 12,
-					patch: "@@ -1,3 +1,3 @@\n-old\n+new\nsecond hunk line ignored by preview",
+					// previewLine collapses all whitespace (incl. newlines) into single
+					// spaces before applying its length cap — this patch is well under
+					// 160 chars, so every hunk line is expected to survive in the snippet.
+					patch: "@@ -1,3 +1,3 @@\n-old\n+new",
 				},
 				{ filename: "src/bar.ts", status: "added", additions: 5, deletions: 0, changes: 5 },
 			],
@@ -486,6 +489,34 @@ describe("registerPullTools — get_pull_request_files", () => {
 		expect(body).toContain("> @@ -1,3 +1,3 @@ -old +new");
 		expect(body).toContain("**added** `src/bar.ts` (+5/-0)");
 		expect(result.isError).toBeUndefined();
+	});
+
+	it("truncates a patch snippet past 160 collapsed characters with an ellipsis", async () => {
+		const { handlers, server } = captureHandlers();
+		const longPatch = `@@ -1,3 +1,3 @@\n${"x".repeat(200)}`;
+		const octokit = stubListFiles(async () => ({
+			data: [
+				{
+					filename: "src/foo.ts",
+					status: "modified",
+					additions: 1,
+					deletions: 1,
+					changes: 2,
+					patch: longPatch,
+				},
+			],
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_files", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain(`> @@ -1,3 +1,3 @@ ${"x".repeat(160 - "@@ -1,3 +1,3 @@ ".length)}…`);
+		expect(body).not.toContain("x".repeat(161));
 	});
 
 	it("omits the patch block for a file with no patch (e.g. binary)", async () => {
