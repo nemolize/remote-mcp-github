@@ -409,7 +409,11 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 				const ref = pr.data.head.sha;
 				const [checkRuns, combinedStatus] = await Promise.all([
 					listAllCheckRuns(octo, owner, repo, ref),
-					octo.rest.repos.getCombinedStatusForRef({ owner, repo, ref }),
+					// `per_page: 100` covers the vast majority of refs (a ref rarely
+					// carries more than a handful of legacy statuses); the rendered
+					// header count below is derived from the returned rows rather than
+					// `total_count` so a rare >100-status ref can't under-list.
+					octo.rest.repos.getCombinedStatusForRef({ owner, repo, ref, per_page: 100 }),
 				]);
 				logRateLimit(combinedStatus.headers);
 				const checkLines =
@@ -438,7 +442,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					"",
 					...checkLines,
 					"",
-					`## Legacy commit statuses (${combinedStatus.data.total_count})`,
+					`## Legacy commit statuses (${combinedStatus.data.statuses.length})`,
 					"",
 					...statusLines,
 				];
