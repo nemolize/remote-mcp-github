@@ -447,6 +447,346 @@ describe("registerPullTools — get_pull_request", () => {
 	});
 });
 
+// Octokit stub exposing only `rest.pulls.listFiles`.
+const stubListFiles = (impl) => ({ rest: { pulls: { listFiles: impl } } });
+
+describe("registerPullTools — get_pull_request_files", () => {
+	it("registers get_pull_request_files", () => {
+		const { handlers, server } = captureHandlers();
+		registerPullTools(server, () => stubListFiles(async () => ({ data: [], headers: {} })));
+		expect(handlers.has("get_pull_request_files")).toBe(true);
+	});
+
+	it("renders status, filename, additions/deletions, and a patch snippet", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListFiles(async () => ({
+			data: [
+				{
+					filename: "src/foo.ts",
+					status: "modified",
+					additions: 10,
+					deletions: 2,
+					changes: 12,
+					patch: "@@ -1,3 +1,3 @@\n-old\n+new\nsecond hunk line ignored by preview",
+				},
+				{ filename: "src/bar.ts", status: "added", additions: 5, deletions: 0, changes: 5 },
+			],
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_files", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Files changed in o/r#42 (2)");
+		expect(body).toContain("**modified** `src/foo.ts` (+10/-2)");
+		expect(body).toContain("> @@ -1,3 +1,3 @@ -old +new");
+		expect(body).toContain("**added** `src/bar.ts` (+5/-0)");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("omits the patch block for a file with no patch (e.g. binary)", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListFiles(async () => ({
+			data: [{ filename: "img.png", status: "added", additions: 0, deletions: 0, changes: 0 }],
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_files", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.content[0].text).not.toContain("\n  > ");
+	});
+
+	it("reports no files when the PR has no changes", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListFiles(async () => ({ data: [], headers: {} }));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_files", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.content[0].text).toContain("No files changed.");
+	});
+
+	it("surfaces a pagination hint when more pages exist", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListFiles(async () => ({
+			data: [{ filename: "a.ts", status: "modified", additions: 1, deletions: 1, changes: 2 }],
+			headers: { link: '<https://api.github.com/...&page=2>; rel="next"' },
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_files", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			page: 1,
+		});
+		expect(result.content[0].text).toContain("page 1, 1 shown; more available");
+	});
+
+	it("propagates REST errors via wrapTool", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubListFiles(async () => {
+			throw new Error("Not Found");
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_files", {
+			owner: "o",
+			repo: "r",
+			pull_number: 999,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Not Found");
+	});
+});
+
+// Octokit stub exposing `rest.pulls.get`, `rest.checks.listForRef`, and
+// `rest.repos.getCombinedStatusForRef` — everything get_pull_request_status calls.
+// `checkRunPages` is an array of check-run arrays, one per page (in `page` order),
+// letting pagination tests drive multi-page responses; a single flat `checkRuns`
+// array is sugar for the common one-page case.
+const stubPrStatus = ({
+	prHeadSha = "deadbeef1234567890",
+	checkRuns,
+	checkRunPages,
+	combinedStatus,
+}) => {
+	const pages = checkRunPages ?? (checkRuns != null ? [checkRuns] : [[]]);
+	const listForRefCalls = [];
+	return {
+		rest: {
+			pulls: { get: async () => ({ data: { head: { sha: prHeadSha } }, headers: {} }) },
+			checks: {
+				listForRef: async ({ page = 1 }) => {
+					listForRefCalls.push(page);
+					const runs = pages[page - 1] ?? [];
+					return { data: { total_count: pages.flat().length, check_runs: runs }, headers: {} };
+				},
+			},
+			repos: {
+				getCombinedStatusForRef: async () => ({
+					data: combinedStatus ?? { state: "pending", total_count: 0, statuses: [] },
+					headers: {},
+				}),
+			},
+		},
+		listForRefCalls,
+	};
+};
+
+describe("registerPullTools — get_pull_request_status", () => {
+	it("registers get_pull_request_status", () => {
+		const { handlers, server } = captureHandlers();
+		registerPullTools(server, () => stubPrStatus({}));
+		expect(handlers.has("get_pull_request_status")).toBe(true);
+	});
+
+	it("reports overall success when every check-run concluded success", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPrStatus({
+			checkRuns: [
+				{ name: "build", status: "completed", conclusion: "success" },
+				{ name: "test", status: "completed", conclusion: "success" },
+			],
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_status", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# PR status for o/r#42");
+		expect(body).toContain("head sha: `deadbee`");
+		expect(body).toContain("overall: **success**");
+		expect(body).toContain("build: **completed** — success");
+		expect(body).toContain("test: **completed** — success");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("reports overall failure when any check-run concluded failure", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPrStatus({
+			checkRuns: [
+				{ name: "build", status: "completed", conclusion: "success" },
+				{ name: "test", status: "completed", conclusion: "failure" },
+			],
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_status", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.content[0].text).toContain("overall: **failure**");
+	});
+
+	it("reports overall pending while a check-run is still in progress", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPrStatus({
+			checkRuns: [{ name: "build", status: "in_progress", conclusion: null }],
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_status", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("overall: **pending**");
+		expect(body).toContain("build: **in_progress** — (pending)");
+	});
+
+	it("treats a neutral conclusion as non-blocking (overall still success)", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPrStatus({
+			checkRuns: [
+				{ name: "build", status: "completed", conclusion: "success" },
+				{ name: "optional-lint", status: "completed", conclusion: "neutral" },
+			],
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_status", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.content[0].text).toContain("overall: **success**");
+	});
+
+	it("treats a skipped conclusion as non-blocking (overall still success)", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPrStatus({
+			checkRuns: [
+				{ name: "build", status: "completed", conclusion: "success" },
+				{ name: "skipped-job", status: "completed", conclusion: "skipped" },
+			],
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_status", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.content[0].text).toContain("overall: **success**");
+	});
+
+	it("reports overall failure when a required legacy status fails despite all check-runs succeeding", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPrStatus({
+			checkRuns: [{ name: "build", status: "completed", conclusion: "success" }],
+			combinedStatus: {
+				state: "failure",
+				total_count: 1,
+				statuses: [{ context: "ci/legacy-required", state: "failure" }],
+			},
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_status", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.content[0].text).toContain("overall: **failure**");
+	});
+
+	it("falls back to the legacy combined status when there are no check-runs", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPrStatus({
+			combinedStatus: {
+				state: "success",
+				total_count: 1,
+				statuses: [{ context: "ci/legacy", state: "success" }],
+			},
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_status", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("overall: **success**");
+		expect(body).toContain("## Check runs (0)");
+		expect(body).toContain("## Legacy commit statuses (1)");
+		expect(body).toContain("ci/legacy: **success**");
+	});
+
+	it("pages past 100 check-runs and evaluates the full set for the overall verdict", async () => {
+		const { handlers, server } = captureHandlers();
+		const page1 = Array.from({ length: 100 }, (_, i) => ({
+			name: `job-${i}`,
+			status: "completed",
+			conclusion: "success",
+		}));
+		const page2 = [{ name: "job-100", status: "completed", conclusion: "failure" }];
+		const octokit = stubPrStatus({ checkRunPages: [page1, page2] });
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_status", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(octokit.listForRefCalls).toEqual([1, 2]);
+		expect(body).toContain("## Check runs (101)");
+		expect(body).toContain("overall: **failure**");
+		expect(body).toContain("job-100: **completed** — failure");
+	});
+
+	it("stops paging once a page returns fewer than 100 check-runs", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubPrStatus({
+			checkRuns: [{ name: "build", status: "completed", conclusion: "success" }],
+		});
+		registerPullTools(server, () => octokit);
+
+		await invoke(handlers, "get_pull_request_status", { owner: "o", repo: "r", pull_number: 42 });
+		expect(octokit.listForRefCalls).toEqual([1]);
+	});
+
+	it("propagates REST errors via wrapTool", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = {
+			rest: {
+				pulls: {
+					get: async () => {
+						throw new Error("Not Found");
+					},
+				},
+			},
+		};
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_pull_request_status", {
+			owner: "o",
+			repo: "r",
+			pull_number: 999,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Not Found");
+	});
+});
+
 // Octokit stub exposing only `rest.pulls.listReviews`.
 const stubListReviews = (impl) => ({ rest: { pulls: { listReviews: impl } } });
 
@@ -690,6 +1030,94 @@ describe("registerPullTools — update_pull_request", () => {
 		});
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("Not Found");
+	});
+});
+
+// Octokit stub exposing only `rest.pulls.updateBranch`. `impl` receives the call
+// args directly; the test reads back the captured args from `calls`.
+const stubUpdateBranch = (impl) => {
+	const calls = [];
+	const octokit = {
+		rest: {
+			pulls: {
+				updateBranch: (args) => {
+					calls.push(args);
+					return impl(args);
+				},
+			},
+		},
+	};
+	return { octokit, calls };
+};
+
+describe("registerPullTools — update_pull_request_branch", () => {
+	it("registers update_pull_request_branch", () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubUpdateBranch(async () => ({
+			data: { message: "Updating branch." },
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+		expect(handlers.has("update_pull_request_branch")).toBe(true);
+	});
+
+	it("queues the branch update and renders the response message", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubUpdateBranch(async () => ({
+			data: { message: "Updating pull request branch." },
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_pull_request_branch", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Pull request branch update queued");
+		expect(body).toContain("PR #42 on o/r");
+		expect(body).toContain("Updating pull request branch.");
+		expect(calls[0]).toEqual({ owner: "o", repo: "r", pull_number: 42 });
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("passes expected_head_sha through as a concurrency guard", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubUpdateBranch(async () => ({
+			data: { message: "Updating branch." },
+			headers: {},
+		}));
+		registerPullTools(server, () => octokit);
+
+		await invoke(handlers, "update_pull_request_branch", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			expected_head_sha: "abc123",
+		});
+		expect(calls[0]).toEqual({
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+			expected_head_sha: "abc123",
+		});
+	});
+
+	it("propagates REST errors via wrapTool (e.g. 422 when not behind base)", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubUpdateBranch(async () => {
+			throw new Error("Validation Failed");
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_pull_request_branch", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Validation Failed");
 	});
 });
 

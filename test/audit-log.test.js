@@ -317,6 +317,7 @@ const wideOctokit = () => {
 			pulls: {
 				create: ok({ number: 7, title: "t", draft: false, html_url: "https://x" }),
 				requestReviewers: ok({ requested_reviewers: [{ login: "a" }], requested_teams: [] }),
+				updateBranch: ok({ message: "Updating branch." }),
 			},
 			actions: {
 				reRunWorkflow: ok({}),
@@ -410,6 +411,7 @@ const WRITE_TOOLS = [
 		"request_pr_review",
 		{ owner: "o", repo: "r", pull_number: 1, reviewers: ["a"] },
 	],
+	[registerPullTools, "update_pull_request_branch", { owner: "o", repo: "r", pull_number: 1 }],
 	[registerActionTools, "rerun_workflow_run", { owner: "o", repo: "r", run_id: 1 }],
 	[registerActionTools, "rerun_failed_jobs", { owner: "o", repo: "r", run_id: 1 }],
 	[registerActionTools, "cancel_workflow_run", { owner: "o", repo: "r", run_id: 1 }],

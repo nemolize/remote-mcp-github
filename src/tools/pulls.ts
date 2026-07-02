@@ -45,6 +45,79 @@ const snippetBlock = (body: string | null | undefined): string => {
 const resolvePrState = (data: { merged?: boolean; state: string }): string =>
 	data.merged === true ? "merged" : data.state;
 
+type GitClient = ReturnType<OctokitFactory>;
+type CheckRun = Awaited<
+	ReturnType<GitClient["rest"]["checks"]["listForRef"]>
+>["data"]["check_runs"][number];
+
+// Hard cap on pages fetched for a single PR's check-runs — bounds worst-case API
+// calls (and latency) for a pathologically check-heavy PR while still covering
+// the vast majority of real-world matrix CI (100 runs/page x 10 pages = 1000).
+const MAX_CHECK_RUN_PAGES = 10;
+
+/**
+ * Fetches every check-run for a ref, paging past the 100-per-page cap so a PR
+ * with >100 check-runs (common in matrix CI) doesn't silently evaluate
+ * merge-readiness from only the first page. Stops once a page returns fewer
+ * than `per_page` results (the last page) or MAX_CHECK_RUN_PAGES is hit.
+ */
+const listAllCheckRuns = async (
+	octo: GitClient,
+	owner: string,
+	repo: string,
+	ref: string,
+): Promise<CheckRun[]> => {
+	const all: CheckRun[] = [];
+	for (let page = 1; page <= MAX_CHECK_RUN_PAGES; page++) {
+		const { data, headers } = await octo.rest.checks.listForRef({
+			owner,
+			repo,
+			ref,
+			per_page: 100,
+			page,
+		});
+		logRateLimit(headers);
+		all.push(...data.check_runs);
+		if (data.check_runs.length < 100) break;
+	}
+	return all;
+};
+
+// Conclusions that do not block merge readiness — GitHub's own merge gating
+// does not treat these as failures, so they must not sink `overall` to
+// "failure" (nor prevent it from reaching "success").
+const NON_BLOCKING_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
+
+/**
+ * Derives a single merge-readiness verdict from check-runs plus the legacy
+ * combined-status state. Check-runs are the primary signal (GitHub Actions);
+ * the legacy state is folded in — but only when legacy statuses actually
+ * exist (`legacyTotalCount > 0`) — so a required legacy status (rare on
+ * Actions-based repos, but real on repos with external CI) can still veto a
+ * green Actions run, without the ubiquitous empty/"pending" default (GitHub
+ * reports "pending" for a ref with zero statuses) masking an all-green
+ * check-run set.
+ */
+const resolveOverallStatus = (
+	checkRuns: CheckRun[],
+	legacyState: string,
+	legacyTotalCount: number,
+): string => {
+	if (checkRuns.length === 0) return legacyState;
+	const legacyInPlay = legacyTotalCount > 0;
+	const anyCheckFailed = checkRuns.some(
+		(c) => c.conclusion != null && !NON_BLOCKING_CONCLUSIONS.has(c.conclusion),
+	);
+	if (anyCheckFailed || (legacyInPlay && legacyState === "failure")) return "failure";
+	const allChecksDone = checkRuns.every(
+		(c) =>
+			c.status === "completed" &&
+			c.conclusion != null &&
+			NON_BLOCKING_CONCLUSIONS.has(c.conclusion),
+	);
+	return allChecksDone && (!legacyInPlay || legacyState === "success") ? "success" : "pending";
+};
+
 export const registerPullTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"get_pr_diff",
@@ -266,6 +339,114 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 	);
 
 	server.registerTool(
+		"get_pull_request_files",
+		{
+			description:
+				"List the files changed in a pull request — path, status (added/removed/modified/renamed/copied/changed), additions/deletions, and a truncated patch snippet per file. Use when the caller only needs the file list / per-file stats rather than the full unified diff (get_pr_diff). REST page-based pagination via `page` / `per_page`.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				per_page: z
+					.number()
+					.int()
+					.min(1)
+					.max(100)
+					.optional()
+					.default(30)
+					.describe("Results per page (1-100)."),
+				page: z
+					.number()
+					.int()
+					.min(1)
+					.optional()
+					.describe("Page number (1-indexed). Defaults to 1."),
+			},
+		},
+		async ({ owner, repo, pull_number, per_page, page }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.pulls.listFiles({
+					owner,
+					repo,
+					pull_number,
+					per_page,
+					page,
+				});
+				logRateLimit(headers);
+				if (data.length === 0) {
+					return text(`# Files changed in ${owner}/${repo}#${pull_number}\n\nNo files changed.`);
+				}
+				const lines = data.map((f) => {
+					const patchSnippet = previewLine(f.patch, 160);
+					const patchBlock = patchSnippet === "" ? "" : `\n  > ${patchSnippet}`;
+					return `- **${f.status}** \`${f.filename}\` (+${f.additions}/-${f.deletions})${patchBlock}`;
+				});
+				const hasMore = (headers.link ?? "").includes('rel="next"');
+				const header = restListHeader({
+					title: `Files changed in ${owner}/${repo}#${pull_number}`,
+					count: data.length,
+					page,
+					hasMore,
+				});
+				return text(truncate(`${header}\n\n${lines.join("\n")}`));
+			}),
+	);
+
+	server.registerTool(
+		"get_pull_request_status",
+		{
+			description:
+				"Combined merge-readiness check for a pull request's head commit — GitHub Actions check-runs (name, status, conclusion) plus any legacy commit statuses. Use to gate merge on CI-green in one call instead of separately polling checks and statuses. Legacy commit statuses are frequently empty for Actions-based repos; check-runs is the primary signal.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+			},
+		},
+		async ({ owner, repo, pull_number }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const pr = await octo.rest.pulls.get({ owner, repo, pull_number });
+				logRateLimit(pr.headers);
+				const ref = pr.data.head.sha;
+				const [checkRuns, combinedStatus] = await Promise.all([
+					listAllCheckRuns(octo, owner, repo, ref),
+					octo.rest.repos.getCombinedStatusForRef({ owner, repo, ref }),
+				]);
+				logRateLimit(combinedStatus.headers);
+				const checkLines =
+					checkRuns.length > 0
+						? checkRuns.map((c) => {
+								const conclusion = c.conclusion ?? "(pending)";
+								return `- ${c.name}: **${c.status}** — ${conclusion}`;
+							})
+						: ["(none)"];
+				const statusLines =
+					combinedStatus.data.statuses.length > 0
+						? combinedStatus.data.statuses.map((s) => `- ${s.context}: **${s.state}**`)
+						: ["(none)"];
+				const overall = resolveOverallStatus(
+					checkRuns,
+					combinedStatus.data.state,
+					combinedStatus.data.total_count,
+				);
+				const lines = [
+					`# PR status for ${owner}/${repo}#${pull_number}`,
+					"",
+					`- head sha: \`${ref.slice(0, 7)}\``,
+					`- overall: **${overall}**`,
+					"",
+					`## Check runs (${checkRuns.length})`,
+					"",
+					...checkLines,
+					"",
+					`## Legacy commit statuses (${combinedStatus.data.total_count})`,
+					"",
+					...statusLines,
+				];
+				return text(truncate(lines.join("\n")));
+			}),
+	);
+
+	server.registerTool(
 		"list_pr_reviews",
 		{
 			description:
@@ -367,6 +548,41 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 				const resolvedState = resolvePrState(data);
 				return text(
 					`# Pull request updated\n\n- **${data.title}** (#${data.number}) — state: **${resolvedState}** → base \`${data.base.ref}\`\n- ${data.html_url}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"update_pull_request_branch",
+		{
+			description:
+				"Update a pull request's branch with the latest changes from its base branch (mirrors the GitHub UI's \"Update branch\" button). Use when the user asks to update, sync, or bring a PR branch up to date with its base. Returns 202 immediately; the merge itself happens asynchronously on GitHub's side. `expected_head_sha` is an optional concurrency guard — a mismatch returns 422.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number to update."),
+				expected_head_sha: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Expected current SHA of the PR's head ref. Defaults to the PR's current head. A mismatch (someone pushed in the meantime) returns 422.",
+					),
+			},
+		},
+		async ({ owner, repo, pull_number, expected_head_sha }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.pulls.updateBranch(
+					stripUndefined({
+						owner,
+						repo,
+						pull_number,
+						expected_head_sha,
+					}),
+				);
+				logRateLimit(headers);
+				logWrite({ tool: "update_pull_request_branch", owner, repo, pull_number });
+				return text(
+					`# Pull request branch update queued\n\n- PR #${pull_number} on ${owner}/${repo}\n- ${data.message ?? "Updating branch."}`,
 				);
 			}),
 	);
