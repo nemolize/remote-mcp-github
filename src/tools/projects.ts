@@ -196,8 +196,11 @@ const ProjectRefSchema = {
 		.describe("Project node ID (`PVT_...`). Alternative to `owner` + `number`."),
 } as const;
 
-const invalidRefError = (): ToolResult =>
-	errorResult("Provide either `id` (project node ID) or both `owner` and `number`.");
+/** `null` when the ref is usable; the shared invalid-ref error otherwise. */
+const refValidationError = (ref: ProjectRef): ToolResult | null =>
+	ref.id == null && (ref.owner == null || ref.number == null)
+		? errorResult("Provide either `id` (project node ID) or both `owner` and `number`.")
+		: null;
 
 const notFoundError = (ref: ProjectRef): ToolResult =>
 	errorResult(
@@ -359,7 +362,8 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id }) =>
 			wrapTool(async () => {
-				if (id == null && (owner == null || number == null)) return invalidRefError();
+				const refError = refValidationError({ id, owner, number });
+				if (refError != null) return refError;
 				type Detail = {
 					id: string;
 					number: number;
@@ -411,7 +415,8 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id, per_page, cursor }) =>
 			wrapTool(async () => {
-				if (id == null && (owner == null || number == null)) return invalidRefError();
+				const refError = refValidationError({ id, owner, number });
+				if (refError != null) return refError;
 				type ItemsProject = { number: number; title: string; items: ItemsPage };
 				const project = await fetchProject<ItemsProject>(
 					client(),
@@ -438,7 +443,8 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id, per_page, cursor }) =>
 			wrapTool(async () => {
-				if (id == null && (owner == null || number == null)) return invalidRefError();
+				const refError = refValidationError({ id, owner, number });
+				if (refError != null) return refError;
 				type FieldsProject = { number: number; title: string; fields: FieldsPage };
 				const project = await fetchProject<FieldsProject>(
 					client(),
