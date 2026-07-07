@@ -135,6 +135,10 @@ describe("MCP transport E2E", () => {
 			"list_branches", // branches
 			"commit_file", // files
 			"create_pull_request", // pulls
+			"create_pending_pr_review", // pulls write (pending review lifecycle)
+			"add_comment_to_pending_pr_review", // pulls write (pending review lifecycle)
+			"submit_pending_pr_review", // pulls write (pending review lifecycle)
+			"delete_pending_pr_review", // pulls write (pending review lifecycle)
 			"search_code", // search
 			"list_workflow_runs", // actions
 			"list_gists", // gists read
