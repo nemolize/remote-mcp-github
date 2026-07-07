@@ -270,7 +270,7 @@ Other knobs: `MCP_BASE` (default `http://localhost:8788`), `CALLBACK_PORT` (defa
 
 ## OAuth scopes
 
-The server requests `read:user repo delete_repo gist read:project` from GitHub. The `repo` portion is what enables private-repo visibility for read tools and the create/comment/branch capabilities of the write tools; `delete_repo` is required only by `delete_repository`; `gist` is required only by the gist tools (`list_gists`, `get_gist`, `list_gist_comments`, `create_gist`, `update_gist`, `delete_gist`); `read:project` is required only by the Projects (v2) read tools (`list_projects`, `get_project`, `list_project_items`, `list_project_fields`). To run the read tools only against public repositories, change `src/github-handler.ts` to `read:user public_repo gist`.
+The server requests `read:user repo delete_repo gist read:project` from GitHub. The `repo` portion is what enables private-repo visibility for read tools and the create/comment/branch capabilities of the write tools; `delete_repo` is required only by `delete_repository`; `gist` is required only by the gist tools (`list_gists`, `get_gist`, `list_gist_comments`, `create_gist`, `update_gist`, `delete_gist`); `read:project` is required only by the Projects (v2) read tools (`list_projects`, `get_project`, `list_project_items`, `list_project_fields`). To run the read tools only against public repositories, change `src/github-handler.ts` to `read:user public_repo gist read:project`.
 
 ## Project structure
 
