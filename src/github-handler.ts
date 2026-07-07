@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers";
 import { Hono } from "hono";
 import { Octokit } from "octokit";
 
+import { isLoopbackRedirect, renderInterstitial } from "./interstitial";
 import { fetchUpstreamAuthToken, getUpstreamAuthorizeUrl, type Props } from "./utils";
 import {
 	addApprovedClient,
@@ -194,6 +195,14 @@ app.get("/callback", async (c) => {
 		scope: oauthReqInfo.scope,
 		userId: login,
 	});
+
+	// Loopback redirect targets get an interstitial instead of a bare 302 so a
+	// dead local listener still leaves the user a visible, copyable URL (#174).
+	if (isLoopbackRedirect(redirectTo)) {
+		return renderInterstitial(redirectTo, {
+			setCookie: clearSessionCookie !== "" ? clearSessionCookie : undefined,
+		});
+	}
 
 	// Clear the session binding cookie (one-time use) by creating response with headers
 	const headers = new Headers({ Location: redirectTo });
