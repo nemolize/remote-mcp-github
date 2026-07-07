@@ -152,11 +152,14 @@ const PROJECT_ITEMS_SELECTION = `
 	}
 `;
 
+/** Pagination variable declarations appended to a list tool's query signature. */
+const PAGINATION_VARS = ", $first: Int!, $after: String";
+
 /**
  * Build the by-node-ID and by-owner+number query pair around a shared
- * selection. `extraVars` carries the pagination variable declarations
- * (`, $first: Int!, $after: String`) for the list tools — GraphQL rejects
- * declared-but-unused variables, so the detail query must omit them.
+ * selection. `extraVars` carries `PAGINATION_VARS` for the list tools —
+ * GraphQL rejects declared-but-unused variables, so the detail query must
+ * omit them.
  */
 const projectQueryPair = (
 	selection: string,
@@ -433,7 +436,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 				const project = await fetchProject<ItemsProject>(
 					client(),
 					{ id, owner, number },
-					projectQueryPair(PROJECT_ITEMS_SELECTION, ", $first: Int!, $after: String"),
+					projectQueryPair(PROJECT_ITEMS_SELECTION, PAGINATION_VARS),
 					{ first: per_page, after: cursor },
 				);
 				if (project == null) return notFoundError({ id, owner, number });
@@ -461,7 +464,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 				const project = await fetchProject<FieldsProject>(
 					client(),
 					{ id, owner, number },
-					projectQueryPair(PROJECT_FIELDS_SELECTION, ", $first: Int!, $after: String"),
+					projectQueryPair(PROJECT_FIELDS_SELECTION, PAGINATION_VARS),
 					{ first: per_page, after: cursor },
 				);
 				if (project == null) return notFoundError({ id, owner, number });
