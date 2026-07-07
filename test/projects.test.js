@@ -460,6 +460,16 @@ describe("list_project_fields", () => {
 		expect(body).toContain('cursor: "CUR_f"');
 	});
 
+	it("errors when neither id nor owner + number are provided", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () => ({}));
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_project_fields", { owner: "acme", per_page: 30 });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Provide either `id`");
+	});
+
 	it("errors when owner + number resolve to no project", async () => {
 		const { handlers, server } = captureHandlers();
 		const octokit = stubOctokit(async () => ({ repositoryOwner: null }));
