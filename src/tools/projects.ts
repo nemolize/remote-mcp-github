@@ -219,10 +219,11 @@ const notFoundError = (ref: ProjectRef): ToolResult =>
 
 /**
  * Fetch a project by node ID or by owner + number. Returns `null` when the
- * identifier resolves to nothing (or to a non-ProjectV2 node — callers detect
- * that via a required selection field such as `title` being absent).
+ * identifier resolves to nothing or to a non-ProjectV2 node — the required
+ * `title` constraint forces every selection to include the field that check
+ * relies on.
  */
-const fetchProject = async <T extends { title?: string }>(
+const fetchProject = async <T extends { title: string }>(
 	octo: ReturnType<OctokitFactory>,
 	ref: ProjectRef,
 	queries: { byId: string; byOwner: string },
