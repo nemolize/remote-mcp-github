@@ -172,6 +172,21 @@ describe("get_project", () => {
 		expect(result.isError).toBeUndefined();
 	});
 
+	it("flags fields beyond the detail query's first page", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () => ({
+			repositoryOwner: {
+				projectV2: { ...detailNode, fields: { ...detailNode.fields, totalCount: 60 } },
+			},
+		}));
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_project", { owner: "acme", number: 4 });
+		const body = result.content[0].text;
+		expect(body).toContain("## Fields (60)");
+		expect(body).toContain("(2 of 60 shown; use list_project_fields to page through the rest.)");
+	});
+
 	it("resolves by node ID via the node() query", async () => {
 		const { handlers, server } = captureHandlers();
 		let capturedQuery;

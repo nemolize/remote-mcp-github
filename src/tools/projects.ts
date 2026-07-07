@@ -406,6 +406,13 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 					`## Fields (${project.fields.totalCount})`,
 					"",
 					...fields.map(fieldLine),
+					// The detail query pins fields(first: 50); flag anything beyond it.
+					...(project.fields.totalCount > fields.length
+						? [
+								"",
+								`(${fields.length} of ${project.fields.totalCount} shown; use list_project_fields to page through the rest.)`,
+							]
+						: []),
 				].join("\n");
 				return text(truncate(body));
 			}),
