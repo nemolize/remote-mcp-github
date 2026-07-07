@@ -193,14 +193,19 @@ const ProjectRefSchema = {
 		.string()
 		.min(1)
 		.optional()
-		.describe("Project node ID (`PVT_...`). Alternative to `owner` + `number`."),
+		.describe("Project node ID (`PVT_...`). Mutually exclusive with `owner` + `number`."),
 } as const;
 
 /** `null` when the ref is usable; the shared invalid-ref error otherwise. */
-const refValidationError = (ref: ProjectRef): ToolResult | null =>
-	ref.id == null && (ref.owner == null || ref.number == null)
-		? errorResult("Provide either `id` (project node ID) or both `owner` and `number`.")
-		: null;
+const refValidationError = (ref: ProjectRef): ToolResult | null => {
+	if (ref.id != null && (ref.owner != null || ref.number != null)) {
+		return errorResult("Pass either `id` or `owner` + `number`, not both.");
+	}
+	if (ref.id == null && (ref.owner == null || ref.number == null)) {
+		return errorResult("Provide either `id` (project node ID) or both `owner` and `number`.");
+	}
+	return null;
+};
 
 const notFoundError = (ref: ProjectRef): ToolResult =>
 	errorResult(

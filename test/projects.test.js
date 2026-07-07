@@ -209,6 +209,25 @@ describe("get_project", () => {
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("Provide either `id`");
 	});
+
+	it("rejects an ambiguous ref passing both id and owner + number", async () => {
+		const { handlers, server } = captureHandlers();
+		let called = false;
+		const octokit = stubOctokit(async () => {
+			called = true;
+			return {};
+		});
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_project", {
+			id: "PVT_kwAA1",
+			owner: "acme",
+			number: 4,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("not both");
+		expect(called).toBe(false);
+	});
 });
 
 describe("list_project_items", () => {
@@ -321,6 +340,20 @@ describe("list_project_items", () => {
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("Provide either `id`");
 	});
+
+	it("rejects an ambiguous ref passing both id and owner", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () => ({}));
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_project_items", {
+			id: "PVT_kwAA1",
+			owner: "acme",
+			per_page: 30,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("not both");
+	});
 });
 
 describe("list_project_fields", () => {
@@ -376,5 +409,19 @@ describe("list_project_fields", () => {
 		const body = result.content[0].text;
 		expect(body).toContain("(1 of 30 shown; more results exist.");
 		expect(body).toContain('cursor: "CUR_f"');
+	});
+
+	it("rejects an ambiguous ref passing both id and number", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () => ({}));
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_project_fields", {
+			id: "PVT_kwAA1",
+			number: 4,
+			per_page: 30,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("not both");
 	});
 });
