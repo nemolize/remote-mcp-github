@@ -283,7 +283,7 @@ describe("list_project_items", () => {
 						title: "Fix login bug",
 						number: 12,
 						repository: { nameWithOwner: "acme/web" },
-						assignees: { nodes: [{ login: "alice" }, { login: "bob" }] },
+						assignees: { totalCount: 2, nodes: [{ login: "alice" }, { login: "bob" }] },
 					},
 				},
 				{
@@ -293,13 +293,13 @@ describe("list_project_items", () => {
 						title: "Add cache layer",
 						number: 34,
 						repository: { nameWithOwner: "acme/api" },
-						assignees: { nodes: [] },
+						assignees: { totalCount: 0, nodes: [] },
 					},
 				},
 				{
 					type: "DRAFT_ISSUE",
 					fieldValueByName: { name: "Todo" },
-					content: { title: "Investigate flakiness", assignees: { nodes: [] } },
+					content: { title: "Investigate flakiness", assignees: { totalCount: 0, nodes: [] } },
 				},
 			]),
 		);
@@ -318,6 +318,41 @@ describe("list_project_items", () => {
 		expect(body).toContain("- PULL_REQUEST — Add cache layer (acme/api#34)");
 		expect(body).toContain("- DRAFT_ISSUE — Investigate flakiness — status: Todo");
 		expect(result.isError).toBeUndefined();
+	});
+
+	it("flags assignees beyond the queried first five", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () =>
+			itemsProject([
+				{
+					type: "ISSUE",
+					fieldValueByName: null,
+					content: {
+						title: "All hands issue",
+						number: 7,
+						repository: { nameWithOwner: "acme/web" },
+						assignees: {
+							totalCount: 7,
+							nodes: [
+								{ login: "alice" },
+								{ login: "bob" },
+								{ login: "carol" },
+								{ login: "dan" },
+								{ login: "eve" },
+							],
+						},
+					},
+				},
+			]),
+		);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_project_items", {
+			owner: "acme",
+			number: 4,
+			per_page: 30,
+		});
+		expect(result.content[0].text).toContain("— @alice, @bob, @carol, @dan, @eve +2 more");
 	});
 
 	it("truncates a large page without dropping the cursor hint", async () => {

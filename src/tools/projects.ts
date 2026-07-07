@@ -51,7 +51,7 @@ type ProjectItemNode = {
 		title?: string;
 		number?: number;
 		repository?: { nameWithOwner: string };
-		assignees?: { nodes: Array<{ login: string } | null> };
+		assignees?: { totalCount: number; nodes: Array<{ login: string } | null> };
 	} | null;
 };
 
@@ -135,17 +135,17 @@ const PROJECT_ITEMS_SELECTION = `
 					title
 					number
 					repository { nameWithOwner }
-					assignees(first: 5) { nodes { login } }
+					assignees(first: 5) { totalCount nodes { login } }
 				}
 				... on PullRequest {
 					title
 					number
 					repository { nameWithOwner }
-					assignees(first: 5) { nodes { login } }
+					assignees(first: 5) { totalCount nodes { login } }
 				}
 				... on DraftIssue {
 					title
-					assignees(first: 5) { nodes { login } }
+					assignees(first: 5) { totalCount nodes { login } }
 				}
 			}
 		}
@@ -281,11 +281,14 @@ const itemLine = (item: ProjectItemNode): string => {
 			: "";
 	const status =
 		item.fieldValueByName?.name != null ? ` — status: ${item.fieldValueByName.name}` : "";
-	const assignees = (item.content?.assignees?.nodes ?? [])
-		.filter((a): a is { login: string } => a != null)
-		.map((a) => `@${a.login}`)
-		.join(", ");
-	const assigneeSuffix = assignees === "" ? "" : ` — ${assignees}`;
+	const assigneeList = (item.content?.assignees?.nodes ?? []).filter(
+		(a): a is { login: string } => a != null,
+	);
+	const assignees = assigneeList.map((a) => `@${a.login}`).join(", ");
+	// The query caps assignees at first: 5 — flag anything beyond it.
+	const total = item.content?.assignees?.totalCount ?? assigneeList.length;
+	const overflow = total > assigneeList.length ? ` +${total - assigneeList.length} more` : "";
+	const assigneeSuffix = assignees === "" ? "" : ` — ${assignees}${overflow}`;
 	return `- ${item.type} — ${title}${ref}${status}${assigneeSuffix}`;
 };
 
