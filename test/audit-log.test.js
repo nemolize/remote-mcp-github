@@ -318,6 +318,11 @@ const wideOctokit = () => {
 				create: ok({ number: 7, title: "t", draft: false, html_url: "https://x" }),
 				requestReviewers: ok({ requested_reviewers: [{ login: "a" }], requested_teams: [] }),
 				updateBranch: ok({ message: "Updating branch." }),
+				get: ok({ head: { sha: "deadbeef" } }),
+				getReview: ok({ node_id: "PRR_node_42", state: "PENDING" }),
+				createReview: ok({ id: 42, state: "PENDING", html_url: "https://x/review/42" }),
+				submitReview: ok({ id: 42, state: "COMMENTED", html_url: "https://x/review/42" }),
+				deletePendingReview: ok({ id: 42 }),
 			},
 			actions: {
 				reRunWorkflow: ok({}),
@@ -349,6 +354,11 @@ const wideOctokit = () => {
 				delete: ok({}),
 			},
 		},
+		graphql: async () => ({
+			addPullRequestReviewThread: {
+				thread: { id: "PRRT_1", comments: { nodes: [{ databaseId: 101 }] } },
+			},
+		}),
 	};
 };
 
@@ -412,6 +422,30 @@ const WRITE_TOOLS = [
 		{ owner: "o", repo: "r", pull_number: 1, reviewers: ["a"] },
 	],
 	[registerPullTools, "update_pull_request_branch", { owner: "o", repo: "r", pull_number: 1 }],
+	[registerPullTools, "create_pending_pr_review", { owner: "o", repo: "r", pull_number: 1 }],
+	[
+		registerPullTools,
+		"add_comment_to_pending_pr_review",
+		{
+			owner: "o",
+			repo: "r",
+			pull_number: 1,
+			review_id: 42,
+			path: "a.ts",
+			body: "b",
+			line: 1,
+		},
+	],
+	[
+		registerPullTools,
+		"submit_pending_pr_review",
+		{ owner: "o", repo: "r", pull_number: 1, review_id: 42, event: "COMMENT", body: "b" },
+	],
+	[
+		registerPullTools,
+		"delete_pending_pr_review",
+		{ owner: "o", repo: "r", pull_number: 1, review_id: 42 },
+	],
 	[registerActionTools, "rerun_workflow_run", { owner: "o", repo: "r", run_id: 1 }],
 	[registerActionTools, "rerun_failed_jobs", { owner: "o", repo: "r", run_id: 1 }],
 	[registerActionTools, "cancel_workflow_run", { owner: "o", repo: "r", run_id: 1 }],

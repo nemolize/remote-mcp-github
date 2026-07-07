@@ -36,6 +36,41 @@ const snippetBlock = (body: string | null | undefined): string => {
 	return snippet === "" ? "" : `\n  > ${snippet}`;
 };
 
+// Shared inline-comment shape used by create_pr_review (one-shot with event) and
+// create_pending_pr_review (initial batch, no event). Matches Octokit's
+// pulls.createReview `comments[]` schema.
+const ReviewInlineComment = z.object({
+	path: z.string().min(1).describe("File path the comment applies to."),
+	body: z
+		.string()
+		.min(1)
+		.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Inline comment body", MAX_TEXT_FIELD_LENGTH))
+		.describe("Inline comment text."),
+	line: z
+		.number()
+		.int()
+		.positive()
+		.describe("Line in the file's new version (RIGHT side) the comment anchors to."),
+	side: z
+		.enum(["LEFT", "RIGHT"])
+		.optional()
+		.describe(
+			"Diff side the line refers to (LEFT = deletion, RIGHT = addition/context). Defaults to RIGHT.",
+		),
+	start_line: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe("For a multi-line comment, the first line of the range."),
+	start_side: z
+		.enum(["LEFT", "RIGHT"])
+		.optional()
+		.describe(
+			"Starting diff side for a multi-line comment. Required by GitHub when `start_line` is set.",
+		),
+});
+
 /**
  * A merged PR reports `state: "closed"`, which hides the more useful "merged"
  * distinction. Collapse that into a single rendered state so `get_pull_request`
@@ -707,42 +742,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 						"Summary comment for the review (Markdown supported). Required for `REQUEST_CHANGES` and `COMMENT`.",
 					),
 				comments: z
-					.array(
-						z.object({
-							path: z.string().min(1).describe("File path the comment applies to."),
-							body: z
-								.string()
-								.min(1)
-								.max(
-									MAX_TEXT_FIELD_LENGTH,
-									maxCharsMessage("Inline comment body", MAX_TEXT_FIELD_LENGTH),
-								)
-								.describe("Inline comment text."),
-							line: z
-								.number()
-								.int()
-								.positive()
-								.describe("Line in the file's new version (RIGHT side) the comment anchors to."),
-							side: z
-								.enum(["LEFT", "RIGHT"])
-								.optional()
-								.describe(
-									"Diff side the line refers to (LEFT = deletion, RIGHT = addition/context). Defaults to RIGHT.",
-								),
-							start_line: z
-								.number()
-								.int()
-								.positive()
-								.optional()
-								.describe("For a multi-line comment, the first line of the range."),
-							start_side: z
-								.enum(["LEFT", "RIGHT"])
-								.optional()
-								.describe(
-									"Starting diff side for a multi-line comment. Required by GitHub when `start_line` is set.",
-								),
-						}),
-					)
+					.array(ReviewInlineComment)
 					.optional()
 					.describe(
 						"Inline findings to anchor to specific lines, all posted as part of this one review.",
@@ -774,6 +774,248 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 				const inlineNote = inlineCount > 0 ? ` with ${inlineCount} inline comment(s)` : "";
 				return text(
 					`# Review submitted\n\n- **${data.state}** on ${owner}/${repo}#${pull_number}${inlineNote}\n- ${data.html_url}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"create_pending_pr_review",
+		{
+			description:
+				"Open a **pending** (draft) review on a pull request — the review is created but NOT submitted, so no notification fires and reviewers do not see it. Use when the caller wants to build a review over multiple tool calls and only submit once wording is confirmed. Optionally seeds inline findings via `comments` (same shape as `create_pr_review.comments`). Returns the `review_id`; pass it to `add_comment_to_pending_pr_review` / `submit_pending_pr_review` / `delete_pending_pr_review`. To submit in one shot, use `create_pr_review` instead.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				body: z
+					.string()
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Review body", MAX_TEXT_FIELD_LENGTH))
+					.optional()
+					.describe(
+						"Draft summary comment (Markdown supported). Can be set / overridden at submit time via `submit_pending_pr_review`.",
+					),
+				comments: z
+					.array(ReviewInlineComment)
+					.optional()
+					.describe(
+						"Initial inline findings to seed the pending review. More can be added via `add_comment_to_pending_pr_review`.",
+					),
+			},
+		},
+		async ({ owner, repo, pull_number, body, comments }) =>
+			wrapTool(async () => {
+				// Same per-element undefined strip as create_pr_review — Octokit's exactOptional
+				// param type rejects undefined for omitted `side` / `start_line` etc.
+				const normalisedComments = comments?.map((c) => stripUndefined(c));
+				const { data, headers } = await client().rest.pulls.createReview(
+					stripUndefined({
+						owner,
+						repo,
+						pull_number,
+						body,
+						comments: normalisedComments,
+					}),
+				);
+				logRateLimit(headers);
+				logWrite({
+					tool: "create_pending_pr_review",
+					owner,
+					repo,
+					pull_number,
+					review_id: data.id,
+				});
+				const inlineCount = comments?.length ?? 0;
+				const inlineNote = inlineCount > 0 ? ` with ${inlineCount} inline comment(s)` : "";
+				return text(
+					`# Pending review created\n\n- review_id: \`${data.id}\` on ${owner}/${repo}#${pull_number}${inlineNote}\n- state: **${data.state}**\n- ${data.html_url}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"add_comment_to_pending_pr_review",
+		{
+			description:
+				"Append one inline thread to an existing pending review via GraphQL's `addPullRequestReviewThread` mutation. Use to build a pending review incrementally between `create_pending_pr_review` and `submit_pending_pr_review`; the review stays unpublished until submitted. Anchors on the RIGHT side of the diff by default. To edit an already-added pending comment, delete and recreate the pending review via `delete_pending_pr_review` + `create_pending_pr_review` — GitHub does not support editing a pending comment in place.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				review_id: z
+					.number()
+					.int()
+					.positive()
+					.describe(
+						"REST numeric ID of the pending review to append to (returned by `create_pending_pr_review`).",
+					),
+				path: z.string().min(1).describe("File path the comment applies to."),
+				body: z
+					.string()
+					.min(1)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Inline comment body", MAX_TEXT_FIELD_LENGTH))
+					.describe("Inline comment text."),
+				line: z
+					.number()
+					.int()
+					.positive()
+					.describe("Line in the file's new version (RIGHT side) the thread anchors to."),
+				side: z
+					.enum(["LEFT", "RIGHT"])
+					.optional()
+					.describe(
+						"Diff side the line refers to (LEFT = deletion, RIGHT = addition/context). Defaults to RIGHT.",
+					),
+				start_line: z
+					.number()
+					.int()
+					.positive()
+					.optional()
+					.describe("For a multi-line thread, the first line of the range."),
+				start_side: z
+					.enum(["LEFT", "RIGHT"])
+					.optional()
+					.describe(
+						"Starting diff side for a multi-line thread. Required by GitHub when `start_line` is set.",
+					),
+			},
+		},
+		async ({
+			owner,
+			repo,
+			pull_number,
+			review_id,
+			path,
+			body,
+			line,
+			side,
+			start_line,
+			start_side,
+		}) =>
+			wrapTool(async () => {
+				const octo = client();
+				// GraphQL's addPullRequestReviewThread requires the review's node ID
+				// (PRR_...), not the REST numeric id — REST's getReview surfaces both.
+				const { data: reviewMeta, headers: getHeaders } = await octo.rest.pulls.getReview({
+					owner,
+					repo,
+					pull_number,
+					review_id,
+				});
+				logRateLimit(getHeaders);
+				const reviewNodeId = reviewMeta.node_id;
+				const result = await octo.graphql<AddReviewThreadResult>(ADD_REVIEW_THREAD_MUTATION, {
+					pullRequestReviewId: reviewNodeId,
+					path,
+					body,
+					line,
+					side: side ?? "RIGHT",
+					startLine: start_line ?? null,
+					startSide: start_side ?? null,
+				});
+				const thread = result.addPullRequestReviewThread.thread;
+				if (thread == null) {
+					return errorResult(
+						`Failed to add pending review comment on ${owner}/${repo}#${pull_number} (review ${review_id}).`,
+					);
+				}
+				const commentId = thread.comments.nodes[0]?.databaseId ?? null;
+				logWrite({
+					tool: "add_comment_to_pending_pr_review",
+					owner,
+					repo,
+					pull_number,
+					review_id,
+					...(commentId != null ? { comment_id: commentId } : {}),
+				});
+				return text(
+					`# Pending review comment added\n\n- comment_id: \`${commentId ?? "?"}\` on review \`${review_id}\` (${owner}/${repo}#${pull_number})\n- \`${path}\` L${line}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"submit_pending_pr_review",
+		{
+			description:
+				"Submit a pending (draft) review with a verdict — fires exactly one notification. `event` selects the verdict: `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`. `body` sets (or overrides) the summary. GitHub forbids approving your own PR (the error is surfaced as-is). Use after building the review with `create_pending_pr_review` + `add_comment_to_pending_pr_review`. To discard without submitting, use `delete_pending_pr_review` instead.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				review_id: z
+					.number()
+					.int()
+					.positive()
+					.describe("ID of the pending review to submit (returned by `create_pending_pr_review`)."),
+				event: z
+					.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"])
+					.describe(
+						"Review verdict. `REQUEST_CHANGES` and `COMMENT` require a non-empty `body`; `APPROVE` does not.",
+					),
+				body: z
+					.string()
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Review body", MAX_TEXT_FIELD_LENGTH))
+					.optional()
+					.describe(
+						"Summary comment (Markdown supported). Required for `REQUEST_CHANGES` and `COMMENT`.",
+					),
+			},
+		},
+		async ({ owner, repo, pull_number, review_id, event, body }) =>
+			wrapTool(async () => {
+				if (event !== "APPROVE" && (body == null || body.trim().length === 0)) {
+					return errorResult(`A non-empty \`body\` is required when event is \`${event}\`.`);
+				}
+				const { data, headers } = await client().rest.pulls.submitReview(
+					stripUndefined({
+						owner,
+						repo,
+						pull_number,
+						review_id,
+						event,
+						body,
+					}),
+				);
+				logRateLimit(headers);
+				logWrite({
+					tool: "submit_pending_pr_review",
+					owner,
+					repo,
+					pull_number,
+					review_id,
+				});
+				return text(
+					`# Review submitted\n\n- **${data.state}** on ${owner}/${repo}#${pull_number} (review \`${review_id}\`)\n- ${data.html_url}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"delete_pending_pr_review",
+		{
+			description:
+				"Discard a pending (draft) review without submitting — dismisses the draft and every inline comment it holds. Use when the reviewer wants to abandon the draft, or as the delete + recreate recovery path when a pending comment's wording needs changing (GitHub's REST does not allow editing pending comments in place). Only pending reviews can be deleted; a submitted review returns 422.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z.number().int().positive().describe("Pull request number."),
+				review_id: z.number().int().positive().describe("ID of the pending review to discard."),
+			},
+		},
+		async ({ owner, repo, pull_number, review_id }) =>
+			wrapTool(async () => {
+				const { headers } = await client().rest.pulls.deletePendingReview({
+					owner,
+					repo,
+					pull_number,
+					review_id,
+				});
+				logRateLimit(headers);
+				logWrite({
+					tool: "delete_pending_pr_review",
+					owner,
+					repo,
+					pull_number,
+					review_id,
+				});
+				return text(
+					`# Pending review deleted\n\n- review_id: \`${review_id}\` on ${owner}/${repo}#${pull_number}`,
 				);
 			}),
 	);
@@ -812,6 +1054,17 @@ type ReviewThreadsQueryResult = {
 type ReviewThreadState = { thread: { id: string; isResolved: boolean } | null };
 type ResolveReviewThreadResult = { resolveReviewThread: ReviewThreadState };
 type UnresolveReviewThreadResult = { unresolveReviewThread: ReviewThreadState };
+
+type AddReviewThreadResult = {
+	addPullRequestReviewThread: {
+		thread: {
+			id: string;
+			comments: {
+				nodes: Array<{ databaseId: number | null } | null>;
+			};
+		} | null;
+	};
+};
 
 const REVIEW_THREADS_QUERY = `
 	query ($owner: String!, $repo: String!, $pull_number: Int!, $first: Int!, $after: String) {
@@ -852,6 +1105,35 @@ const UNRESOLVE_THREAD_MUTATION = `
 	mutation ($thread_id: ID!) {
 		unresolveReviewThread(input: { threadId: $thread_id }) {
 			thread { id isResolved }
+		}
+	}
+`;
+
+const ADD_REVIEW_THREAD_MUTATION = `
+	mutation (
+		$pullRequestReviewId: ID!
+		$path: String!
+		$body: String!
+		$line: Int!
+		$side: DiffSide
+		$startLine: Int
+		$startSide: DiffSide
+	) {
+		addPullRequestReviewThread(
+			input: {
+				pullRequestReviewId: $pullRequestReviewId
+				path: $path
+				body: $body
+				line: $line
+				side: $side
+				startLine: $startLine
+				startSide: $startSide
+			}
+		) {
+			thread {
+				id
+				comments(first: 1) { nodes { databaseId } }
+			}
 		}
 	}
 `;
