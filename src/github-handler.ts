@@ -199,9 +199,7 @@ app.get("/callback", async (c) => {
 	// Loopback redirect targets get an interstitial instead of a bare 302 so a
 	// dead local listener still leaves the user a visible, copyable URL (#174).
 	if (isLoopbackRedirect(redirectTo)) {
-		return renderInterstitial(redirectTo, {
-			setCookie: clearSessionCookie !== "" ? clearSessionCookie : undefined,
-		});
+		return renderInterstitial(redirectTo, { setCookie: clearSessionCookie });
 	}
 
 	// Clear the session binding cookie (one-time use) by creating response with headers
