@@ -204,6 +204,26 @@ describe("get_project", () => {
 		expect(result.content[0].text).toContain("# Project #4: Roadmap");
 	});
 
+	it("errors when owner + number resolve to no project", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () => ({ repositoryOwner: { projectV2: null } }));
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_project", { owner: "acme", number: 999 });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Project acme/#999 not found or not accessible");
+	});
+
+	it("errors when the owner itself does not resolve", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () => ({ repositoryOwner: null }));
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_project", { owner: "ghost", number: 4 });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Project ghost/#4 not found or not accessible");
+	});
+
 	it("errors when a node ID resolves to a non-project node", async () => {
 		const { handlers, server } = captureHandlers();
 		// A non-ProjectV2 node makes the inline fragment contribute no fields.
@@ -356,6 +376,20 @@ describe("list_project_items", () => {
 		expect(result.content[0].text).toContain("Provide either `id`");
 	});
 
+	it("errors when owner + number resolve to no project", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () => ({ repositoryOwner: { projectV2: null } }));
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_project_items", {
+			owner: "acme",
+			number: 999,
+			per_page: 30,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Project acme/#999 not found or not accessible");
+	});
+
 	it("rejects an ambiguous ref passing both id and owner", async () => {
 		const { handlers, server } = captureHandlers();
 		const octokit = stubOctokit(async () => ({}));
@@ -424,6 +458,20 @@ describe("list_project_fields", () => {
 		const body = result.content[0].text;
 		expect(body).toContain("(1 of 30 shown; more results exist.");
 		expect(body).toContain('cursor: "CUR_f"');
+	});
+
+	it("errors when owner + number resolve to no project", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () => ({ repositoryOwner: null }));
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_project_fields", {
+			owner: "ghost",
+			number: 4,
+			per_page: 30,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Project ghost/#4 not found or not accessible");
 	});
 
 	it("rejects an ambiguous ref passing both id and number", async () => {
