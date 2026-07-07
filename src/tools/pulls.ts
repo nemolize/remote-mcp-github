@@ -782,7 +782,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		"create_pending_pr_review",
 		{
 			description:
-				"Open a **pending** (draft) review on a pull request — the review is created but NOT submitted, so no notification fires and reviewers do not see it. Use when the caller wants to build a review over multiple tool calls and only submit once wording is confirmed. Optionally seeds inline findings via `comments` (same shape as `create_pr_review.comments`). Returns the `review_id`; pass it to `add_comment_to_pending_pr_review` / `submit_pending_pr_review` / `delete_pending_pr_review`. To submit in one shot, use `create_pr_review` instead.",
+				"Open a **pending** (draft) review on a pull request — the review is created but NOT submitted, so no notification fires and reviewers do not see it. Use when the caller wants to build a review over multiple tool calls and only submit once wording is confirmed. Optionally seeds inline findings via `comments` (same shape as `create_pr_review.comments`). Returns both the REST numeric `review_id` and the GraphQL `node_id`; pass the numeric id to the sibling pending-review lifecycle tools, and prefer passing the `node_id` to `add_comment_to_pending_pr_review` to skip an extra lookup. To submit in one shot, use `create_pr_review` instead.",
 			inputSchema: {
 				...RepoTarget,
 				pull_number: z.number().int().positive().describe("Pull request number."),
@@ -825,8 +825,11 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 				});
 				const inlineCount = comments?.length ?? 0;
 				const inlineNote = inlineCount > 0 ? ` with ${inlineCount} inline comment(s)` : "";
+				// review_node_id is surfaced so callers can pass it straight to
+				// add_comment_to_pending_pr_review, skipping that tool's fallback
+				// getReview lookup on every append.
 				return text(
-					`# Pending review created\n\n- review_id: \`${data.id}\` on ${owner}/${repo}#${pull_number}${inlineNote}\n- state: **${data.state}**\n- ${data.html_url}`,
+					`# Pending review created\n\n- review_id: \`${data.id}\` (node_id: \`${data.node_id}\`) on ${owner}/${repo}#${pull_number}${inlineNote}\n- state: **${data.state}**\n- ${data.html_url}`,
 				);
 			}),
 	);
@@ -835,7 +838,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		"add_comment_to_pending_pr_review",
 		{
 			description:
-				"Append one inline thread to an existing pending review via GraphQL's `addPullRequestReviewThread` mutation. Use to build a pending review incrementally between `create_pending_pr_review` and `submit_pending_pr_review`; the review stays unpublished until submitted. Anchors on the RIGHT side of the diff by default. To edit an already-added pending comment, delete and recreate the pending review via `delete_pending_pr_review` + `create_pending_pr_review` — GitHub does not support editing a pending comment in place.",
+				"Append one inline thread to an existing pending review via GraphQL's `addPullRequestReviewThread` mutation. Use to build a pending review incrementally between `create_pending_pr_review` and `submit_pending_pr_review`; the review stays unpublished until submitted. Anchors on the RIGHT side of the diff by default. Prefer passing `review_node_id` (surfaced by `create_pending_pr_review`) to avoid one extra API lookup per call. To edit an already-added pending comment, delete and recreate the pending review via `delete_pending_pr_review` + `create_pending_pr_review` — note that recreating drops every other pending comment on the discarded review; GitHub does not support editing a pending comment in place.",
 			inputSchema: {
 				...RepoTarget,
 				pull_number: z.number().int().positive().describe("Pull request number."),
@@ -846,35 +849,14 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					.describe(
 						"REST numeric ID of the pending review to append to (returned by `create_pending_pr_review`).",
 					),
-				path: z.string().min(1).describe("File path the comment applies to."),
-				body: z
+				review_node_id: z
 					.string()
 					.min(1)
-					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Inline comment body", MAX_TEXT_FIELD_LENGTH))
-					.describe("Inline comment text."),
-				line: z
-					.number()
-					.int()
-					.positive()
-					.describe("Line in the file's new version (RIGHT side) the thread anchors to."),
-				side: z
-					.enum(["LEFT", "RIGHT"])
 					.optional()
 					.describe(
-						"Diff side the line refers to (LEFT = deletion, RIGHT = addition/context). Defaults to RIGHT.",
+						"GraphQL node ID of the pending review (`PRR_...`, surfaced by `create_pending_pr_review`). When present, skips the internal `pulls.getReview` lookup.",
 					),
-				start_line: z
-					.number()
-					.int()
-					.positive()
-					.optional()
-					.describe("For a multi-line thread, the first line of the range."),
-				start_side: z
-					.enum(["LEFT", "RIGHT"])
-					.optional()
-					.describe(
-						"Starting diff side for a multi-line thread. Required by GitHub when `start_line` is set.",
-					),
+				...ReviewInlineComment.shape,
 			},
 		},
 		async ({
@@ -882,6 +864,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 			repo,
 			pull_number,
 			review_id,
+			review_node_id,
 			path,
 			body,
 			line,
@@ -892,15 +875,20 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 			wrapTool(async () => {
 				const octo = client();
 				// GraphQL's addPullRequestReviewThread requires the review's node ID
-				// (PRR_...), not the REST numeric id — REST's getReview surfaces both.
-				const { data: reviewMeta, headers: getHeaders } = await octo.rest.pulls.getReview({
-					owner,
-					repo,
-					pull_number,
-					review_id,
-				});
-				logRateLimit(getHeaders);
-				const reviewNodeId = reviewMeta.node_id;
+				// (PRR_...), not the REST numeric id. Callers who threaded through the
+				// node_id `create_pending_pr_review` surfaced skip the extra lookup;
+				// otherwise resolve it via REST getReview (which returns node_id).
+				let reviewNodeId = review_node_id;
+				if (reviewNodeId == null) {
+					const { data: reviewMeta, headers: getHeaders } = await octo.rest.pulls.getReview({
+						owner,
+						repo,
+						pull_number,
+						review_id,
+					});
+					logRateLimit(getHeaders);
+					reviewNodeId = reviewMeta.node_id;
+				}
 				const result = await octo.graphql<AddReviewThreadResult>(ADD_REVIEW_THREAD_MUTATION, {
 					pullRequestReviewId: reviewNodeId,
 					path,
@@ -960,10 +948,27 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		},
 		async ({ owner, repo, pull_number, review_id, event, body }) =>
 			wrapTool(async () => {
+				// COMMENT / REQUEST_CHANGES need a non-empty summary. A pending review may
+				// already carry a body set at create time; only reject when the caller
+				// passes none AND the draft has none, so submitting an already-drafted
+				// pending review that just needs to be published works without re-typing
+				// the body.
+				const octo = client();
 				if (event !== "APPROVE" && (body == null || body.trim().length === 0)) {
-					return errorResult(`A non-empty \`body\` is required when event is \`${event}\`.`);
+					const { data: draft, headers: draftHeaders } = await octo.rest.pulls.getReview({
+						owner,
+						repo,
+						pull_number,
+						review_id,
+					});
+					logRateLimit(draftHeaders);
+					if (draft.body == null || draft.body.trim().length === 0) {
+						return errorResult(
+							`A non-empty \`body\` is required when event is \`${event}\` and the pending review has no draft body.`,
+						);
+					}
 				}
-				const { data, headers } = await client().rest.pulls.submitReview(
+				const { data, headers } = await octo.rest.pulls.submitReview(
 					stripUndefined({
 						owner,
 						repo,

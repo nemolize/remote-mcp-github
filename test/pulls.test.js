@@ -1536,3 +1536,288 @@ describe("registerPullTools — create_pr_review", () => {
 		expect(result.content[0].text).toContain("Can not approve your own pull request");
 	});
 });
+
+const pendingReviewData = (overrides = {}) => ({
+	id: 42,
+	node_id: "PRR_pending_42",
+	state: "PENDING",
+	body: null,
+	html_url: "https://github.com/o/r/pull/7#pullrequestreview-42",
+	...overrides,
+});
+
+const stubPendingReviewOctokit = ({
+	createReview,
+	getReview,
+	submitReview,
+	deletePendingReview,
+	graphql,
+} = {}) => {
+	const calls = {
+		createReview: [],
+		getReview: [],
+		submitReview: [],
+		deletePendingReview: [],
+		graphql: [],
+	};
+	const octokit = {
+		rest: {
+			pulls: {
+				createReview: async (args) => {
+					calls.createReview.push(args);
+					return (createReview ?? (async () => ({ data: pendingReviewData(), headers: {} })))(args);
+				},
+				getReview: async (args) => {
+					calls.getReview.push(args);
+					return (getReview ?? (async () => ({ data: pendingReviewData(), headers: {} })))(args);
+				},
+				submitReview: async (args) => {
+					calls.submitReview.push(args);
+					return (
+						submitReview ??
+						(async () => ({ data: pendingReviewData({ state: "COMMENTED" }), headers: {} }))
+					)(args);
+				},
+				deletePendingReview: async (args) => {
+					calls.deletePendingReview.push(args);
+					return (deletePendingReview ?? (async () => ({ data: {}, headers: {} })))(args);
+				},
+			},
+		},
+		graphql: async (query, vars) => {
+			calls.graphql.push({ query, vars });
+			return (
+				graphql ??
+				(async () => ({
+					addPullRequestReviewThread: {
+						thread: { id: "PRRT_1", comments: { nodes: [{ databaseId: 101 }] } },
+					},
+				}))
+			)(query, vars);
+		},
+	};
+	return { octokit, calls };
+};
+
+describe("registerPullTools — pending pr review lifecycle", () => {
+	it("registers all four pending-review tools", () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubPendingReviewOctokit();
+		registerPullTools(server, () => octokit);
+		expect(handlers.has("create_pending_pr_review")).toBe(true);
+		expect(handlers.has("add_comment_to_pending_pr_review")).toBe(true);
+		expect(handlers.has("submit_pending_pr_review")).toBe(true);
+		expect(handlers.has("delete_pending_pr_review")).toBe(true);
+	});
+
+	it("create_pending_pr_review surfaces both review_id and node_id", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPendingReviewOctokit();
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_pending_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			body: "draft summary",
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Pending review created");
+		expect(body).toContain("review_id: `42`");
+		expect(body).toContain("node_id: `PRR_pending_42`");
+		expect(body).toContain("state: **PENDING**");
+		expect(calls.createReview[0]).toEqual({
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			body: "draft summary",
+		});
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("create_pending_pr_review seeds inline comments and strips per-element undefined", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPendingReviewOctokit();
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_pending_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			comments: [{ path: "src/foo.ts", line: 10, body: "seed" }],
+		});
+		expect(result.content[0].text).toContain("with 1 inline comment(s)");
+		expect(calls.createReview[0].comments).toEqual([
+			{ path: "src/foo.ts", line: 10, body: "seed" },
+		]);
+	});
+
+	it("add_comment_to_pending_pr_review with review_node_id skips the getReview lookup", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPendingReviewOctokit();
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "add_comment_to_pending_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			review_id: 42,
+			review_node_id: "PRR_from_caller",
+			path: "src/foo.ts",
+			body: "comment",
+			line: 3,
+		});
+		expect(result.content[0].text).toContain("comment_id: `101`");
+		expect(calls.getReview).toHaveLength(0);
+		expect(calls.graphql[0].vars.pullRequestReviewId).toBe("PRR_from_caller");
+		expect(calls.graphql[0].vars.side).toBe("RIGHT");
+	});
+
+	it("add_comment_to_pending_pr_review resolves node_id via getReview when omitted", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPendingReviewOctokit();
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "add_comment_to_pending_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			review_id: 42,
+			path: "src/foo.ts",
+			body: "comment",
+			line: 3,
+		});
+		expect(result.isError).toBeUndefined();
+		expect(calls.getReview).toHaveLength(1);
+		expect(calls.graphql[0].vars.pullRequestReviewId).toBe("PRR_pending_42");
+	});
+
+	it("add_comment_to_pending_pr_review surfaces an error when the graphql thread is null", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubPendingReviewOctokit({
+			graphql: async () => ({ addPullRequestReviewThread: { thread: null } }),
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "add_comment_to_pending_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			review_id: 42,
+			review_node_id: "PRR_from_caller",
+			path: "src/foo.ts",
+			body: "comment",
+			line: 3,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to add pending review comment");
+	});
+
+	it("submit_pending_pr_review submits a COMMENT with an explicit body", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPendingReviewOctokit();
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "submit_pending_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			review_id: 42,
+			event: "COMMENT",
+			body: "please look",
+		});
+		expect(result.content[0].text).toContain("**COMMENTED** on o/r#7");
+		expect(calls.submitReview[0]).toEqual({
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			review_id: 42,
+			event: "COMMENT",
+			body: "please look",
+		});
+		// Body supplied → no draft lookup required.
+		expect(calls.getReview).toHaveLength(0);
+	});
+
+	it("submit_pending_pr_review reuses the pending draft body when the caller omits it", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPendingReviewOctokit({
+			getReview: async () => ({
+				data: pendingReviewData({ body: "existing draft body" }),
+				headers: {},
+			}),
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "submit_pending_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			review_id: 42,
+			event: "COMMENT",
+		});
+		expect(result.isError).toBeUndefined();
+		expect(calls.getReview).toHaveLength(1);
+		expect(calls.submitReview[0].body).toBeUndefined();
+	});
+
+	it("submit_pending_pr_review rejects COMMENT when no body is provided and the draft has none", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPendingReviewOctokit();
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "submit_pending_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			review_id: 42,
+			event: "COMMENT",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("non-empty `body` is required");
+		expect(calls.submitReview).toHaveLength(0);
+	});
+
+	it("delete_pending_pr_review discards a pending review", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, calls } = stubPendingReviewOctokit();
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "delete_pending_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			review_id: 42,
+		});
+		expect(result.content[0].text).toContain("# Pending review deleted");
+		expect(calls.deletePendingReview[0]).toEqual({
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			review_id: 42,
+		});
+	});
+
+	it("delete_pending_pr_review surfaces the GitHub 422 for already-submitted reviews", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = {
+			rest: {
+				pulls: {
+					deletePendingReview: async () => {
+						throw new Error("Can not delete a non-pending pull request review");
+					},
+				},
+			},
+		};
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "delete_pending_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 7,
+			review_id: 42,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Can not delete a non-pending");
+	});
+});
