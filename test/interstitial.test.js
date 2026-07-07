@@ -80,16 +80,28 @@ describe("renderInterstitial", () => {
 		);
 	});
 
-	it("navigates immediately via meta refresh and JS replace", async () => {
+	it("navigates via window.location.assign after a visible countdown", async () => {
 		const html = await renderInterstitial(redirectTo).text();
-		expect(html).toContain(
-			'<meta http-equiv="refresh" content="0;url=http://localhost:12345/callback?code=abc&amp;state=xyz" />',
-		);
 		expect(html).toContain("<script nonce=");
-		expect(html).toContain("window.location.replace(redirectTo)");
+		// assign (not replace) so a connection-error page from a dead listener
+		// leaves the interstitial reachable via the Back button.
+		expect(html).toContain("window.location.assign(target)");
+		expect(html).not.toContain("window.location.replace");
+		// No <meta refresh>: it would race the JS countdown and, at delay 0,
+		// replace history the same way `location.replace` does.
+		expect(html).not.toContain('http-equiv="refresh"');
+		// Redirect target is embedded via a JSON string literal, safely escaped.
 		expect(html).toContain(
-			'const redirectTo = "http://localhost:12345/callback?code=abc\\u0026state=xyz";',
+			'const target = "http://localhost:12345/callback?code=abc\\u0026state=xyz";',
 		);
+	});
+
+	it("shows a visible countdown so the fallback UI is seen before nav", async () => {
+		const html = await renderInterstitial(redirectTo).text();
+		expect(html).toMatch(/Redirecting in <span id="countdown">\d+<\/span> seconds/);
+		// The seconds seed in JS must match the seconds shown in the DOM.
+		const domSeconds = html.match(/id="countdown">(\d+)</)[1];
+		expect(html).toContain(`let remaining = ${domSeconds};`);
 	});
 
 	it("shows the loopback host and the full URL in a code block", async () => {
@@ -101,6 +113,22 @@ describe("renderInterstitial", () => {
 		);
 	});
 
+	it("provides a <noscript> manual link so JS-disabled users can still recover", async () => {
+		const html = await renderInterstitial(redirectTo).text();
+		expect(html).toMatch(
+			/<noscript>.*<a href="http:\/\/localhost:12345\/callback\?code=abc&amp;state=xyz">Continue manually<\/a>.*<\/noscript>/s,
+		);
+	});
+
+	it("puts the URL above the countdown so it is seen before the redirect fires", async () => {
+		const html = await renderInterstitial(redirectTo).text();
+		const urlIdx = html.indexOf('id="redirect-url"');
+		const countdownIdx = html.indexOf('id="countdown"');
+		expect(urlIdx).toBeGreaterThan(-1);
+		expect(countdownIdx).toBeGreaterThan(-1);
+		expect(urlIdx).toBeLessThan(countdownIdx);
+	});
+
 	it("preserves a Set-Cookie header when given", () => {
 		const cookie = "__Host-CONSENTED_STATE=; Max-Age=0; Path=/; Secure; HttpOnly";
 		const res = renderInterstitial(redirectTo, { setCookie: cookie });
@@ -109,6 +137,13 @@ describe("renderInterstitial", () => {
 
 	it("omits Set-Cookie when not given", () => {
 		expect(renderInterstitial(redirectTo).headers.get("Set-Cookie")).toBeNull();
+	});
+
+	it("omits Set-Cookie when given an empty string", () => {
+		// The handler passes clearSessionCookie unconditionally; renderInterstitial
+		// must treat an empty string the same as "not given" so no spurious
+		// Set-Cookie header ships when the caller had nothing to clear.
+		expect(renderInterstitial(redirectTo, { setCookie: "" }).headers.get("Set-Cookie")).toBeNull();
 	});
 
 	it("escapes a hostile redirectTo everywhere it appears", async () => {

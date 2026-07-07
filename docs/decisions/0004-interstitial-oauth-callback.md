@@ -53,17 +53,23 @@ recoverable, without changing behaviour for non-loopback clients?
 
 1. **Keep the bare 302** (status quo; matches the Cloudflare demo and Sentry's
    sentry-mcp reference implementations).
-2. **Interstitial for loopback `redirectTo` only** — meta refresh (0s) + JS
-   `location.replace`, with the URL visible and copyable as the fallback body;
-   non-loopback keeps the 302.
-3. **Interstitial with a ~500ms delay** before navigating, so the user briefly
-   sees the page even on the happy path.
-4. **Interstitial that also displays the registered client name** as a
+2. **Loopback-only interstitial that navigates immediately** via meta
+   refresh (0s) + JS `location.replace`, with the URL visible as a
+   fallback; non-loopback keeps the 302.
+3. **Loopback-only interstitial that navigates after a visible countdown**
+   via JS `location.assign` (no meta refresh), so the fallback URL is
+   _seen_ first and Back returns to the interstitial after a connection
+   error; non-loopback keeps the 302.
+4. **JS-side probe-then-navigate** — attempt `fetch(redirectTo, {mode:
+"no-cors"})` or an `<img>` load with a short timeout, only navigate on
+   success; leave the fallback UI up on failure.
+5. **Interstitial that also displays the registered client name** as a
    phishing signal.
 
 ## Decision Outcome
 
-**Chosen option: 2 — loopback-only interstitial, immediate navigation.**
+**Chosen option: 3 — loopback-only interstitial with a visible countdown,
+navigating via `location.assign`.**
 
 `src/interstitial.ts` holds the loopback detection (`localhost`, `127.0.0.1`,
 `[::1]` / raw `::1` only — spec-defined loopback, not RFC1918 or link-local)
@@ -71,14 +77,31 @@ and the HTML template. `/callback` branches on `isLoopbackRedirect(redirectTo)`;
 any parse failure or non-loopback host falls through to the pre-existing 302
 unchanged, preserving the `Set-Cookie` session-cookie clearing on both paths.
 
-The interstitial navigates immediately via `<meta http-equiv="refresh"
-content="0;url=...">` plus a nonce'd inline `window.location.replace(...)`
-(belt and suspenders). The body shows the loopback host:port prominently
-(satisfying the spec's display requirement), the full redirect URL in a
-`<code>` block, and a Copy button (`navigator.clipboard.writeText`, feature
-detected; the URL stays selectable when unavailable). All embedded data is
-HTML-escaped in the body and `<`-escaped inside the script literal; the
-CSP is `default-src 'none'` with per-response nonces and no `unsafe-inline`.
+The interstitial's PRIMARY content is the redirect URL in a `<code>` block
+with a Copy button (`navigator.clipboard.writeText`, feature detected; the
+URL stays selectable when unavailable). Below the URL, a nonce'd inline
+script counts down `Redirecting in N seconds…` and, when it reaches zero,
+navigates via `window.location.assign(target)`. The loopback host:port is
+shown prominently (satisfying the MCP spec's display requirement). A
+`<noscript>` block provides a plain anchor as a JS-disabled fallback.
+
+Two properties are load-bearing for the failure path (dead loopback listener):
+
+- **`location.assign`, not `location.replace`** — a connection-error page
+  from the browser then leaves the interstitial in session history, so
+  Back returns to a page with the URL + Copy button.
+- **Visible countdown, no `<meta http-equiv="refresh">`** — meta refresh
+  with a 0-second delay replaces history the same way `location.replace`
+  does, and (like an immediate JS nav) triggers before the fallback UI is
+  legible. The countdown guarantees the URL has been on-screen for a
+  couple of seconds before nav is attempted.
+
+Deduped: `sanitizeText` from `src/workers-oauth-utils.ts` is reused for
+HTML escaping (there was a near-identical local helper in an earlier draft;
+two copies would silently drift). All embedded data is HTML-escaped in
+the body and `<`/`>`/`&`-escaped inside the script literal so `</script>`
+inside a hostile payload cannot break out. The CSP is `default-src 'none'`
+with per-response nonces on `script-src`/`style-src` and no `unsafe-inline`.
 
 ## Pros and Cons of the Options
 
@@ -92,21 +115,42 @@ CSP is `default-src 'none'` with per-response nonces and no `unsafe-inline`.
 
 - Good, because the happy path is unchanged in practice — the browser starts
   navigating before the page paints.
-- Good, because the failure path leaves a self-service recovery UX (visible
-  host, copyable URL).
-- Good, because scope is minimal: non-loopback clients, `/authorize`, and the
-  rest of the handler are untouched.
-- Bad, because it diverges from the Cloudflare demo / sentry-mcp 302 pattern —
-  future upstream merges need to keep the branch intact.
+- Bad, because it does not actually solve the dead-listener case: the
+  immediate `<meta refresh>` / `location.replace` re-attempts the failed
+  connection within the connection-attempt window (near-instant for a
+  refused loopback port), so the browser's `ERR_CONNECTION_REFUSED` page
+  replaces the interstitial before the user sees the fallback URL. And
+  `location.replace` further removes the interstitial from history, so
+  Back doesn't recover it either. Rejected on this ground during review.
 
-### Option 3: 500ms delay before navigating
+### Option 3: Countdown + `location.assign` (chosen)
 
-- Good, because the user is guaranteed to glimpse the page.
-- Bad, because on the happy path it buys nothing but a page flash — the
-  listener catches the redirect either way, and the glimpse is too short to
-  read. Rejected.
+- Good, because the URL is guaranteed to have been on-screen for the
+  countdown period before nav is attempted, so the dead-listener case
+  degrades to a page the user can read _and_ re-reach via Back.
+- Good, because `location.assign` preserves session history — the browser's
+  connection-error page is a normal navigation the Back button reverses.
+- Good, because scope is minimal: non-loopback clients, `/authorize`, and
+  the rest of the handler are untouched.
+- Neutral, because it adds roughly `AUTO_REDIRECT_SECONDS` (currently 2s)
+  of extra latency to the happy path — the MCP client's listener TTL is
+  measured in tens of seconds, so this is well within budget.
+- Bad, because it diverges from the Cloudflare demo / sentry-mcp 302
+  pattern; future upstream merges need to keep the branch intact.
 
-### Option 4: Display the registered client name
+### Option 4: JS-side probe-then-navigate
+
+- Good in theory: navigate only on a successful probe, leave the
+  interstitial visible on failure.
+- Bad, because the interstitial is served over HTTPS from the Worker and
+  the loopback target is HTTP, so mixed-content policy blocks every probe
+  channel uniformly (`fetch` including `mode: "no-cors"`, `<img>`
+  loading, XHR). The probe's error becomes indistinguishable between
+  "listener dead" and "browser refused to try" — a silent-fail probe
+  strands _every_ user, not just the ones the feature exists for.
+  Rejected.
+
+### Option 5: Display the registered client name
 
 - Good in theory as a phishing signal.
 - Bad, because it requires a per-callback KV lookup for a weak signal: the
@@ -126,21 +170,37 @@ CSP is `default-src 'none'` with per-response nonces and no `unsafe-inline`.
 
 ## Residual Risk
 
-It is unverified whether a real Claude Code loopback listener transparently
-handles the meta-refresh / JS navigation exactly as it handles a 302 (it
-should — the browser performs the same GET against the loopback URL — but
-this must be QA'd against a live client before merge).
+- The dead-listener case is now first-class: the URL + Copy button are the
+  primary content, the countdown warns the user that a redirect is about to
+  fire, and `location.assign` (not `replace`) lets Back recover the
+  interstitial from the browser's connection-error page. What remains
+  unverified is only browser-specific Back behaviour from a network-error
+  page — Chrome and Firefox restore the previous document reliably, but
+  edge cases (some mobile browsers, extensions that intercept error
+  pages) should be spot-checked. The `<noscript>` fallback anchor covers
+  the JS-disabled case.
+- The happy path costs `AUTO_REDIRECT_SECONDS` (currently 2s) of visible
+  interstitial per successful OAuth. If a future MCP client shortens its
+  listener TTL below that window this constant may need to shrink.
+- It is still unverified whether a real Claude Code loopback listener
+  handles a JS-driven navigation exactly as it handles a 302 (it should —
+  the browser performs the same GET against the loopback URL — but this
+  must be QA'd against a live client before merge).
 
 ## Confirmation
 
 - `test/interstitial.test.js` covers loopback detection (positive, negative,
-  and unparseable inputs), headers/CSP-nonce wiring, meta-refresh + JS
-  navigation, host/URL display, `Set-Cookie` preservation, and XSS escaping.
+  and unparseable inputs), headers/CSP-nonce wiring, `location.assign`
+  navigation with no meta refresh and no `location.replace`, the countdown
+  seed matching between DOM and JS, URL-above-countdown ordering (so the
+  URL is seen first), the `<noscript>` manual link, host/URL display,
+  `Set-Cookie` preservation and empty-string omission, and XSS escaping in
+  both the HTML body and the inline script literal.
 - The non-loopback 302 path has no end-to-end test: the CI transport E2E
-  (ADR 0002) swaps in `FakeGitHubHandler`, so the production `/callback` is
-  only reachable via the manual OAuth harness (`pnpm run e2e:oauth`). Verify
-  the 302 fall-through there; the unit-level detection tests pin the branch
-  condition.
+  (ADR 0002) swaps in `FakeGitHubHandler`, so the production `/callback`
+  is only reachable via the manual OAuth harness (`pnpm run e2e:oauth`).
+  Verify the 302 fall-through there; the unit-level detection tests pin
+  the branch condition.
 
 ## More Information
 
