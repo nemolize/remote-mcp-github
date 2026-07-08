@@ -89,6 +89,28 @@ inline review have caught this class of gap when the script missed it — treat
 those reviewer signals as a backstop, but the cheap fix is the branch-matrix
 enumeration at design time, not waiting for review to flag the missed path.
 
+## Discovery-chain check — a write tool's ID params must be producible by sibling read tools
+
+A write tool taking an opaque ID (`field_id` / `item_id` / `content_id` / any
+GraphQL node ID) carries an implicit contract: some sibling read tool must
+RENDER that ID in its Markdown output, or the write tool is unreachable through
+the tool suite alone. Per-tool live E2E can't see this — each tool passes in
+isolation when the ID is obtained out-of-band (`gh api`, browser), so the gap
+is silent (PR #178: 8/8 live PASS while 4 write tools required IDs no read tool
+surfaced; caught only by cross-model review).
+
+Before merging a write tool that consumes an ID:
+
+1. Enumerate every ID param from its input schema.
+2. For each, grep the sibling read tools' renderers and confirm the ID appears
+   in the **emitted Markdown** — present in the fetched GraphQL data is not enough.
+3. A tool description claiming "obtain via `<read_tool>`" is a fact claim —
+   verify against that renderer before shipping (same discipline as the
+   capability-claim check in user-rules-mem `pr-description-scope`).
+4. Strongest form: chain the verify script — feed the write step ONLY IDs
+   parsed from a read tool's rendered output, so the discovery path is the
+   thing under test.
+
 ## Adding a write tool — register it in the audit-log coverage matrix
 
 `test/audit-log.test.js` holds an **exhaustive** `WRITE_TOOLS` table driving the
@@ -127,6 +149,16 @@ the limitation is specifically the *live-PAT* path. A sandboxed `pnpm exec vites
 hits a separate `listen EPERM` on the pool's `127.0.0.1` bind; run with
 `dangerouslyDisableSandbox: true`. That socket axis is unrelated to `.dev.vars` /
 `secrets.required`.)
+
+## Gotcha — direct handler invocation bypasses Zod defaults
+
+The inline capture calls handlers directly, skipping the MCP SDK's Zod parse —
+so schema `.default(...)` values (e.g. `per_page: 30`) never apply and the
+handler sees `undefined` (GraphQL rejects: `Variable $first of type Int! was
+provided invalid value`). Not a tool bug. Pass every defaulted param explicitly
+in `scripts/_verify_*.mjs`, matching the unit-test convention. A first verify
+run reporting ALL tools failing with an invalid-variable shape → suspect the
+script's missing params before the tools.
 
 ## Where this sits vs the two-tier ADR
 
