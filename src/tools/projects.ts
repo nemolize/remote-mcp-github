@@ -298,7 +298,7 @@ const DELETE_PROJECT_ITEM_MUTATION = `
 	}
 `;
 
-const UPDATE_ITEM_FIELD_MUTATION = `
+const UPDATE_PROJECT_ITEM_FIELD_MUTATION = `
 	mutation ($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
 		updateProjectV2ItemFieldValue(
 			input: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: $value }
@@ -308,7 +308,7 @@ const UPDATE_ITEM_FIELD_MUTATION = `
 	}
 `;
 
-const ADD_DRAFT_ISSUE_MUTATION = `
+const ADD_PROJECT_DRAFT_ISSUE_MUTATION = `
 	mutation ($projectId: ID!, $title: String!, $body: String) {
 		addProjectV2DraftIssue(input: { projectId: $projectId, title: $title, body: $body }) {
 			projectItem { id }
@@ -737,7 +737,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 								: { singleSelectOptionId: value.single_select_option_id };
 				const result = await octo.graphql<{
 					updateProjectV2ItemFieldValue: { projectV2Item: { id: string } | null };
-				}>(UPDATE_ITEM_FIELD_MUTATION, {
+				}>(UPDATE_PROJECT_ITEM_FIELD_MUTATION, {
 					projectId: project.id,
 					itemId: item_id,
 					fieldId: field_id,
@@ -791,7 +791,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 				if (project == null) return notFoundError({ id, owner, number });
 				const result = await octo.graphql<{
 					addProjectV2DraftIssue: { projectItem: { id: string } | null };
-				}>(ADD_DRAFT_ISSUE_MUTATION, { projectId: project.id, title, body });
+				}>(ADD_PROJECT_DRAFT_ISSUE_MUTATION, { projectId: project.id, title, body });
 				const item = result.addProjectV2DraftIssue.projectItem;
 				if (item == null) {
 					return errorResult(`Failed to create a draft item in project #${project.number}.`);
