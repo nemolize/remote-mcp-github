@@ -250,6 +250,25 @@ const fetchProject = async <T extends { title: string }>(
 	return result.repositoryOwner?.projectV2 ?? null;
 };
 
+type ResolvedProject<T> = { project: T } | { error: ToolResult };
+
+/**
+ * The ref-validate → fetch → not-found prologue every project tool shares.
+ * Callers narrow with `"error" in resolved`.
+ */
+const resolveProject = async <T extends { title: string }>(
+	octo: ReturnType<OctokitFactory>,
+	ref: ProjectRef,
+	queries: { byId: string; byOwner: string },
+	extraVars: Record<string, unknown> = {},
+): Promise<ResolvedProject<T>> => {
+	const refError = refValidationError(ref);
+	if (refError != null) return { error: refError };
+	const project = await fetchProject<T>(octo, ref, queries, extraVars);
+	if (project == null) return { error: notFoundError(ref) };
+	return { project };
+};
+
 // Every write resolves the project first: the mutation needs `id`, the
 // rendering needs `number` + `title`, and the audit line needs the owner login.
 const PROJECT_WRITE_SELECTION = `
@@ -269,11 +288,11 @@ type ProjectWriteTarget = {
 	owner: { login?: string } | null;
 };
 
-const fetchProjectForWrite = (
+const resolveProjectForWrite = (
 	octo: ReturnType<OctokitFactory>,
 	ref: ProjectRef,
-): Promise<ProjectWriteTarget | null> =>
-	fetchProject<ProjectWriteTarget>(octo, ref, projectQueryPair(PROJECT_WRITE_SELECTION));
+): Promise<ResolvedProject<ProjectWriteTarget>> =>
+	resolveProject<ProjectWriteTarget>(octo, ref, projectQueryPair(PROJECT_WRITE_SELECTION));
 
 const ADD_PROJECT_ITEM_MUTATION = `
 	mutation ($projectId: ID!, $contentId: ID!) {
@@ -514,8 +533,6 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id }) =>
 			wrapTool(async () => {
-				const refError = refValidationError({ id, owner, number });
-				if (refError != null) return refError;
 				type Detail = {
 					id: string;
 					number: number;
@@ -528,12 +545,13 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 					items: { totalCount: number };
 					fields: { totalCount: number; nodes: Array<ProjectFieldNode | null> };
 				};
-				const project = await fetchProject<Detail>(
+				const resolved = await resolveProject<Detail>(
 					client(),
 					{ id, owner, number },
 					projectQueryPair(PROJECT_DETAIL_SELECTION),
 				);
-				if (project == null) return notFoundError({ id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
 				const fields = project.fields.nodes.filter((n): n is ProjectFieldNode => n != null);
 				const meta = [
 					`- id: \`${project.id}\``,
@@ -574,16 +592,15 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id, per_page, cursor }) =>
 			wrapTool(async () => {
-				const refError = refValidationError({ id, owner, number });
-				if (refError != null) return refError;
 				type ItemsProject = { number: number; title: string; items: ItemsPage };
-				const project = await fetchProject<ItemsProject>(
+				const resolved = await resolveProject<ItemsProject>(
 					client(),
 					{ id, owner, number },
 					projectQueryPair(PROJECT_ITEMS_SELECTION, PAGINATION_VARS),
 					{ first: per_page, after: cursor },
 				);
-				if (project == null) return notFoundError({ id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
 				const items = project.items.nodes.filter((n): n is ProjectItemNode => n != null);
 				const header = `# Project #${project.number} "${project.title}" — items`;
 				if (items.length === 0) {
@@ -602,16 +619,15 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id, per_page, cursor }) =>
 			wrapTool(async () => {
-				const refError = refValidationError({ id, owner, number });
-				if (refError != null) return refError;
 				type FieldsProject = { number: number; title: string; fields: FieldsPage };
-				const project = await fetchProject<FieldsProject>(
+				const resolved = await resolveProject<FieldsProject>(
 					client(),
 					{ id, owner, number },
 					projectQueryPair(PROJECT_FIELDS_SELECTION, PAGINATION_VARS),
 					{ first: per_page, after: cursor },
 				);
-				if (project == null) return notFoundError({ id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
 				const fields = project.fields.nodes.filter((n): n is ProjectFieldNode => n != null);
 				const header = `# Project #${project.number} "${project.title}" — fields`;
 				if (fields.length === 0) {
@@ -636,11 +652,10 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id, content_id }) =>
 			wrapTool(async () => {
-				const refError = refValidationError({ id, owner, number });
-				if (refError != null) return refError;
 				const octo = client();
-				const project = await fetchProjectForWrite(octo, { id, owner, number });
-				if (project == null) return notFoundError({ id, owner, number });
+				const resolved = await resolveProjectForWrite(octo, { id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
 				const result = await octo.graphql<{
 					addProjectV2ItemById: { item: AddedProjectItem | null };
 				}>(ADD_PROJECT_ITEM_MUTATION, { projectId: project.id, contentId: content_id });
@@ -676,11 +691,10 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id, item_id }) =>
 			wrapTool(async () => {
-				const refError = refValidationError({ id, owner, number });
-				if (refError != null) return refError;
 				const octo = client();
-				const project = await fetchProjectForWrite(octo, { id, owner, number });
-				if (project == null) return notFoundError({ id, owner, number });
+				const resolved = await resolveProjectForWrite(octo, { id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
 				const result = await octo.graphql<{
 					deleteProjectV2Item: { deletedItemId: string | null };
 				}>(DELETE_PROJECT_ITEM_MUTATION, { projectId: project.id, itemId: item_id });
@@ -720,13 +734,16 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id, item_id, field_id, value }) =>
 			wrapTool(async () => {
+				// The explicit ref check keeps ref-error precedence over the value
+				// error; resolveProjectForWrite re-runs it (pure, no extra API call).
 				const refError = refValidationError({ id, owner, number });
 				if (refError != null) return refError;
 				const valueError = fieldValueValidationError(value);
 				if (valueError != null) return valueError;
 				const octo = client();
-				const project = await fetchProjectForWrite(octo, { id, owner, number });
-				if (project == null) return notFoundError({ id, owner, number });
+				const resolved = await resolveProjectForWrite(octo, { id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
 				const mutationValue =
 					value.text != null
 						? { text: value.text }
@@ -784,11 +801,10 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id, title, body }) =>
 			wrapTool(async () => {
-				const refError = refValidationError({ id, owner, number });
-				if (refError != null) return refError;
 				const octo = client();
-				const project = await fetchProjectForWrite(octo, { id, owner, number });
-				if (project == null) return notFoundError({ id, owner, number });
+				const resolved = await resolveProjectForWrite(octo, { id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
 				const result = await octo.graphql<{
 					addProjectV2DraftIssue: { projectItem: { id: string } | null };
 				}>(ADD_PROJECT_DRAFT_ISSUE_MUTATION, { projectId: project.id, title, body });
