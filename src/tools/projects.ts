@@ -728,10 +728,19 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 							: value.date != null
 								? { date: value.date }
 								: { singleSelectOptionId: value.single_select_option_id };
-				await octo.graphql<{ updateProjectV2ItemFieldValue: { projectV2Item: { id: string } } }>(
-					UPDATE_ITEM_FIELD_MUTATION,
-					{ projectId: project.id, itemId: item_id, fieldId: field_id, value: mutationValue },
-				);
+				const result = await octo.graphql<{
+					updateProjectV2ItemFieldValue: { projectV2Item: { id: string } | null };
+				}>(UPDATE_ITEM_FIELD_MUTATION, {
+					projectId: project.id,
+					itemId: item_id,
+					fieldId: field_id,
+					value: mutationValue,
+				});
+				if (result.updateProjectV2ItemFieldValue.projectV2Item == null) {
+					return errorResult(
+						`Failed to update field \`${field_id}\` on item \`${item_id}\` in project #${project.number}.`,
+					);
+				}
 				logWrite(
 					stripUndefined({
 						tool: "update_project_item_field",

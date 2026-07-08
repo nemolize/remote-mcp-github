@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MAX_RESPONSE_CHARS } from "../src/mcp/response.js";
 import { registerProjectTools } from "../src/tools/projects.js";
@@ -722,6 +722,28 @@ describe("update_project_item_field", () => {
 			`Updated field \`F_1\` on item \`PVTI_9\` in project #4 "Roadmap" to ${expectedRendering}.`,
 		);
 		expect(result.isError).toBeUndefined();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("errors and skips the audit log when the mutation returns no item", async () => {
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const { handlers, server } = captureHandlers();
+		const { octokit } = writeStub({ updateProjectV2ItemFieldValue: { projectV2Item: null } });
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_project_item_field", {
+			...baseParams,
+			value: { text: "x" },
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to update field `F_1` on item `PVTI_9`");
+		const auditLines = logSpy.mock.calls.filter(([line]) =>
+			String(line).startsWith("[github-audit]"),
+		);
+		expect(auditLines).toEqual([]);
 	});
 
 	it("rejects an empty value object without calling the API", async () => {
