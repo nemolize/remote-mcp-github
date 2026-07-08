@@ -185,6 +185,10 @@ export type WriteAuditFields = {
 	thread_id?: string;
 	comment_id?: number; // add_pr_review_comment_reply
 	review_id?: number; // create_pr_review
+	project_id?: string; // Projects v2 mutations (`PVT_...`; no repo at the call boundary)
+	item_id?: string; // project item mutations (`PVTI_...`)
+	field_id?: string; // update_project_item_field
+	content_id?: string; // add_project_item (the added issue/PR node ID)
 };
 
 // Emits one structured JSON line per successful write operation, giving

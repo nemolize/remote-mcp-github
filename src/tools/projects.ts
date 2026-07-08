@@ -4,13 +4,16 @@ import { z } from "zod";
 import {
 	cursorMoreHint,
 	errorResult,
+	logWrite,
 	MAX_RESPONSE_CHARS,
+	previewLine,
 	text,
 	type ToolResult,
 	truncate,
 	wrapTool,
 } from "../mcp/response.js";
-import type { OctokitFactory } from "./common.js";
+import { stripUndefined } from "../utils.js";
+import { MAX_TEXT_FIELD_LENGTH, maxCharsMessage, type OctokitFactory } from "./common.js";
 
 // Projects v2 has no REST surface — every tool here is GraphQL-backed, following
 // the cursor-pagination conventions of list_pr_review_threads in pulls.ts.
@@ -242,6 +245,136 @@ const fetchProject = async <T extends { title: string }>(
 		{ owner: ref.owner, number: ref.number, ...extraVars },
 	);
 	return result.repositoryOwner?.projectV2 ?? null;
+};
+
+// Every write resolves the project first: the mutation needs `id`, the
+// rendering needs `number` + `title`, and the audit line needs the owner login.
+const PROJECT_WRITE_SELECTION = `
+	id
+	number
+	title
+	owner {
+		... on User { login }
+		... on Organization { login }
+	}
+`;
+
+type ProjectWriteTarget = {
+	id: string;
+	number: number;
+	title: string;
+	owner: { login?: string } | null;
+};
+
+const fetchProjectForWrite = (
+	octo: ReturnType<OctokitFactory>,
+	ref: ProjectRef,
+): Promise<ProjectWriteTarget | null> =>
+	fetchProject<ProjectWriteTarget>(octo, ref, projectQueryPair(PROJECT_WRITE_SELECTION));
+
+const ADD_PROJECT_ITEM_MUTATION = `
+	mutation ($projectId: ID!, $contentId: ID!) {
+		addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+			item {
+				id
+				type
+				content {
+					... on Issue { title number repository { nameWithOwner } }
+					... on PullRequest { title number repository { nameWithOwner } }
+				}
+			}
+		}
+	}
+`;
+
+const DELETE_PROJECT_ITEM_MUTATION = `
+	mutation ($projectId: ID!, $itemId: ID!) {
+		deleteProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
+			deletedItemId
+		}
+	}
+`;
+
+const UPDATE_ITEM_FIELD_MUTATION = `
+	mutation ($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+		updateProjectV2ItemFieldValue(
+			input: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: $value }
+		) {
+			projectV2Item { id }
+		}
+	}
+`;
+
+const ADD_DRAFT_ISSUE_MUTATION = `
+	mutation ($projectId: ID!, $title: String!, $body: String) {
+		addProjectV2DraftIssue(input: { projectId: $projectId, title: $title, body: $body }) {
+			projectItem { id }
+		}
+	}
+`;
+
+type AddedProjectItem = {
+	id: string;
+	type: string;
+	content: { title?: string; number?: number; repository?: { nameWithOwner: string } } | null;
+};
+
+const ItemIdSchema = z
+	.string()
+	.min(1)
+	.describe("Project item node ID (`PVTI_...`). Discover via list_project_items.");
+
+type FieldValueInput = {
+	text?: string | undefined;
+	number?: number | undefined;
+	date?: string | undefined;
+	single_select_option_id?: string | undefined;
+};
+
+// Mirrors GraphQL's ProjectV2FieldValue one-of input; the exactly-one guard
+// lives in the handler because a raw-shape schema can't express it (same
+// pattern as refValidationError).
+const FieldValueSchema = z
+	.object({
+		text: z
+			.string()
+			.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Field text", MAX_TEXT_FIELD_LENGTH))
+			.optional()
+			.describe("New value for a TEXT (or TITLE) field."),
+		number: z.number().optional().describe("New value for a NUMBER field."),
+		date: z
+			.string()
+			.min(1)
+			.optional()
+			.describe("New value for a DATE field, as an ISO 8601 date (e.g. 2026-07-08)."),
+		single_select_option_id: z
+			.string()
+			.min(1)
+			.optional()
+			.describe(
+				"Option ID for a SINGLE_SELECT field. Discover option IDs via list_project_fields.",
+			),
+	})
+	.describe("The value to set. Provide exactly one of the four value forms.");
+
+/** `null` when exactly one value form is present; the shared error otherwise. */
+const fieldValueValidationError = (value: FieldValueInput): ToolResult | null => {
+	const provided = [value.text, value.number, value.date, value.single_select_option_id].filter(
+		(v) => v != null,
+	);
+	if (provided.length !== 1) {
+		return errorResult(
+			"Provide exactly one of `value.text`, `value.number`, `value.date`, or `value.single_select_option_id`.",
+		);
+	}
+	return null;
+};
+
+const renderFieldValue = (value: FieldValueInput): string => {
+	if (value.text != null) return `text "${previewLine(value.text, 80)}"`;
+	if (value.number != null) return `number ${value.number}`;
+	if (value.date != null) return `date ${value.date}`;
+	return `option \`${value.single_select_option_id}\``;
 };
 
 const CURSOR_INSTRUCTION = (endCursor: string | null): string =>
@@ -478,6 +611,186 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 					return text(`${header}\n\nNo fields.`);
 				}
 				return paginatedList(`${header} (${fields.length})`, fields.map(fieldLine), project.fields);
+			}),
+	);
+
+	server.registerTool(
+		"add_project_item",
+		{
+			description:
+				"Add an existing issue or pull request to a GitHub Project (v2) by its content node ID (`I_...` / `PR_...`, surfaced by get_issue / get_pull_request). Identify the project by `owner` + `number`, or by node ID (`id`). Returns the new item's node ID (`PVTI_...`). Requires the `project` scope.",
+			inputSchema: {
+				...ProjectRefSchema,
+				content_id: z
+					.string()
+					.min(1)
+					.describe("GraphQL node ID of the issue or pull request to add (`I_...` / `PR_...`)."),
+			},
+		},
+		async ({ owner, number, id, content_id }) =>
+			wrapTool(async () => {
+				const refError = refValidationError({ id, owner, number });
+				if (refError != null) return refError;
+				const octo = client();
+				const project = await fetchProjectForWrite(octo, { id, owner, number });
+				if (project == null) return notFoundError({ id, owner, number });
+				const result = await octo.graphql<{
+					addProjectV2ItemById: { item: AddedProjectItem | null };
+				}>(ADD_PROJECT_ITEM_MUTATION, { projectId: project.id, contentId: content_id });
+				const item = result.addProjectV2ItemById.item;
+				if (item == null) {
+					return errorResult(`Failed to add \`${content_id}\` to project #${project.number}.`);
+				}
+				logWrite(
+					stripUndefined({
+						tool: "add_project_item",
+						owner: project.owner?.login,
+						project_id: project.id,
+						content_id,
+						item_id: item.id,
+					}),
+				);
+				const contentRef =
+					item.content?.repository != null && item.content.number != null
+						? ` (${item.content.repository.nameWithOwner}#${item.content.number})`
+						: "";
+				return text(
+					`Added ${item.type} — ${item.content?.title ?? "(no title)"}${contentRef} to project #${project.number} "${project.title}". Item ID: \`${item.id}\`.`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"remove_project_item",
+		{
+			description:
+				"Remove an item from a GitHub Project (v2) by its item node ID (`PVTI_...`, surfaced by list_project_items). Removing an issue/PR item does not delete the underlying issue or PR; removing a draft item deletes the draft. Identify the project by `owner` + `number`, or by node ID (`id`). Requires the `project` scope.",
+			inputSchema: { ...ProjectRefSchema, item_id: ItemIdSchema },
+		},
+		async ({ owner, number, id, item_id }) =>
+			wrapTool(async () => {
+				const refError = refValidationError({ id, owner, number });
+				if (refError != null) return refError;
+				const octo = client();
+				const project = await fetchProjectForWrite(octo, { id, owner, number });
+				if (project == null) return notFoundError({ id, owner, number });
+				const result = await octo.graphql<{
+					deleteProjectV2Item: { deletedItemId: string | null };
+				}>(DELETE_PROJECT_ITEM_MUTATION, { projectId: project.id, itemId: item_id });
+				if (result.deleteProjectV2Item.deletedItemId == null) {
+					return errorResult(
+						`Failed to remove item \`${item_id}\` from project #${project.number}.`,
+					);
+				}
+				logWrite(
+					stripUndefined({
+						tool: "remove_project_item",
+						owner: project.owner?.login,
+						project_id: project.id,
+						item_id,
+					}),
+				);
+				return text(
+					`Removed item \`${item_id}\` from project #${project.number} "${project.title}".`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"update_project_item_field",
+		{
+			description:
+				"Set a field value on a GitHub Project (v2) item. Takes the item node ID (`PVTI_...`, from list_project_items), the field node ID (from list_project_fields), and exactly one value form: `value.text`, `value.number`, `value.date` (ISO 8601), or `value.single_select_option_id`. Identify the project by `owner` + `number`, or by node ID (`id`). Requires the `project` scope.",
+			inputSchema: {
+				...ProjectRefSchema,
+				item_id: ItemIdSchema,
+				field_id: z
+					.string()
+					.min(1)
+					.describe("Project field node ID. Discover via list_project_fields."),
+				value: FieldValueSchema,
+			},
+		},
+		async ({ owner, number, id, item_id, field_id, value }) =>
+			wrapTool(async () => {
+				const refError = refValidationError({ id, owner, number });
+				if (refError != null) return refError;
+				const valueError = fieldValueValidationError(value);
+				if (valueError != null) return valueError;
+				const octo = client();
+				const project = await fetchProjectForWrite(octo, { id, owner, number });
+				if (project == null) return notFoundError({ id, owner, number });
+				const mutationValue =
+					value.text != null
+						? { text: value.text }
+						: value.number != null
+							? { number: value.number }
+							: value.date != null
+								? { date: value.date }
+								: { singleSelectOptionId: value.single_select_option_id };
+				await octo.graphql<{ updateProjectV2ItemFieldValue: { projectV2Item: { id: string } } }>(
+					UPDATE_ITEM_FIELD_MUTATION,
+					{ projectId: project.id, itemId: item_id, fieldId: field_id, value: mutationValue },
+				);
+				logWrite(
+					stripUndefined({
+						tool: "update_project_item_field",
+						owner: project.owner?.login,
+						project_id: project.id,
+						item_id,
+						field_id,
+					}),
+				);
+				return text(
+					`Updated field \`${field_id}\` on item \`${item_id}\` in project #${project.number} "${project.title}" to ${renderFieldValue(value)}.`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"create_project_draft_item",
+		{
+			description:
+				"Add a draft item (title + optional body) to a GitHub Project (v2) without creating an underlying issue. Identify the project by `owner` + `number`, or by node ID (`id`). Returns the new item's node ID (`PVTI_...`). Requires the `project` scope.",
+			inputSchema: {
+				...ProjectRefSchema,
+				title: z
+					.string()
+					.min(1)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Draft title", MAX_TEXT_FIELD_LENGTH))
+					.describe("Title of the draft item."),
+				body: z
+					.string()
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Draft body", MAX_TEXT_FIELD_LENGTH))
+					.optional()
+					.describe("Markdown body of the draft item."),
+			},
+		},
+		async ({ owner, number, id, title, body }) =>
+			wrapTool(async () => {
+				const refError = refValidationError({ id, owner, number });
+				if (refError != null) return refError;
+				const octo = client();
+				const project = await fetchProjectForWrite(octo, { id, owner, number });
+				if (project == null) return notFoundError({ id, owner, number });
+				const result = await octo.graphql<{
+					addProjectV2DraftIssue: { projectItem: { id: string } | null };
+				}>(ADD_DRAFT_ISSUE_MUTATION, { projectId: project.id, title, body });
+				const item = result.addProjectV2DraftIssue.projectItem;
+				if (item == null) {
+					return errorResult(`Failed to create a draft item in project #${project.number}.`);
+				}
+				logWrite(
+					stripUndefined({
+						tool: "create_project_draft_item",
+						owner: project.owner?.login,
+						project_id: project.id,
+						item_id: item.id,
+					}),
+				);
+				return text(
+					`Created draft item "${previewLine(title, 120)}" in project #${project.number} "${project.title}". Item ID: \`${item.id}\`.`,
+				);
 			}),
 	);
 };
