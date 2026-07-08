@@ -329,7 +329,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		"get_pull_request",
 		{
 			description:
-				"Fetch a single pull request's full detail. Use when the user asks to read, inspect, or check the status of a PR — including whether it is mergeable, draft, or already merged. Returns state, mergeable state, head/base branches and SHAs, requested reviewers, commit/diff counts, timestamps, URL, and a (possibly truncated) body. Richer than the issue endpoint, which omits PR-specific fields.",
+				"Fetch a single pull request's full detail. Use when the user asks to read, inspect, or check the status of a PR — including whether it is mergeable, draft, or already merged. Returns state, mergeable state, head/base branches and SHAs, requested reviewers, commit/diff counts, timestamps, URL, GraphQL node ID (usable as add_project_item's `content_id`), and a (possibly truncated) body. Richer than the issue endpoint, which omits PR-specific fields.",
 			inputSchema: {
 				...RepoTarget,
 				pull_number: z.number().int().positive().describe("Pull request number."),
@@ -364,6 +364,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					`- commits: ${data.commits}, +${data.additions} / -${data.deletions} across ${data.changed_files} file(s)`,
 					`- created: ${data.created_at} | updated: ${data.updated_at}${data.merged_at != null ? ` | merged: ${data.merged_at}` : ""}`,
 					`- url: ${data.html_url}`,
+					`- node_id: \`${data.node_id}\``,
 					"",
 					"## Body",
 					"",
