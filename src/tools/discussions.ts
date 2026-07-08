@@ -354,7 +354,8 @@ export const registerDiscussionTools = (server: McpServer, client: OctokitFactor
 						c.lastEditedAt != null ? `${c.lastEditedAt} (created ${c.createdAt})` : c.createdAt;
 					const answer = c.isAnswer ? " — ✓ accepted answer" : "";
 					const replies = c.replies.totalCount > 0 ? ` — ${c.replies.totalCount} replies` : "";
-					return `- ${authorLogin(c.author)} — ${ts}${answer}${replies} — ${c.url}\n  - ${preview.length > 0 ? preview : "(empty)"}`;
+					const upvotes = c.upvoteCount > 0 ? ` — ${c.upvoteCount} upvotes` : "";
+					return `- ${authorLogin(c.author)} — ${ts}${answer}${replies}${upvotes} — ${c.url}\n  - ${preview.length > 0 ? preview : "(empty)"}`;
 				});
 				return paginatedList(`${header} (${comments.length})`, lines, discussion.comments);
 			}),

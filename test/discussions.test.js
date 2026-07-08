@@ -400,12 +400,30 @@ describe("get_discussion_comments", () => {
 		});
 		const body = result.content[0].text;
 		expect(body).toContain('# Comments on discussion #42 "How do I configure X?" (2)');
-		expect(body).toContain("@bob — 2026-06-02T00:00:00Z —");
+		expect(body).toContain("@bob — 2026-06-02T00:00:00Z — 1 upvotes —");
 		expect(body).toContain("Try setting the flag in config.");
 		expect(body).toContain("@carol — 2026-06-03T00:00:00Z (created 2026-06-02T00:00:00Z)");
 		expect(body).toContain("✓ accepted answer");
 		expect(body).toContain("2 replies");
+		expect(body).toContain("1 upvotes");
 		expect(result.isError).toBeUndefined();
+	});
+
+	it("omits the upvotes segment when a comment has zero upvotes", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () =>
+			discussionWithComments([commentNode({ upvoteCount: 0 })]),
+		);
+		registerDiscussionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_discussion_comments", {
+			owner: "o",
+			repo: "r",
+			discussion_number: 42,
+			per_page: 30,
+		});
+		const body = result.content[0].text;
+		expect(body).not.toContain("upvotes");
 	});
 
 	it("appends the cursor hint when a next page exists", async () => {
