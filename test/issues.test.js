@@ -35,6 +35,7 @@ describe("registerIssueTools", () => {
 			get: async () => ({
 				data: {
 					number: 42,
+					node_id: "I_abc123",
 					title: "Sample issue",
 					state: "open",
 					state_reason: null,
@@ -63,6 +64,7 @@ describe("registerIssueTools", () => {
 		expect(body).toContain("- labels: `bug`, `p1`");
 		expect(body).toContain("- assignees: @bob");
 		expect(body).toContain("- author: @alice");
+		expect(body).toContain("- node_id: `I_abc123`");
 		expect(result.isError).toBeUndefined();
 	});
 

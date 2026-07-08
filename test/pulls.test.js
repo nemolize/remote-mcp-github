@@ -336,6 +336,7 @@ const stubPullsGet = (impl) => ({ rest: { pulls: { get: impl } } });
 
 const prData = (overrides = {}) => ({
 	number: 42,
+	node_id: "PR_abc123",
 	title: "Add widget",
 	state: "open",
 	merged: false,
@@ -382,6 +383,7 @@ describe("registerPullTools — get_pull_request", () => {
 		expect(body).toContain("`feature/widget` (abcdef1) → `main` (1234567)");
 		expect(body).toContain("requested_reviewers: @bob, @o/core");
 		expect(body).toContain("commits: 3, +120 / -8 across 5 file(s)");
+		expect(body).toContain("- node_id: `PR_abc123`");
 		expect(body).toContain("PR body text");
 		expect(result.isError).toBeUndefined();
 	});
