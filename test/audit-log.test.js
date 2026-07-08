@@ -6,6 +6,7 @@ import { registerBranchTools } from "../src/tools/branches.js";
 import { registerFileTools } from "../src/tools/files.js";
 import { registerGistTools } from "../src/tools/gists.js";
 import { registerIssueTools } from "../src/tools/issues.js";
+import { registerProjectTools } from "../src/tools/projects.js";
 import { registerPullTools } from "../src/tools/pulls.js";
 import { registerRepoTools } from "../src/tools/repos.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
@@ -359,11 +360,42 @@ const wideOctokit = () => {
 				delete: ok({}),
 			},
 		},
-		graphql: async () => ({
-			addPullRequestReviewThread: {
-				thread: { id: "PRRT_1", comments: { nodes: [{ databaseId: 101 }] } },
-			},
-		}),
+		// The GraphQL-backed tools share one function, so dispatch on the query
+		// text: project writes resolve the project first, then mutate.
+		graphql: async (query) => {
+			if (query.includes("addProjectV2ItemById")) {
+				return {
+					addProjectV2ItemById: {
+						item: {
+							id: "PVTI_1",
+							type: "ISSUE",
+							content: { title: "t", number: 1, repository: { nameWithOwner: "o/r" } },
+						},
+					},
+				};
+			}
+			if (query.includes("deleteProjectV2Item")) {
+				return { deleteProjectV2Item: { deletedItemId: "PVTI_1" } };
+			}
+			if (query.includes("updateProjectV2ItemFieldValue")) {
+				return { updateProjectV2ItemFieldValue: { projectV2Item: { id: "PVTI_1" } } };
+			}
+			if (query.includes("addProjectV2DraftIssue")) {
+				return { addProjectV2DraftIssue: { projectItem: { id: "PVTI_1" } } };
+			}
+			if (query.includes("projectV2(number: $number)")) {
+				return {
+					repositoryOwner: {
+						projectV2: { id: "PVT_1", number: 4, title: "Roadmap", owner: { login: "o" } },
+					},
+				};
+			}
+			return {
+				addPullRequestReviewThread: {
+					thread: { id: "PRRT_1", comments: { nodes: [{ databaseId: 101 }] } },
+				},
+			};
+		},
 	};
 };
 
@@ -473,6 +505,32 @@ const WRITE_TOOLS = [
 	[registerGistTools, "create_gist", { files: { "a.txt": { content: "x" } } }, { gist_id: "g1" }],
 	[registerGistTools, "update_gist", { gist_id: "g1", description: "new" }, { gist_id: "g1" }],
 	[registerGistTools, "delete_gist", { gist_id: "g1" }, { gist_id: "g1" }],
+	// Projects v2 mutations are project-scoped, not repo-scoped: the audit line
+	// carries the project owner login + node IDs, and no `repo` field.
+	[
+		registerProjectTools,
+		"add_project_item",
+		{ owner: "o", number: 4, content_id: "I_1" },
+		{ owner: "o", project_id: "PVT_1", content_id: "I_1", item_id: "PVTI_1" },
+	],
+	[
+		registerProjectTools,
+		"remove_project_item",
+		{ owner: "o", number: 4, item_id: "PVTI_1" },
+		{ owner: "o", project_id: "PVT_1", item_id: "PVTI_1" },
+	],
+	[
+		registerProjectTools,
+		"update_project_item_field",
+		{ owner: "o", number: 4, item_id: "PVTI_1", field_id: "F_1", value: { text: "x" } },
+		{ owner: "o", project_id: "PVT_1", item_id: "PVTI_1", field_id: "F_1" },
+	],
+	[
+		registerProjectTools,
+		"create_project_draft_item",
+		{ owner: "o", number: 4, title: "t" },
+		{ owner: "o", project_id: "PVT_1", item_id: "PVTI_1" },
+	],
 ];
 
 describe("every write tool emits exactly one audit line tagged with its own name", () => {

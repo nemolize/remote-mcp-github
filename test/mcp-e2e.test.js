@@ -149,6 +149,10 @@ describe("MCP transport E2E", () => {
 			"get_project", // projects read
 			"list_project_items", // projects read
 			"list_project_fields", // projects read
+			"add_project_item", // projects write
+			"remove_project_item", // projects write
+			"update_project_item_field", // projects write
+			"create_project_draft_item", // projects write
 		]) {
 			expect(names, `tools/list missing ${required}`).toContain(required);
 		}
