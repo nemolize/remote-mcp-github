@@ -220,7 +220,7 @@ const notFoundError = (ref: ProjectRef): ToolResult =>
 	errorResult(
 		`Project ${
 			ref.id != null ? `\`${ref.id}\`` : `${ref.owner ?? "?"}/#${ref.number ?? "?"}`
-		} not found or not accessible (check the identifier and your token's \`read:project\` scope).`,
+		} not found or not accessible (check the identifier and your token's Projects scope — \`read:project\` for reads, \`project\` for writes).`,
 	);
 
 /**
