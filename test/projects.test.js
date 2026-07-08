@@ -635,6 +635,19 @@ describe("add_project_item", () => {
 		expect(calls).toHaveLength(1);
 	});
 
+	it("errors when the mutation returns no item", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = writeStub({ addProjectV2ItemById: { item: null } });
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "add_project_item", {
+			id: "PVT_kwAA1",
+			content_id: "I_abc",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to add `I_abc` to project #4.");
+	});
+
 	it("surfaces a GraphQL error from the mutation (e.g. bad content id)", async () => {
 		const { handlers, server } = captureHandlers();
 		const { octokit } = writeStub(new Error("Could not resolve to a node with the global id"));
