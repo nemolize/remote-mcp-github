@@ -1,12 +1,73 @@
 import type { Octokit } from "octokit";
 import { z } from "zod";
 
+import {
+	cursorMoreHint,
+	MAX_RESPONSE_CHARS,
+	text,
+	type ToolResult,
+	truncate,
+} from "../mcp/response.js";
+
 export type OctokitFactory = () => Octokit;
 
 export const RepoTarget = {
 	owner: z.string().describe("Repository owner (user or organisation login)."),
 	repo: z.string().describe("Repository name."),
 } as const;
+
+// Shared cursor-pagination shape for every GraphQL list tool (Projects v2,
+// Discussions, …) — the REST list tools use page/per_page instead (see
+// restListHeader in response.ts).
+export type PageInfo = { hasNextPage: boolean; endCursor: string | null };
+
+/** A GraphQL connection page: total count, cursor info, and its nodes. */
+export type Page<T> = {
+	totalCount: number;
+	pageInfo: PageInfo;
+	nodes: Array<T | null>;
+};
+
+export const PaginationSchema = {
+	per_page: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.optional()
+		.default(30)
+		.describe("Results per page (1-100)."),
+	cursor: z
+		.string()
+		.min(1)
+		.optional()
+		.describe(
+			"Opaque pagination cursor from a previous page's endCursor. Omit for the first page.",
+		),
+} as const;
+
+const CURSOR_INSTRUCTION = (endCursor: string | null): string =>
+	`Re-invoke with \`cursor: "${endCursor}"\` to fetch the next page.`;
+
+/**
+ * Render a cursor-paginated list body: truncate within a budget that reserves
+ * room for the cursor hint so a large page can never drop the `cursor` (the
+ * #50 discipline — see cursorMoreHint's own docstring).
+ */
+export const paginatedList = (
+	header: string,
+	lines: string[],
+	page: { totalCount: number; pageInfo: PageInfo },
+): ToolResult => {
+	const more = cursorMoreHint({
+		shown: lines.length,
+		total: page.totalCount,
+		hasMore: page.pageInfo.hasNextPage && page.pageInfo.endCursor != null,
+		nextPageInstruction: CURSOR_INSTRUCTION(page.pageInfo.endCursor),
+	});
+	const body = truncate(`${header}\n\n${lines.join("\n")}`, MAX_RESPONSE_CHARS - more.length);
+	return text(`${body}${more}`);
+};
 
 export const SameRepoBranchPattern = /^[A-Za-z0-9._/-]+$/;
 export const CrossRepoHeadPattern = /^[A-Za-z0-9._-]+:[A-Za-z0-9._/-]+$/;

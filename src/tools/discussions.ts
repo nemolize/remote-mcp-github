@@ -2,21 +2,23 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import {
-	cursorMoreHint,
 	errorResult,
-	MAX_RESPONSE_CHARS,
 	previewLine,
 	text,
 	type ToolResult,
 	truncate,
 	wrapTool,
 } from "../mcp/response.js";
-import { type OctokitFactory, RepoTarget } from "./common.js";
+import {
+	type OctokitFactory,
+	type Page,
+	paginatedList,
+	PaginationSchema,
+	RepoTarget,
+} from "./common.js";
 
 // Discussions has no REST v3 surface — every tool here is GraphQL-backed,
 // following the cursor-pagination conventions of projects.ts.
-
-type PageInfo = { hasNextPage: boolean; endCursor: string | null };
 
 type DiscussionListNode = {
 	number: number;
@@ -32,12 +34,6 @@ type DiscussionListNode = {
 	url: string;
 };
 
-type DiscussionsPage = {
-	totalCount: number;
-	pageInfo: PageInfo;
-	nodes: Array<DiscussionListNode | null>;
-};
-
 type CategoryNode = {
 	id: string;
 	name: string;
@@ -45,12 +41,6 @@ type CategoryNode = {
 	emoji: string;
 	description: string | null;
 	isAnswerable: boolean;
-};
-
-type CategoriesPage = {
-	totalCount: number;
-	pageInfo: PageInfo;
-	nodes: Array<CategoryNode | null>;
 };
 
 type DiscussionDetail = {
@@ -78,12 +68,6 @@ type DiscussionCommentNode = {
 	isAnswer: boolean;
 	upvoteCount: number;
 	replies: { totalCount: number };
-};
-
-type CommentsPage = {
-	totalCount: number;
-	pageInfo: PageInfo;
-	nodes: Array<DiscussionCommentNode | null>;
 };
 
 // UPDATED_AT DESC pins the ordering to "most recent activity first" rather than
@@ -175,27 +159,6 @@ const GET_DISCUSSION_COMMENTS_QUERY = `
 	}
 `;
 
-const PaginationSchema = {
-	per_page: z
-		.number()
-		.int()
-		.min(1)
-		.max(100)
-		.optional()
-		.default(30)
-		.describe("Results per page (1-100)."),
-	cursor: z
-		.string()
-		.min(1)
-		.optional()
-		.describe(
-			"Opaque pagination cursor from a previous page's endCursor. Omit for the first page.",
-		),
-} as const;
-
-const CURSOR_INSTRUCTION = (endCursor: string | null): string =>
-	`Re-invoke with \`cursor: "${endCursor}"\` to fetch the next page.`;
-
 const repoNotFoundError = (owner: string, repo: string): ToolResult =>
 	errorResult(
 		`Repository ${owner}/${repo} not found or not accessible (check the name and your token's scopes).`,
@@ -206,26 +169,6 @@ const discussionNotFoundError = (owner: string, repo: string, number: number): T
 
 const authorLogin = (author: { login: string } | null): string =>
 	author != null ? `@${author.login}` : "(unknown)";
-
-/**
- * Render a cursor-paginated list body: truncate within a budget that reserves
- * room for the cursor hint so a large page can never drop the `cursor` (the
- * same #50 discipline as projects.ts / list_pr_review_threads).
- */
-const paginatedList = (
-	header: string,
-	lines: string[],
-	page: { totalCount: number; pageInfo: PageInfo },
-): ToolResult => {
-	const more = cursorMoreHint({
-		shown: lines.length,
-		total: page.totalCount,
-		hasMore: page.pageInfo.hasNextPage && page.pageInfo.endCursor != null,
-		nextPageInstruction: CURSOR_INSTRUCTION(page.pageInfo.endCursor),
-	});
-	const body = truncate(`${header}\n\n${lines.join("\n")}`, MAX_RESPONSE_CHARS - more.length);
-	return text(`${body}${more}`);
-};
 
 const discussionLine = (d: DiscussionListNode): string => {
 	const category = d.category != null ? ` [${d.category.name}]` : "";
@@ -260,7 +203,7 @@ export const registerDiscussionTools = (server: McpServer, client: OctokitFactor
 		async ({ owner, repo, category_id, per_page, cursor }) =>
 			wrapTool(async () => {
 				const result = await client().graphql<{
-					repository: { discussions: DiscussionsPage } | null;
+					repository: { discussions: Page<DiscussionListNode> } | null;
 				}>(LIST_DISCUSSIONS_QUERY, {
 					owner,
 					repo,
@@ -293,7 +236,7 @@ export const registerDiscussionTools = (server: McpServer, client: OctokitFactor
 		async ({ owner, repo, per_page, cursor }) =>
 			wrapTool(async () => {
 				const result = await client().graphql<{
-					repository: { discussionCategories: CategoriesPage } | null;
+					repository: { discussionCategories: Page<CategoryNode> } | null;
 				}>(LIST_CATEGORIES_QUERY, { owner, repo, first: per_page, after: cursor });
 				if (result.repository == null) return repoNotFoundError(owner, repo);
 				const page = result.repository.discussionCategories;
@@ -380,7 +323,11 @@ export const registerDiscussionTools = (server: McpServer, client: OctokitFactor
 			wrapTool(async () => {
 				const result = await client().graphql<{
 					repository: {
-						discussion: { number: number; title: string; comments: CommentsPage } | null;
+						discussion: {
+							number: number;
+							title: string;
+							comments: Page<DiscussionCommentNode>;
+						} | null;
 					} | null;
 				}>(GET_DISCUSSION_COMMENTS_QUERY, {
 					owner,
