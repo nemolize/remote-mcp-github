@@ -2,10 +2,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import {
-	cursorMoreHint,
 	errorResult,
 	logWrite,
-	MAX_RESPONSE_CHARS,
 	previewLine,
 	text,
 	type ToolResult,
@@ -13,7 +11,14 @@ import {
 	wrapTool,
 } from "../mcp/response.js";
 import { stripUndefined } from "../utils.js";
-import { MAX_TEXT_FIELD_LENGTH, maxCharsMessage, type OctokitFactory } from "./common.js";
+import {
+	MAX_TEXT_FIELD_LENGTH,
+	maxCharsMessage,
+	type OctokitFactory,
+	type Page,
+	paginatedList,
+	PaginationSchema,
+} from "./common.js";
 
 // Projects v2 has no REST surface — every tool here is GraphQL-backed, following
 // the cursor-pagination conventions of list_pr_review_threads in pulls.ts.
@@ -28,24 +33,12 @@ type ProjectListNode = {
 	updatedAt: string;
 };
 
-type ProjectsPage = {
-	totalCount: number;
-	pageInfo: { hasNextPage: boolean; endCursor: string | null };
-	nodes: Array<ProjectListNode | null>;
-};
-
 /** A field node from a `fields` connection. `options` only exists on single-select fields. */
 type ProjectFieldNode = {
 	id: string;
 	name: string;
 	dataType: string;
 	options?: Array<{ id: string; name: string }>;
-};
-
-type FieldsPage = {
-	totalCount: number;
-	pageInfo: { hasNextPage: boolean; endCursor: string | null };
-	nodes: Array<ProjectFieldNode | null>;
 };
 
 type ProjectItemNode = {
@@ -58,12 +51,6 @@ type ProjectItemNode = {
 		repository?: { nameWithOwner: string };
 		assignees?: { totalCount: number; nodes: Array<{ login: string } | null> };
 	} | null;
-};
-
-type ItemsPage = {
-	totalCount: number;
-	pageInfo: { hasNextPage: boolean; endCursor: string | null };
-	nodes: Array<ProjectItemNode | null>;
 };
 
 const PROJECTS_PAGE_SELECTION = `
@@ -399,27 +386,6 @@ const renderFieldValue = (value: FieldValueInput): string => {
 	return `option \`${value.single_select_option_id}\``;
 };
 
-const CURSOR_INSTRUCTION = (endCursor: string | null): string =>
-	`Re-invoke with \`cursor: "${endCursor}"\` to fetch the next page.`;
-
-const PaginationSchema = {
-	per_page: z
-		.number()
-		.int()
-		.min(1)
-		.max(100)
-		.optional()
-		.default(30)
-		.describe("Results per page (1-100)."),
-	cursor: z
-		.string()
-		.min(1)
-		.optional()
-		.describe(
-			"Opaque pagination cursor from a previous page's endCursor. Omit for the first page.",
-		),
-} as const;
-
 /** Render `— options: Name (`id`), …` for a single-select field, or "" otherwise. */
 const optionsSuffix = (field: ProjectFieldNode): string =>
 	field.options != null && field.options.length > 0
@@ -452,26 +418,6 @@ const itemLine = (item: ProjectItemNode): string => {
 	return `- ${item.type} — ${title}${ref}${status}${assigneeSuffix} — id: \`${item.id}\``;
 };
 
-/**
- * Render a cursor-paginated list body: truncate within a budget that reserves
- * room for the cursor hint so a large page can never drop the `cursor` (the
- * same #50 discipline as list_pr_review_threads).
- */
-const paginatedList = (
-	header: string,
-	lines: string[],
-	page: { totalCount: number; pageInfo: { hasNextPage: boolean; endCursor: string | null } },
-): ToolResult => {
-	const more = cursorMoreHint({
-		shown: lines.length,
-		total: page.totalCount,
-		hasMore: page.pageInfo.hasNextPage && page.pageInfo.endCursor != null,
-		nextPageInstruction: CURSOR_INSTRUCTION(page.pageInfo.endCursor),
-	});
-	const body = truncate(`${header}\n\n${lines.join("\n")}`, MAX_RESPONSE_CHARS - more.length);
-	return text(`${body}${more}`);
-};
-
 export const registerProjectTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"list_projects",
@@ -489,11 +435,11 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		async ({ owner, per_page, cursor }) =>
 			wrapTool(async () => {
 				const vars = { first: per_page, after: cursor };
-				let page: ProjectsPage;
+				let page: Page<ProjectListNode>;
 				let label: string;
 				if (owner != null) {
 					const result = await client().graphql<{
-						repositoryOwner: { projectsV2?: ProjectsPage } | null;
+						repositoryOwner: { projectsV2?: Page<ProjectListNode> } | null;
 					}>(LIST_OWNER_PROJECTS_QUERY, { owner, ...vars });
 					if (result.repositoryOwner?.projectsV2 == null) {
 						return errorResult(
@@ -503,7 +449,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 					page = result.repositoryOwner.projectsV2;
 					label = owner;
 				} else {
-					const result = await client().graphql<{ viewer: { projectsV2: ProjectsPage } }>(
+					const result = await client().graphql<{ viewer: { projectsV2: Page<ProjectListNode> } }>(
 						LIST_VIEWER_PROJECTS_QUERY,
 						vars,
 					);
@@ -592,7 +538,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id, per_page, cursor }) =>
 			wrapTool(async () => {
-				type ItemsProject = { number: number; title: string; items: ItemsPage };
+				type ItemsProject = { number: number; title: string; items: Page<ProjectItemNode> };
 				const resolved = await resolveProject<ItemsProject>(
 					client(),
 					{ id, owner, number },
@@ -619,7 +565,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ owner, number, id, per_page, cursor }) =>
 			wrapTool(async () => {
-				type FieldsProject = { number: number; title: string; fields: FieldsPage };
+				type FieldsProject = { number: number; title: string; fields: Page<ProjectFieldNode> };
 				const resolved = await resolveProject<FieldsProject>(
 					client(),
 					{ id, owner, number },
