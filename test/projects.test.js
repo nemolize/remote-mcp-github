@@ -284,6 +284,7 @@ describe("list_project_items", () => {
 		const octokit = stubOctokit(async () =>
 			itemsProject([
 				{
+					id: "PVTI_1",
 					type: "ISSUE",
 					fieldValueByName: { name: "In Progress" },
 					content: {
@@ -294,6 +295,7 @@ describe("list_project_items", () => {
 					},
 				},
 				{
+					id: "PVTI_2",
 					type: "PULL_REQUEST",
 					fieldValueByName: null,
 					content: {
@@ -304,6 +306,7 @@ describe("list_project_items", () => {
 					},
 				},
 				{
+					id: "PVTI_3",
 					type: "DRAFT_ISSUE",
 					fieldValueByName: { name: "Todo" },
 					content: { title: "Investigate flakiness", assignees: { totalCount: 0, nodes: [] } },
@@ -320,10 +323,10 @@ describe("list_project_items", () => {
 		const body = result.content[0].text;
 		expect(body).toContain('# Project #4 "Roadmap" — items (3)');
 		expect(body).toContain(
-			"- ISSUE — Fix login bug (acme/web#12) — status: In Progress — @alice, @bob",
+			"- ISSUE — Fix login bug (acme/web#12) — status: In Progress — @alice, @bob — id: `PVTI_1`",
 		);
-		expect(body).toContain("- PULL_REQUEST — Add cache layer (acme/api#34)");
-		expect(body).toContain("- DRAFT_ISSUE — Investigate flakiness — status: Todo");
+		expect(body).toContain("- PULL_REQUEST — Add cache layer (acme/api#34) — id: `PVTI_2`");
+		expect(body).toContain("- DRAFT_ISSUE — Investigate flakiness — status: Todo — id: `PVTI_3`");
 		expect(result.isError).toBeUndefined();
 	});
 
@@ -332,6 +335,7 @@ describe("list_project_items", () => {
 		const octokit = stubOctokit(async () =>
 			itemsProject([
 				{
+					id: "PVTI_7",
 					type: "ISSUE",
 					fieldValueByName: null,
 					content: {
@@ -365,6 +369,7 @@ describe("list_project_items", () => {
 	it("truncates a large page without dropping the cursor hint", async () => {
 		const { handlers, server } = captureHandlers();
 		const items = Array.from({ length: 200 }, (_, i) => ({
+			id: `PVTI_${i}`,
 			type: "ISSUE",
 			fieldValueByName: { name: "Todo" },
 			content: {

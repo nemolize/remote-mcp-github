@@ -49,6 +49,7 @@ type FieldsPage = {
 };
 
 type ProjectItemNode = {
+	id: string;
 	type: string;
 	fieldValueByName: { name?: string } | null;
 	content: {
@@ -130,6 +131,7 @@ const PROJECT_ITEMS_SELECTION = `
 		totalCount
 		pageInfo { hasNextPage endCursor }
 		nodes {
+			id
 			type
 			fieldValueByName(name: "Status") {
 				... on ProjectV2ItemFieldSingleSelectValue { name }
@@ -426,7 +428,9 @@ const itemLine = (item: ProjectItemNode): string => {
 	const total = item.content?.assignees?.totalCount ?? assigneeList.length;
 	const overflow = total > assigneeList.length ? ` +${total - assigneeList.length} more` : "";
 	const assigneeSuffix = assignees === "" ? "" : ` — ${assignees}${overflow}`;
-	return `- ${item.type} — ${title}${ref}${status}${assigneeSuffix}`;
+	// The trailing item node ID is what remove_project_item and
+	// update_project_item_field expect as `item_id`.
+	return `- ${item.type} — ${title}${ref}${status}${assigneeSuffix} — id: \`${item.id}\``;
 };
 
 /**
@@ -565,7 +569,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		"list_project_items",
 		{
 			description:
-				"List the items on a GitHub Project (v2) board — one row per item with its content type (ISSUE / PULL_REQUEST / DRAFT_ISSUE), title, linked `owner/repo#number` where applicable, Status field value, and assignees. Identify the project by `owner` + `number`, or by node ID (`id`). Cursor pagination via `cursor`. Requires the `read:project` scope.",
+				"List the items on a GitHub Project (v2) board — one row per item with its content type (ISSUE / PULL_REQUEST / DRAFT_ISSUE), title, linked `owner/repo#number` where applicable, Status field value, assignees, and item node ID (`PVTI_...`, usable as remove_project_item / update_project_item_field's `item_id`). Identify the project by `owner` + `number`, or by node ID (`id`). Cursor pagination via `cursor`. Requires the `read:project` scope.",
 			inputSchema: { ...ProjectRefSchema, ...PaginationSchema },
 		},
 		async ({ owner, number, id, per_page, cursor }) =>
