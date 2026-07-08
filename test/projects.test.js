@@ -140,8 +140,9 @@ describe("get_project", () => {
 		fields: {
 			totalCount: 2,
 			nodes: [
-				{ name: "Title", dataType: "TITLE" },
+				{ id: "PVTF_title", name: "Title", dataType: "TITLE" },
 				{
+					id: "PVTSSF_status",
 					name: "Status",
 					dataType: "SINGLE_SELECT",
 					options: [
@@ -171,8 +172,10 @@ describe("get_project", () => {
 		expect(body).toContain("- items: 12");
 		expect(body).toContain("- description: Team roadmap");
 		expect(body).toContain("## Fields (2)");
-		expect(body).toContain("- Title — TITLE");
-		expect(body).toContain("- Status — SINGLE_SELECT — options: Todo (`opt1`), Done (`opt2`)");
+		expect(body).toContain("- Title — TITLE — id: `PVTF_title`");
+		expect(body).toContain(
+			"- Status — SINGLE_SELECT — options: Todo (`opt1`), Done (`opt2`) — id: `PVTSSF_status`",
+		);
 		expect(result.isError).toBeUndefined();
 	});
 
@@ -452,8 +455,9 @@ describe("list_project_fields", () => {
 				number: 4,
 				title: "Roadmap",
 				fields: page([
-					{ name: "Title", dataType: "TITLE" },
+					{ id: "PVTF_title", name: "Title", dataType: "TITLE" },
 					{
+						id: "PVTSSF_status",
 						name: "Status",
 						dataType: "SINGLE_SELECT",
 						options: [
@@ -461,7 +465,7 @@ describe("list_project_fields", () => {
 							{ id: "98236657", name: "In Progress" },
 						],
 					},
-					{ name: "Iteration", dataType: "ITERATION" },
+					{ id: "PVTIF_iter", name: "Iteration", dataType: "ITERATION" },
 				]),
 			},
 		}));
@@ -470,11 +474,11 @@ describe("list_project_fields", () => {
 		const result = await invoke(handlers, "list_project_fields", { id: "PVT_kwAA1", per_page: 30 });
 		const body = result.content[0].text;
 		expect(body).toContain('# Project #4 "Roadmap" — fields (3)');
-		expect(body).toContain("- Title — TITLE");
+		expect(body).toContain("- Title — TITLE — id: `PVTF_title`");
 		expect(body).toContain(
-			"- Status — SINGLE_SELECT — options: Todo (`47fc9ee4`), In Progress (`98236657`)",
+			"- Status — SINGLE_SELECT — options: Todo (`47fc9ee4`), In Progress (`98236657`) — id: `PVTSSF_status`",
 		);
-		expect(body).toContain("- Iteration — ITERATION");
+		expect(body).toContain("- Iteration — ITERATION — id: `PVTIF_iter`");
 		expect(result.isError).toBeUndefined();
 	});
 
@@ -484,7 +488,7 @@ describe("list_project_fields", () => {
 			node: {
 				number: 4,
 				title: "Roadmap",
-				fields: page([{ name: "Title", dataType: "TITLE" }], {
+				fields: page([{ id: "PVTF_title", name: "Title", dataType: "TITLE" }], {
 					totalCount: 30,
 					hasNextPage: true,
 					endCursor: "CUR_f",

@@ -36,6 +36,7 @@ type ProjectsPage = {
 
 /** A field node from a `fields` connection. `options` only exists on single-select fields. */
 type ProjectFieldNode = {
+	id: string;
 	name: string;
 	dataType: string;
 	options?: Array<{ id: string; name: string }>;
@@ -89,7 +90,7 @@ const LIST_VIEWER_PROJECTS_QUERY = `
 // only single-select adds `options`.
 const FIELD_NODES_SELECTION = `
 	nodes {
-		... on ProjectV2FieldCommon { name dataType }
+		... on ProjectV2FieldCommon { id name dataType }
 		... on ProjectV2SingleSelectField { options { id name } }
 	}
 `;
@@ -404,8 +405,10 @@ const optionsSuffix = (field: ProjectFieldNode): string =>
 		? ` — options: ${field.options.map((o) => `${o.name} (\`${o.id}\`)`).join(", ")}`
 		: "";
 
+// The trailing field node ID is what update_project_item_field's `field_id`
+// expects — without it the discovery chain from list_project_fields is broken.
 const fieldLine = (field: ProjectFieldNode): string =>
-	`- ${field.name} — ${field.dataType}${optionsSuffix(field)}`;
+	`- ${field.name} — ${field.dataType}${optionsSuffix(field)} — id: \`${field.id}\``;
 
 const itemLine = (item: ProjectItemNode): string => {
 	const title = item.content?.title ?? "(no title)";
@@ -590,7 +593,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		"list_project_fields",
 		{
 			description:
-				"List the field definitions of a GitHub Project (v2) — one row per field with its name, data type, and (for single-select fields) the option names + option IDs. Identify the project by `owner` + `number`, or by node ID (`id`). Cursor pagination via `cursor`. Requires the `read:project` scope.",
+				"List the field definitions of a GitHub Project (v2) — one row per field with its name, data type, field node ID (usable as update_project_item_field's `field_id`), and (for single-select fields) the option names + option IDs. Identify the project by `owner` + `number`, or by node ID (`id`). Cursor pagination via `cursor`. Requires the `read:project` scope.",
 			inputSchema: { ...ProjectRefSchema, ...PaginationSchema },
 		},
 		async ({ owner, number, id, per_page, cursor }) =>
