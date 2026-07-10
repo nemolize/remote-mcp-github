@@ -12,8 +12,9 @@
 //     the redirect normally (~2s extra latency);
 //   * on a dead listener, the URL has already been on-screen for the
 //     countdown, and `assign` (not `replace`) leaves the interstitial in
-//     history so Back returns to a page with the URL + Copy button after
-//     the browser's connection-error page appears.
+//     history. The response deliberately uses `no-store` because it includes
+//     one-time OAuth artifacts. Whether Back restores it from the browser's
+//     back-forward cache is browser- and session-state-dependent.
 //
 // A JS-side "probe" (fetch/img/XHR with a timeout) is NOT used: this page
 // is served over HTTPS from the Worker while the loopback target is HTTP,
@@ -34,7 +35,8 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 // How long the interstitial stays visible before auto-navigating. Chosen so
 // the fallback URL + Copy button are legible even when the redirect will
 // succeed, and so the "dead listener" case degrades to a still-legible page
-// via the browser Back button after the connection-error interstitial.
+// during its visible window. Browser history may restore it after a
+// connection-error page, but that behavior is not a recovery guarantee.
 const AUTO_REDIRECT_SECONDS = 2;
 
 export function isLoopbackHostname(hostname: string): boolean {
@@ -145,8 +147,8 @@ export function renderInterstitial(
 				remaining -= 1;
 				if (remaining <= 0) {
 					statusEl.textContent = "Redirecting…";
-					// assign (not replace) so a dead loopback listener's connection-error
-					// page leaves this interstitial in history — Back returns to the URL.
+					// assign (not replace) keeps this document in history. Browser bfcache
+					// policy determines whether Back restores it or re-requests the callback.
 					window.location.assign(target);
 					return;
 				}
@@ -161,6 +163,8 @@ export function renderInterstitial(
 
 	const headers = new Headers({
 		"Content-Type": "text/html; charset=utf-8",
+		// The response body contains one-time OAuth artifacts, so do not retain it
+		// in private or shared HTTP caches.
 		"Cache-Control": "no-store",
 		"Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'`,
 	});

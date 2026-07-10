@@ -88,8 +88,10 @@ shown prominently (satisfying the MCP spec's display requirement). A
 Two properties are load-bearing for the failure path (dead loopback listener):
 
 - **`location.assign`, not `location.replace`** — a connection-error page
-  from the browser then leaves the interstitial in session history, so
-  Back returns to a page with the URL + Copy button.
+  from the browser then leaves the interstitial in session history. The
+  response uses `Cache-Control: no-store` because it contains a single-use
+  authorization code and state. Whether Back restores the page from bfcache
+  or re-requests the callback remains browser- and session-state-dependent.
 - **Visible countdown, no `<meta http-equiv="refresh">`** — meta refresh
   with a 0-second delay replaces history the same way `location.replace`
   does, and (like an immediate JS nav) triggers before the fallback UI is
@@ -127,9 +129,11 @@ with per-response nonces on `script-src`/`style-src` and no `unsafe-inline`.
 
 - Good, because the URL is guaranteed to have been on-screen for the
   countdown period before nav is attempted, so the dead-listener case
-  degrades to a page the user can read _and_ re-reach via Back.
-- Good, because `location.assign` preserves session history — the browser's
-  connection-error page is a normal navigation the Back button reverses.
+  degrades to a page the user can read before navigation.
+- Neutral, because `location.assign` preserves session history, but the
+  `no-store` policy does not make bfcache behavior portable. Back can restore
+  the interstitial or re-request the already-consumed callback depending on
+  the browser and session state, so it is not a guaranteed recovery path.
 - Good, because scope is minimal: non-loopback clients, `/authorize`, and
   the rest of the handler are untouched.
 - Neutral, because it adds roughly `AUTO_REDIRECT_SECONDS` (currently 2s)
@@ -170,15 +174,14 @@ with per-response nonces on `script-src`/`style-src` and no `unsafe-inline`.
 
 ## Residual Risk
 
-- The dead-listener case is now first-class: the URL + Copy button are the
-  primary content, the countdown warns the user that a redirect is about to
-  fire, and `location.assign` (not `replace`) lets Back recover the
-  interstitial from the browser's connection-error page. What remains
-  unverified is only browser-specific Back behaviour from a network-error
-  page — Chrome and Firefox restore the previous document reliably, but
-  edge cases (some mobile browsers, extensions that intercept error
-  pages) should be spot-checked. The `<noscript>` fallback anchor covers
-  the JS-disabled case.
+- The dead-listener case presents the URL + Copy button as primary content
+  during the visible countdown. `Cache-Control: no-store` deliberately keeps
+  the authorization code and state out of browser HTTP caches. It does not
+  guarantee bfcache exclusion: browser and session state determine whether
+  Back after a connection-error page restores the interstitial or re-requests
+  the already-consumed callback. Users can still copy the URL before navigation
+  or from the browser's address bar on the connection-error page. The
+  `<noscript>` fallback anchor covers the JS-disabled case.
 - The happy path costs `AUTO_REDIRECT_SECONDS` (currently 2s) of visible
   interstitial per successful OAuth. If a future MCP client shortens its
   listener TTL below that window this constant may need to shrink.
