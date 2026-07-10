@@ -52,7 +52,7 @@ describe("isLoopbackHostname", () => {
 describe("renderInterstitial", () => {
 	const redirectTo = "http://localhost:12345/callback?code=abc&state=xyz";
 
-	it("returns text/html with no-store and a nonce-based CSP", async () => {
+	it("returns no-store HTML with a nonce-based CSP", async () => {
 		const res = renderInterstitial(redirectTo);
 		expect(res.status).toBe(200);
 		expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
@@ -83,8 +83,7 @@ describe("renderInterstitial", () => {
 	it("navigates via window.location.assign after a visible countdown", async () => {
 		const html = await renderInterstitial(redirectTo).text();
 		expect(html).toContain("<script nonce=");
-		// assign (not replace) so a connection-error page from a dead listener
-		// leaves the interstitial reachable via the Back button.
+		// assign (not replace) leaves the interstitial in browser history.
 		expect(html).toContain("window.location.assign(target)");
 		expect(html).not.toContain("window.location.replace");
 		// No <meta refresh>: it would race the JS countdown and, at delay 0,
