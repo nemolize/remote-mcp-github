@@ -1,10 +1,24 @@
 import { blake2b } from "@noble/hashes/blake2.js";
 import nacl from "tweetnacl";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { sealSecret } from "../src/sealed-box.js";
-import { registerActionAdminTools } from "../src/tools/actions-admin.js";
+import { MAX_VALUE_BYTES, registerActionAdminTools } from "../src/tools/actions-admin.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
+
+// captureHandlers bypasses the MCP SDK's Zod parse, so schema-level rules
+// (byte caps, name patterns) need their own capture: keep the registered
+// inputSchema shapes and validate through them directly.
+const captureSchemas = () => {
+	const schemas = new Map();
+	const server = {
+		registerTool: (name, config, _handler) => {
+			schemas.set(name, z.object(config.inputSchema));
+		},
+	};
+	return { schemas, server };
+};
 
 const stubOctokit = (overrides = {}) => ({
 	rest: {
@@ -65,6 +79,67 @@ describe("sealSecret", () => {
 		const value = "x".repeat(40_000);
 		const sealed = sealSecret(value, toBase64(kp.publicKey));
 		expect(sealOpen(sealed, kp)).toBe(value);
+	});
+});
+
+describe("input schemas (validated via the registered Zod shapes)", () => {
+	const base = { owner: "o", repo: "r" };
+	const parse = (schemas, tool, params) => schemas.get(tool).safeParse(params);
+
+	it("accepts a secret value of exactly 48 KiB UTF-8", () => {
+		const { schemas, server } = captureSchemas();
+		registerActionAdminTools(server, () => stubOctokit());
+		const value = "a".repeat(MAX_VALUE_BYTES);
+		expect(parse(schemas, "set_actions_secret", { ...base, secret_name: "S", value }).success).toBe(
+			true,
+		);
+	});
+
+	it("rejects a secret value one byte over 48 KiB", () => {
+		const { schemas, server } = captureSchemas();
+		registerActionAdminTools(server, () => stubOctokit());
+		const value = "a".repeat(MAX_VALUE_BYTES + 1);
+		expect(parse(schemas, "set_actions_secret", { ...base, secret_name: "S", value }).success).toBe(
+			false,
+		);
+	});
+
+	it("measures the cap in UTF-8 bytes, not characters (multibyte value)", () => {
+		const { schemas, server } = captureSchemas();
+		registerActionAdminTools(server, () => stubOctokit());
+		// "あ" is 3 bytes in UTF-8: 16384 × 3 = 49152 bytes (exactly 48 KiB) fits;
+		// one more character pushes the byte length over while the character
+		// count (16 385) stays far below 48k.
+		const fits = "あ".repeat(MAX_VALUE_BYTES / 3);
+		const over = `${fits}a`;
+		expect(
+			parse(schemas, "set_actions_variable", { ...base, name: "V", value: fits }).success,
+		).toBe(true);
+		expect(
+			parse(schemas, "set_actions_variable", { ...base, name: "V", value: over }).success,
+		).toBe(false);
+	});
+
+	it("rejects reserved GITHUB_-prefixed names case-insensitively", () => {
+		const { schemas, server } = captureSchemas();
+		registerActionAdminTools(server, () => stubOctokit());
+		for (const name of ["GITHUB_TOKEN", "github_thing"]) {
+			expect(
+				parse(schemas, "set_actions_secret", { ...base, secret_name: name, value: "v" }).success,
+			).toBe(false);
+		}
+		expect(
+			parse(schemas, "set_actions_secret", { ...base, secret_name: "MY_GITHUB_PAT", value: "v" })
+				.success,
+		).toBe(true);
+	});
+
+	it("caps list_actions_variables per_page at the endpoint's 30", () => {
+		const { schemas, server } = captureSchemas();
+		registerActionAdminTools(server, () => stubOctokit());
+		expect(parse(schemas, "list_actions_variables", { ...base, per_page: 30 }).success).toBe(true);
+		expect(parse(schemas, "list_actions_variables", { ...base, per_page: 31 }).success).toBe(false);
+		expect(parse(schemas, "list_actions_secrets", { ...base, per_page: 100 }).success).toBe(true);
 	});
 });
 
