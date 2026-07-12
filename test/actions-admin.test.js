@@ -242,7 +242,7 @@ describe("registerActionAdminTools", () => {
 		registerActionAdminTools(server, () => octokit);
 		const result = await invoke(handlers, "list_actions_variables", { owner: "o", repo: "r" });
 		expect(result.content[0].text).toContain(
-			"**NODE_VERSION** = `22` — updated 2026-02-01T00:00:00Z",
+			"**NODE_VERSION** = `22` — created 2026-01-01T00:00:00Z, updated 2026-02-01T00:00:00Z",
 		);
 	});
 

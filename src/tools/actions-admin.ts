@@ -153,7 +153,8 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 				logRateLimit(headers);
 				if (data.variables.length === 0) return text("(no Actions variables found)");
 				const lines = data.variables.map(
-					(v) => `- **${v.name}** = \`${v.value}\` — updated ${v.updated_at}`,
+					(v) =>
+						`- **${v.name}** = \`${v.value}\` — created ${v.created_at}, updated ${v.updated_at}`,
 				);
 				const hasMore = (headers.link ?? "").includes('rel="next"');
 				const header = restListHeader({
