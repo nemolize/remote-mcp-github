@@ -26,6 +26,106 @@ const alertLead = (number: number | undefined, state: string | null | undefined)
 
 export const registerSecurityTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
+		"get_secret_scanning_alert",
+		{
+			description:
+				"Get one secret-scanning alert with its type, state, resolution, and timestamps. Read-only. Never returns the raw secret value. Requires a token with `repo` (or `security_events`) scope and admin access to the repository; 403s cleanly otherwise.",
+			inputSchema: {
+				...RepoTarget,
+				alert_number: z.number().int().min(1).describe("Secret-scanning alert number."),
+			},
+		},
+		async ({ owner, repo, alert_number }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.secretScanning.getAlert({
+					owner,
+					repo,
+					alert_number,
+					hide_secret: true,
+				});
+				logRateLimit(headers);
+				const type = data.secret_type_display_name ?? data.secret_type ?? "(unknown type)";
+				const resolution = data.state === "resolved" ? ` (${data.resolution ?? "resolved"})` : "";
+				const created = data.created_at ?? "(unknown date)";
+				const updated = data.updated_at ?? "(unknown date)";
+				return text(
+					truncate(
+						`${alertLead(data.number, data.state)}${resolution} — ${type}\n\nCreated: ${created}\nUpdated: ${updated}`,
+					),
+				);
+			}),
+	);
+
+	server.registerTool(
+		"get_code_scanning_alert",
+		{
+			description:
+				"Get one code-scanning alert with its rule, severity, analysis tool, and most-recent location. Read-only. Requires a token with `repo` (or `security_events`) scope; 403s cleanly otherwise.",
+			inputSchema: {
+				...RepoTarget,
+				alert_number: z.number().int().min(1).describe("Code-scanning alert number."),
+			},
+		},
+		async ({ owner, repo, alert_number }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.codeScanning.getAlert({
+					owner,
+					repo,
+					alert_number,
+				});
+				logRateLimit(headers);
+				const rule = data.rule.id ?? data.rule.name ?? "(unknown rule)";
+				const severity = data.rule.security_severity_level ?? data.rule.severity ?? "(no severity)";
+				const tool = data.tool.name ?? "(unknown tool)";
+				const location = data.most_recent_instance?.location;
+				const where =
+					location?.path != null
+						? `${location.path}${location.start_line != null ? `:${location.start_line}` : ""}`
+						: "(unknown location)";
+				return text(
+					truncate(
+						`${alertLead(data.number, data.state)} — \`${rule}\` (${severity}), ${tool}\n\nLocation: ${where}`,
+					),
+				);
+			}),
+	);
+
+	server.registerTool(
+		"get_dependabot_alert",
+		{
+			description:
+				"Get one Dependabot alert with its package, advisory severity, GHSA, and summary. Read-only. Requires a token with `repo` (or `security_events`) scope; 403s cleanly otherwise.",
+			inputSchema: {
+				...RepoTarget,
+				alert_number: z.number().int().min(1).describe("Dependabot alert number."),
+			},
+		},
+		async ({ owner, repo, alert_number }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.dependabot.getAlert({
+					owner,
+					repo,
+					alert_number,
+				});
+				logRateLimit(headers);
+				const pkg = data.dependency?.package;
+				const packageName =
+					pkg?.name != null
+						? `${pkg.ecosystem != null ? `${pkg.ecosystem}:` : ""}${pkg.name}`
+						: "(unknown package)";
+				const advisory = data.security_advisory;
+				const severity = advisory?.severity ?? "(no severity)";
+				const ghsa = advisory?.ghsa_id ?? "(no GHSA)";
+				const summary = advisory?.summary ?? "(no summary)";
+				return text(
+					truncate(
+						`${alertLead(data.number, data.state)} — ${packageName} (${severity})\n\nAdvisory: \`${ghsa}\` — ${summary}`,
+					),
+				);
+			}),
+	);
+
+	server.registerTool(
 		"list_secret_scanning_alerts",
 		{
 			description:

@@ -95,6 +95,9 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `list_secret_scanning_alerts`      | read  | Secret-scanning alerts (number, state, secret type, resolution, date) — never the raw secret value  |
 | `list_code_scanning_alerts`        | read  | Code-scanning alerts (number, state, rule + severity, tool, most-recent location path:line)         |
 | `list_dependabot_alerts`           | read  | Dependabot alerts (number, state, package, severity, advisory GHSA + summary)                       |
+| `get_secret_scanning_alert`        | read  | One secret-scanning alert (type, state, resolution, timestamps) — never the raw secret value        |
+| `get_code_scanning_alert`          | read  | One code-scanning alert (rule, severity, tool, most-recent location)                                |
+| `get_dependabot_alert`             | read  | One Dependabot alert (package, severity, GHSA, advisory summary)                                    |
 | `list_projects`                    | read  | Projects (v2) of a user / org — or the authenticated user — number, title, state, node ID (`PVT_…`) |
 | `get_project`                      | read  | Single Project (v2) detail — visibility, state, item count, field definitions + options             |
 | `list_project_items`               | read  | Project (v2) board items — type, title, linked `owner/repo#N`, Status value, assignees per row      |

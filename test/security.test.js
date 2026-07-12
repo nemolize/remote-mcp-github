@@ -7,12 +7,15 @@ const stubOctokit = (overrides) => ({
 	rest: {
 		secretScanning: {
 			listAlertsForRepo: async () => ({ data: [], headers: {} }),
+			getAlert: async () => ({ data: sampleSecretAlert(), headers: {} }),
 		},
 		codeScanning: {
 			listAlertsForRepo: async () => ({ data: [], headers: {} }),
+			getAlert: async () => ({ data: sampleCodeAlert(), headers: {} }),
 		},
 		dependabot: {
 			listAlertsForRepo: async () => ({ data: [], headers: {} }),
+			getAlert: async () => ({ data: sampleDependabotAlert(), headers: {} }),
 		},
 		...overrides,
 	},
@@ -63,6 +66,70 @@ const sampleDependabotAlert = (overrides = {}) => ({
 });
 
 describe("registerSecurityTools", () => {
+	describe("get_secret_scanning_alert", () => {
+		it("requests the hidden-secret response and never renders a raw secret", async () => {
+			const { handlers, server } = captureHandlers();
+			let receivedParams;
+			const octokit = withRest({
+				secretScanning: {
+					getAlert: async (params) => {
+						receivedParams = params;
+						return { data: sampleSecretAlert(), headers: {} };
+					},
+				},
+			});
+			registerSecurityTools(server, () => octokit);
+
+			const result = await invoke(handlers, "get_secret_scanning_alert", {
+				owner: "o",
+				repo: "r",
+				alert_number: 7,
+			});
+			const body = result.content[0].text;
+			expect(receivedParams).toMatchObject({
+				owner: "o",
+				repo: "r",
+				alert_number: 7,
+				hide_secret: true,
+			});
+			expect(body).toContain("`#7` **open** — GitHub Personal Access Token");
+			expect(body).toContain("Created: 2026-06-01T00:00:00Z");
+			expect(body).not.toContain("ghp_THIS_MUST_NOT_LEAK");
+		});
+	});
+
+	describe("get_code_scanning_alert", () => {
+		it("renders rule, severity, tool, and location", async () => {
+			const { handlers, server } = captureHandlers();
+			registerSecurityTools(server, () => withRest({}));
+
+			const result = await invoke(handlers, "get_code_scanning_alert", {
+				owner: "o",
+				repo: "r",
+				alert_number: 12,
+			});
+			expect(result.content[0].text).toContain(
+				"`#12` **open** — `js/sql-injection` (high), CodeQL\n\nLocation: src/db.ts:42",
+			);
+		});
+	});
+
+	describe("get_dependabot_alert", () => {
+		it("renders package and advisory detail", async () => {
+			const { handlers, server } = captureHandlers();
+			registerSecurityTools(server, () => withRest({}));
+
+			const result = await invoke(handlers, "get_dependabot_alert", {
+				owner: "o",
+				repo: "r",
+				alert_number: 3,
+			});
+			expect(result.content[0].text).toContain(
+				"`#3` **open** — npm:lodash (high)\n\nAdvisory: `GHSA-xxxx-yyyy-zzzz` — Prototype pollution in lodash",
+			);
+		});
+	});
+
 	describe("list_secret_scanning_alerts", () => {
 		it("renders number, state, secret type, and date — and never the raw secret", async () => {
 			const { handlers, server } = captureHandlers();
