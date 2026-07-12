@@ -13,7 +13,7 @@ import {
 import { sealSecret } from "../sealed-box.js";
 import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
-import { maxCharsMessage, RepoTarget } from "./common.js";
+import { formatBytes, maxCharsMessage, RepoTarget, WorkflowId } from "./common.js";
 
 // GitHub caps a single Actions secret and a single Actions variable value at
 // 48 KB. Mirror that as the app-level input cap so an oversized payload is
@@ -21,9 +21,6 @@ import { maxCharsMessage, RepoTarget } from "./common.js";
 // after the (pointless) public-key fetch + encryption work.
 export const MAX_SECRET_VALUE_LENGTH = 48_000;
 export const MAX_VARIABLE_VALUE_LENGTH = 48_000;
-
-// Same filename-or-numeric-ID polymorphism as the run tools in actions.ts.
-const WorkflowId = z.union([z.number().int().positive(), z.string().min(1)]);
 
 // Secret and variable names share GitHub's naming rule (alphanumeric + `_`,
 // not starting with a digit). Validated here so a typo like `MY-SECRET` fails
@@ -290,8 +287,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 				logRateLimit(headers);
 				if (data.actions_caches.length === 0) return text("(no Actions caches found)");
 				const lines = data.actions_caches.map((c) => {
-					const size =
-						c.size_in_bytes != null ? `${(c.size_in_bytes / 1048576).toFixed(1)} MiB` : "?";
+					const size = c.size_in_bytes != null ? formatBytes(c.size_in_bytes) : "?";
 					return `- \`${c.id ?? "?"}\` **${c.key ?? "(no key)"}** — ${size} on \`${c.ref ?? "?"}\`, last accessed ${c.last_accessed_at ?? "(unknown)"}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
