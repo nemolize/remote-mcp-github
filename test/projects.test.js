@@ -25,17 +25,30 @@ const projectNode = (overrides = {}) => ({
 });
 
 describe("registerProjectTools", () => {
-	it("registers the four read tools and four write tools", () => {
+	it("registers the four read tools and thirteen write tools", () => {
 		const { handlers, server } = captureHandlers();
 		registerProjectTools(server, () => stubOctokit(async () => ({})));
-		expect(handlers.has("list_projects")).toBe(true);
-		expect(handlers.has("get_project")).toBe(true);
-		expect(handlers.has("list_project_items")).toBe(true);
-		expect(handlers.has("list_project_fields")).toBe(true);
-		expect(handlers.has("add_project_item")).toBe(true);
-		expect(handlers.has("remove_project_item")).toBe(true);
-		expect(handlers.has("update_project_item_field")).toBe(true);
-		expect(handlers.has("create_project_draft_item")).toBe(true);
+		for (const name of [
+			"list_projects",
+			"get_project",
+			"list_project_items",
+			"list_project_fields",
+			"add_project_item",
+			"remove_project_item",
+			"update_project_item_field",
+			"create_project_draft_item",
+			"create_project",
+			"update_project",
+			"delete_project",
+			"copy_project",
+			"link_project_to_repository",
+			"unlink_project_from_repository",
+			"create_project_field",
+			"delete_project_field",
+			"archive_project_item",
+		]) {
+			expect(handlers.has(name), name).toBe(true);
+		}
 	});
 });
 
@@ -847,5 +860,528 @@ describe("create_project_draft_item", () => {
 		});
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("Failed to create a draft item");
+	});
+});
+
+// Dispatch-style stub for the tools that mix owner-id / repository-id lookup
+// queries with the shared project-resolution query and a mutation. Routes each
+// graphql call on a query substring; unmatched queries throw so a test never
+// silently passes on the wrong call shape.
+const dispatchStub = (routes) => {
+	const calls = [];
+	const octokit = stubOctokit(async (query, vars) => {
+		calls.push({ query, vars });
+		for (const [needle, result] of routes) {
+			if (query.includes(needle)) {
+				if (result instanceof Error) throw result;
+				return result;
+			}
+		}
+		throw new Error(`unexpected query: ${query}`);
+	});
+	return { calls, octokit };
+};
+
+describe("create_project", () => {
+	const createdProject = {
+		id: "PVT_new1",
+		number: 9,
+		title: "Roadmap",
+		owner: { login: "me" },
+	};
+
+	it("creates a project under the viewer when owner is omitted", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = dispatchStub([
+			["viewer { id login }", { viewer: { id: "U_9", login: "me" } }],
+			["createProjectV2(", { createProjectV2: { projectV2: createdProject } }],
+		]);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_project", { title: "Roadmap" });
+		expect(calls).toHaveLength(2);
+		expect(calls[1].vars).toEqual({ ownerId: "U_9", title: "Roadmap" });
+		expect(result.content[0].text).toBe(
+			'Created project #9 "Roadmap" for me. Project ID: `PVT_new1`.',
+		);
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("resolves an explicit owner login to its node ID", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = dispatchStub([
+			[
+				"repositoryOwner(login: $owner) { id login }",
+				{ repositoryOwner: { id: "O_1", login: "acme" } },
+			],
+			[
+				"createProjectV2(",
+				{ createProjectV2: { projectV2: { ...createdProject, owner: { login: "acme" } } } },
+			],
+		]);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_project", { owner: "acme", title: "Roadmap" });
+		expect(calls[0].vars).toEqual({ owner: "acme" });
+		expect(calls[1].vars).toEqual({ ownerId: "O_1", title: "Roadmap" });
+		expect(result.content[0].text).toContain("for acme");
+	});
+
+	it("errors when the owner login does not resolve", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = dispatchStub([
+			["repositoryOwner(login: $owner) { id login }", { repositoryOwner: null }],
+		]);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_project", { owner: "ghost", title: "t" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Owner ghost not found");
+	});
+
+	it("errors when the mutation returns no project", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = dispatchStub([
+			["viewer { id login }", { viewer: { id: "U_9", login: "me" } }],
+			["createProjectV2(", { createProjectV2: { projectV2: null } }],
+		]);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_project", { title: "t" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain('Failed to create project "t".');
+	});
+});
+
+describe("update_project", () => {
+	const updateOk = {
+		updateProjectV2: { projectV2: { id: "PVT_kwAA1", number: 4, title: "New name" } },
+	};
+
+	it("updates title and visibility and reports the changed fields", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = writeStub(updateOk);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_project", {
+			owner: "acme",
+			number: 4,
+			title: "New name",
+			public: true,
+		});
+		expect(calls[1].vars).toEqual({
+			projectId: "PVT_kwAA1",
+			title: "New name",
+			shortDescription: undefined,
+			public: true,
+			closed: undefined,
+		});
+		expect(result.content[0].text).toBe(
+			'Updated project #4 "New name" — set title to "New name", visibility to public.',
+		);
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("closes a project via closed: true", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = writeStub({
+			updateProjectV2: { projectV2: { id: "PVT_kwAA1", number: 4, title: "Roadmap" } },
+		});
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_project", { id: "PVT_kwAA1", closed: true });
+		expect(calls[1].vars).toMatchObject({ projectId: "PVT_kwAA1", closed: true });
+		expect(result.content[0].text).toBe('Updated project #4 "Roadmap" — set state to closed.');
+	});
+
+	it("rejects a no-op update without calling the API", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = writeStub(updateOk);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_project", { owner: "acme", number: 4 });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("at least one");
+		expect(calls).toHaveLength(0);
+	});
+
+	it("errors when the mutation returns no project", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = writeStub({ updateProjectV2: { projectV2: null } });
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "update_project", { id: "PVT_kwAA1", title: "t" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to update project #4.");
+	});
+});
+
+describe("delete_project", () => {
+	it("deletes a project and confirms with number, title, and node ID", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = writeStub({ deleteProjectV2: { projectV2: { id: "PVT_kwAA1" } } });
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "delete_project", { owner: "acme", number: 4 });
+		expect(calls[1].vars).toEqual({ projectId: "PVT_kwAA1" });
+		expect(result.content[0].text).toBe('Deleted project #4 "Roadmap" (`PVT_kwAA1`).');
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("errors when the project does not resolve", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = writeStub({}, { project: null });
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "delete_project", { owner: "acme", number: 999 });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Project acme/#999 not found or not accessible");
+	});
+
+	it("errors when the mutation returns no project", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = writeStub({ deleteProjectV2: { projectV2: null } });
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "delete_project", { id: "PVT_kwAA1" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to delete project #4.");
+	});
+});
+
+describe("copy_project", () => {
+	const copiedProject = {
+		id: "PVT_copy1",
+		number: 11,
+		title: "Roadmap copy",
+		owner: { login: "me" },
+	};
+	const sourceRoutes = [
+		["projectV2(number: $number)", { repositoryOwner: { projectV2: writeTarget } }],
+	];
+
+	it("copies to the viewer when target_owner is omitted", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = dispatchStub([
+			...sourceRoutes,
+			["viewer { id login }", { viewer: { id: "U_9", login: "me" } }],
+			["copyProjectV2(", { copyProjectV2: { projectV2: copiedProject } }],
+		]);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "copy_project", {
+			owner: "acme",
+			number: 4,
+			title: "Roadmap copy",
+			include_draft_issues: true,
+		});
+		expect(calls[2].vars).toEqual({
+			projectId: "PVT_kwAA1",
+			ownerId: "U_9",
+			title: "Roadmap copy",
+			includeDraftIssues: true,
+		});
+		expect(result.content[0].text).toBe(
+			'Copied project #4 "Roadmap" to new project #11 "Roadmap copy" for me. Project ID: `PVT_copy1`.',
+		);
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("errors when the target owner does not resolve", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = dispatchStub([
+			...sourceRoutes,
+			["repositoryOwner(login: $owner) { id login }", { repositoryOwner: null }],
+		]);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "copy_project", {
+			owner: "acme",
+			number: 4,
+			title: "t",
+			target_owner: "ghost",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Owner ghost not found");
+	});
+
+	it("errors when the mutation returns no project", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = dispatchStub([
+			...sourceRoutes,
+			["viewer { id login }", { viewer: { id: "U_9", login: "me" } }],
+			["copyProjectV2(", { copyProjectV2: { projectV2: null } }],
+		]);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "copy_project", { owner: "acme", number: 4, title: "t" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to copy project #4.");
+	});
+});
+
+describe("link_project_to_repository / unlink_project_from_repository", () => {
+	const repoRoute = [
+		"repository(owner: $owner, name: $name)",
+		{ repository: { id: "R_5", nameWithOwner: "acme/web" } },
+	];
+	const sourceRoute = [
+		"projectV2(number: $number)",
+		{ repositoryOwner: { projectV2: writeTarget } },
+	];
+
+	it("links a project to a repository", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = dispatchStub([
+			sourceRoute,
+			repoRoute,
+			[
+				"linkProjectV2ToRepository(",
+				{ linkProjectV2ToRepository: { repository: { nameWithOwner: "acme/web" } } },
+			],
+		]);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "link_project_to_repository", {
+			owner: "acme",
+			number: 4,
+			repo_owner: "acme",
+			repo: "web",
+		});
+		expect(calls[1].vars).toEqual({ owner: "acme", name: "web" });
+		expect(calls[2].vars).toEqual({ projectId: "PVT_kwAA1", repositoryId: "R_5" });
+		expect(result.content[0].text).toBe('Linked project #4 "Roadmap" to acme/web.');
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("unlinks a project from a repository", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = dispatchStub([
+			["node(id: $id)", { node: writeTarget }],
+			repoRoute,
+			[
+				"unlinkProjectV2FromRepository(",
+				{ unlinkProjectV2FromRepository: { repository: { nameWithOwner: "acme/web" } } },
+			],
+		]);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "unlink_project_from_repository", {
+			id: "PVT_kwAA1",
+			repo_owner: "acme",
+			repo: "web",
+		});
+		expect(calls[2].vars).toEqual({ projectId: "PVT_kwAA1", repositoryId: "R_5" });
+		expect(result.content[0].text).toBe('Unlinked project #4 "Roadmap" from acme/web.');
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("errors when the repository does not resolve", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = dispatchStub([
+			sourceRoute,
+			["repository(owner: $owner, name: $name)", { repository: null }],
+		]);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "link_project_to_repository", {
+			owner: "acme",
+			number: 4,
+			repo_owner: "acme",
+			repo: "gone",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Repository acme/gone not found or not accessible.");
+	});
+
+	it("errors when the unlink mutation returns no repository", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = dispatchStub([
+			sourceRoute,
+			repoRoute,
+			["unlinkProjectV2FromRepository(", { unlinkProjectV2FromRepository: { repository: null } }],
+		]);
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "unlink_project_from_repository", {
+			owner: "acme",
+			number: 4,
+			repo_owner: "acme",
+			repo: "web",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to unlink project #4 from acme/web.");
+	});
+});
+
+describe("create_project_field", () => {
+	it("creates a single-select field and surfaces the new option IDs", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = writeStub({
+			createProjectV2Field: {
+				projectV2Field: {
+					id: "PVTSSF_new",
+					name: "Priority",
+					dataType: "SINGLE_SELECT",
+					options: [
+						{ id: "opt_hi", name: "High" },
+						{ id: "opt_lo", name: "Low" },
+					],
+				},
+			},
+		});
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_project_field", {
+			owner: "acme",
+			number: 4,
+			name: "Priority",
+			data_type: "SINGLE_SELECT",
+			options: ["High", "Low"],
+		});
+		expect(calls[1].vars).toEqual({
+			projectId: "PVT_kwAA1",
+			dataType: "SINGLE_SELECT",
+			name: "Priority",
+			singleSelectOptions: [
+				{ name: "High", color: "GRAY", description: "" },
+				{ name: "Low", color: "GRAY", description: "" },
+			],
+		});
+		expect(result.content[0].text).toContain('Created field in project #4 "Roadmap":');
+		expect(result.content[0].text).toContain(
+			"- Priority — SINGLE_SELECT — options: High (`opt_hi`), Low (`opt_lo`) — id: `PVTSSF_new`",
+		);
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("creates a plain TEXT field without options", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = writeStub({
+			createProjectV2Field: {
+				projectV2Field: { id: "PVTF_new", name: "Notes", dataType: "TEXT" },
+			},
+		});
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_project_field", {
+			id: "PVT_kwAA1",
+			name: "Notes",
+			data_type: "TEXT",
+		});
+		expect(calls[1].vars).toEqual({
+			projectId: "PVT_kwAA1",
+			dataType: "TEXT",
+			name: "Notes",
+			singleSelectOptions: undefined,
+		});
+		expect(result.content[0].text).toContain("- Notes — TEXT — id: `PVTF_new`");
+	});
+
+	it("rejects SINGLE_SELECT without options before calling the API", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = writeStub({});
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_project_field", {
+			id: "PVT_kwAA1",
+			name: "Priority",
+			data_type: "SINGLE_SELECT",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("requires `options`");
+		expect(calls).toHaveLength(0);
+	});
+
+	it("rejects options on a non-single-select field before calling the API", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = writeStub({});
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "create_project_field", {
+			id: "PVT_kwAA1",
+			name: "Due",
+			data_type: "DATE",
+			options: ["x"],
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("only applies to SINGLE_SELECT");
+		expect(calls).toHaveLength(0);
+	});
+});
+
+describe("delete_project_field", () => {
+	it("deletes a field by node ID and confirms with its name", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedVars;
+		const octokit = stubOctokit(async (_query, vars) => {
+			capturedVars = vars;
+			return {
+				deleteProjectV2Field: {
+					projectV2Field: { id: "PVTF_1", name: "Priority", dataType: "TEXT" },
+				},
+			};
+		});
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "delete_project_field", { field_id: "PVTF_1" });
+		expect(capturedVars).toEqual({ fieldId: "PVTF_1" });
+		expect(result.content[0].text).toBe('Deleted field "Priority" (TEXT, `PVTF_1`).');
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("errors when the mutation returns no field", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () => ({ deleteProjectV2Field: { projectV2Field: null } }));
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "delete_project_field", { field_id: "PVTF_gone" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to delete field `PVTF_gone`.");
+	});
+});
+
+describe("archive_project_item", () => {
+	it("archives an item", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = writeStub({ archiveProjectV2Item: { item: { id: "PVTI_9" } } });
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "archive_project_item", {
+			owner: "acme",
+			number: 4,
+			item_id: "PVTI_9",
+		});
+		expect(calls[1].query).toContain("archiveProjectV2Item(");
+		expect(calls[1].vars).toEqual({ projectId: "PVT_kwAA1", itemId: "PVTI_9" });
+		expect(result.content[0].text).toBe('Archived item `PVTI_9` in project #4 "Roadmap".');
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("unarchives an item when undo is true", async () => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = writeStub({ unarchiveProjectV2Item: { item: { id: "PVTI_9" } } });
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "archive_project_item", {
+			id: "PVT_kwAA1",
+			item_id: "PVTI_9",
+			undo: true,
+		});
+		expect(calls[1].query).toContain("unarchiveProjectV2Item(");
+		expect(result.content[0].text).toBe('Unarchived item `PVTI_9` in project #4 "Roadmap".');
+	});
+
+	it("errors when the mutation returns no item", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = writeStub({ archiveProjectV2Item: { item: null } });
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "archive_project_item", {
+			id: "PVT_kwAA1",
+			item_id: "PVTI_gone",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to archive item `PVTI_gone` in project #4.");
 	});
 });
