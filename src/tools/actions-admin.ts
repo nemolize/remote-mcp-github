@@ -13,14 +13,20 @@ import {
 import { sealSecret } from "../sealed-box.js";
 import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
-import { formatBytes, maxCharsMessage, RepoTarget, WorkflowId } from "./common.js";
+import { formatBytes, RepoTarget, WorkflowId } from "./common.js";
 
 // GitHub caps a single Actions secret and a single Actions variable value at
 // 48 KB. Mirror that as the app-level input cap so an oversized payload is
 // rejected by schema validation with a clear message instead of an opaque 422
-// after the (pointless) public-key fetch + encryption work.
-export const MAX_SECRET_VALUE_LENGTH = 48_000;
-export const MAX_VARIABLE_VALUE_LENGTH = 48_000;
+// after the (pointless) public-key fetch + encryption work. The limit is in
+// bytes, so measure the UTF-8 encoding, not the character count (a multibyte
+// value can exceed 48 KB well under 48k characters).
+export const MAX_VALUE_BYTES = 48 * 1024;
+
+const withinByteCap = <T extends z.ZodType<string>>(schema: T) =>
+	schema.refine((v) => new TextEncoder().encode(v).length <= MAX_VALUE_BYTES, {
+		message: `value exceeds GitHub's 48 KB (${MAX_VALUE_BYTES}-byte UTF-8) limit.`,
+	});
 
 // Secret and variable names share GitHub's naming rule (alphanumeric + `_`,
 // not starting with a digit, and the `GITHUB_` prefix is reserved). Validated
@@ -75,11 +81,9 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 			inputSchema: {
 				...RepoTarget,
 				secret_name: SecretName.describe("Secret name (e.g. 'DEPLOY_TOKEN')."),
-				value: z
-					.string()
-					.min(1)
-					.max(MAX_SECRET_VALUE_LENGTH, maxCharsMessage("value", MAX_SECRET_VALUE_LENGTH))
-					.describe("Plaintext secret value (encrypted before upload; max 48 KB)."),
+				value: withinByteCap(z.string().min(1)).describe(
+					"Plaintext secret value (encrypted before upload; max 48 KB UTF-8).",
+				),
 			},
 		},
 		async ({ owner, repo, secret_name, value }) =>
@@ -200,10 +204,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 			inputSchema: {
 				...RepoTarget,
 				name: SecretName.describe("Variable name (e.g. 'NODE_VERSION')."),
-				value: z
-					.string()
-					.max(MAX_VARIABLE_VALUE_LENGTH, maxCharsMessage("value", MAX_VARIABLE_VALUE_LENGTH))
-					.describe("Variable value (plaintext; max 48 KB)."),
+				value: withinByteCap(z.string()).describe("Variable value (plaintext; max 48 KB UTF-8)."),
 			},
 		},
 		async ({ owner, repo, name, value }) =>
