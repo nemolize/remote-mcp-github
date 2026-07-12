@@ -32,7 +32,7 @@ const withinByteCap = <T extends z.ZodType<string>>(schema: T) =>
 // not starting with a digit, and the `GITHUB_` prefix is reserved). Validated
 // here so a typo like `MY-SECRET` fails fast with the rule spelled out rather
 // than as a remote 422.
-const SecretName = z
+const ActionsName = z
 	.string()
 	.regex(
 		/^(?!GITHUB_)[A-Z_][A-Z0-9_]*$/i,
@@ -80,7 +80,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 				"Create or update a repository GitHub Actions secret. The value is encrypted client-side (libsodium sealed box against the repo's public key) before upload — GitHub never sees or returns the plaintext, and this tool echoes only the secret's name back, never its value. Use when the user asks to set / rotate an Actions secret. Requires admin access to the repository. Mutates repository configuration.",
 			inputSchema: {
 				...RepoTarget,
-				secret_name: SecretName.describe("Secret name (e.g. 'DEPLOY_TOKEN')."),
+				secret_name: ActionsName.describe("Secret name (e.g. 'DEPLOY_TOKEN')."),
 				value: withinByteCap(z.string().min(1)).describe(
 					"Plaintext secret value (encrypted before upload; max 48 KB UTF-8).",
 				),
@@ -115,7 +115,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 				"Delete a repository GitHub Actions secret by name. Use when the user asks to remove a secret. A name that doesn't exist returns 404. Requires admin access to the repository. Mutates repository configuration.",
 			inputSchema: {
 				...RepoTarget,
-				secret_name: SecretName.describe("Secret name to delete."),
+				secret_name: ActionsName.describe("Secret name to delete."),
 			},
 		},
 		async ({ owner, repo, secret_name }) =>
@@ -173,7 +173,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 				"Fetch a single repository GitHub Actions variable by name: its value and created/updated timestamps. Use when the user asks what a specific variable is set to. Requires admin access to the repository.",
 			inputSchema: {
 				...RepoTarget,
-				name: SecretName.describe("Variable name."),
+				name: ActionsName.describe("Variable name."),
 			},
 		},
 		async ({ owner, repo, name }) =>
@@ -203,7 +203,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 				"Create or update a repository GitHub Actions variable (plaintext, readable by workflows via the `vars` context — use `set_actions_secret` for anything sensitive). Creates the variable if it doesn't exist, updates it otherwise. Requires admin access to the repository. Mutates repository configuration.",
 			inputSchema: {
 				...RepoTarget,
-				name: SecretName.describe("Variable name (e.g. 'NODE_VERSION')."),
+				name: ActionsName.describe("Variable name (e.g. 'NODE_VERSION')."),
 				value: withinByteCap(z.string()).describe("Variable value (plaintext; max 48 KB UTF-8)."),
 			},
 		},
@@ -252,7 +252,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 				"Delete a repository GitHub Actions variable by name. Use when the user asks to remove a variable. A name that doesn't exist returns 404. Requires admin access to the repository. Mutates repository configuration.",
 			inputSchema: {
 				...RepoTarget,
-				name: SecretName.describe("Variable name to delete."),
+				name: ActionsName.describe("Variable name to delete."),
 			},
 		},
 		async ({ owner, repo, name }) =>
