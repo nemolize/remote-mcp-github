@@ -1,10 +1,16 @@
 # remote-mcp-github
 
-A Claude.ai-ready remote MCP server that exposes GitHub as a custom connector, deployed to Cloudflare Workers.
+A Claude.ai-ready remote MCP server that exposes GitHub as a custom connector through a public Cloudflare Workers deployment.
 
 Connect this server in `Claude.ai → Settings → Connectors → Add custom connector` and Claude can list/search/inspect your repositories, read files, fetch PR diffs, and (with `repo` scope) create issues, comment, and branch — all under the user's own GitHub identity via standard OAuth 2.1 / PKCE.
 
-> A public instance maintained by the author is deployed at `https://remote-mcp-github.nemolize.workers.dev`. It is offered on a best-effort basis with no uptime or quota guarantees; self-host (the steps below) for anything you depend on.
+The standard endpoint is the public instance maintained by the author:
+
+```text
+https://remote-mcp-github.nemolize.workers.dev/sse
+```
+
+It is offered on a best-effort basis with no uptime or quota guarantees. Self-host only when you need your own Cloudflare account, quota, operational controls, or OAuth App ownership.
 
 ## Why this server
 
@@ -150,13 +156,56 @@ Each tool call logs the GitHub rate-limit headers (`[github-ratelimit] remaining
 
 `commit_files` reads the branch head and writes it back as a new ref; a concurrent push to the same branch in that window fails with a 422 and is surfaced to the caller to retry (no automatic retry). Its inline `content` (utf-8) path is bound by the Tree API's ~1 MB per-file cap; pass `encoding: "base64"` to upload larger files via the Blob API instead. See the inline comments in `src/tools/files.ts` for detail.
 
-## Prerequisites
+## Setup
+
+### Claude.ai
+
+Use the public endpoint unless you specifically need to operate your own Worker.
+
+1. Open `Claude.ai → Settings → Connectors → Add custom connector`.
+2. Name the connector, for example `remote-mcp-github`.
+3. Set **Remote MCP server URL** to:
+
+   ```text
+   https://remote-mcp-github.nemolize.workers.dev/sse
+   ```
+
+4. Click **Add** and then **Connect**.
+5. Approve the MCP authorization page.
+6. Authorize the GitHub OAuth App.
+
+After the connector is enabled, start a new Claude chat and ask something like _"List my GitHub repositories by most recently updated"_. Claude should call `list_my_repos`.
+
+### What You Authorize
+
+The public instance uses GitHub OAuth. It does not ask you to paste a GitHub token into Claude or into this repository.
+
+The OAuth App currently requests `read:user repo delete_repo gist`:
+
+- `read:user` identifies the authenticated GitHub user.
+- `repo` enables private-repository reads and write tools such as issue comments, branches, pull requests, and commits.
+- `delete_repo` is required only by `delete_repository`.
+- `gist` is required only by the gist tools.
+
+The GitHub access token is encrypted in the Worker's OAuth KV storage and used server-side for GitHub API calls. See [Security notes](#security-notes) for the implementation model.
+
+### When to Self-Host
+
+The public instance is the default path for normal use. Self-host if you need any of these:
+
+- your own uptime, quota, logs, and incident response;
+- a GitHub OAuth App that you control;
+- a different GitHub OAuth scope set;
+- Worker-level policy changes such as allowed origins, username restrictions, or extra audit handling;
+- private experimentation before exposing a modified tool surface.
+
+## Self-Hosting Setup
+
+### Prerequisites
 
 - A Cloudflare account with the `wrangler` CLI authenticated (`pnpm dlx wrangler@latest login`)
 - Permission to create [GitHub OAuth Apps](https://github.com/settings/developers)
 - Node.js 22+ and `pnpm`
-
-## Setup
 
 ### 1. Clone and install
 
@@ -238,7 +287,7 @@ Verify:
 curl https://remote-mcp-github.<your-subdomain>.workers.dev/.well-known/oauth-authorization-server
 ```
 
-### 8. Register with Claude.ai
+### 8. Register your self-hosted Worker with Claude.ai
 
 1. Open `Claude.ai → Settings → Connectors → Add custom connector`
 2. Name: anything (e.g. `remote-mcp-github`)
