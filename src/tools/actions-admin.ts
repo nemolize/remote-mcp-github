@@ -134,7 +134,12 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 		{
 			description:
 				"List a repository's GitHub Actions variables (name, value, created/updated timestamps). Unlike secrets, variable values are plaintext and are returned. Use to inspect repo-level configuration values workflows read via the `vars` context. Requires admin access to the repository.",
-			inputSchema: { ...RepoTarget, ...REST_PAGINATION },
+			inputSchema: {
+				...RepoTarget,
+				...REST_PAGINATION,
+				// The variables endpoint caps per_page at 30 (unlike the usual 100).
+				per_page: z.number().int().min(1).max(30).optional().default(30),
+			},
 		},
 		async ({ owner, repo, per_page, page }) =>
 			wrapTool(async () => {
