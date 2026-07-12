@@ -140,6 +140,9 @@ describe("MCP transport E2E", () => {
 			"submit_pending_pr_review", // pulls write (pending review lifecycle)
 			"delete_pending_pr_review", // pulls write (pending review lifecycle)
 			"search_code", // search
+			"search_users", // search
+			"search_orgs", // search
+			"search_pull_requests", // search
 			"list_workflow_runs", // actions
 			"get_secret_scanning_alert", // security scanning
 			"get_code_scanning_alert", // security scanning
