@@ -602,6 +602,14 @@ const WRITE_TOOLS = [
 		{ owner: "o", repo: "r", cache_id: 42 },
 		{ owner: "o", repo: "r", cache_id: 42 },
 	],
+	// Same tool, key-deletion branch — audits cache_key + the scoping ref
+	// instead of cache_id.
+	[
+		registerActionAdminTools,
+		"delete_actions_cache",
+		{ owner: "o", repo: "r", key: "pnpm-store", ref: "refs/heads/main" },
+		{ owner: "o", repo: "r", cache_key: "pnpm-store", ref: "refs/heads/main" },
+	],
 	[
 		registerActionAdminTools,
 		"enable_workflow",
