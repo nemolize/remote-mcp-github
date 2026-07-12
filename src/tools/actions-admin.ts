@@ -357,7 +357,9 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 				);
 				logRateLimit(headers);
 				// `ref` distinguishes a ref-scoped eviction from an all-refs one.
-				logWrite({ tool: "delete_actions_cache", owner, repo, cache_key: key, ref });
+				logWrite(
+					stripUndefined({ tool: "delete_actions_cache", owner, repo, cache_key: key, ref }),
+				);
 				const count = data.total_count ?? data.actions_caches?.length ?? 0;
 				return text(
 					`# Actions cache deleted\n\n- ${count} cache(s) with key \`${key}\`${ref != null ? ` on \`${ref}\`` : ""} removed from ${owner}/${repo}`,
