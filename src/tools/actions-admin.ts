@@ -161,6 +161,8 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 					count: data.variables.length,
 					page,
 					hasMore,
+					// This endpoint's per_page cap (mirrored by the schema above).
+					maxPerPage: 30,
 				});
 				return text(truncate(`${header}\n\n${lines.join("\n")}`));
 			}),
