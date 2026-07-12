@@ -228,8 +228,12 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 					action = "updated";
 				}
 				logWrite({ tool: "set_actions_variable", owner, repo, variable_name: name });
+				// `value` can be up to the 48 KB cap — truncate keeps the confirmation
+				// within the response budget like every other value-echoing tool.
 				return text(
-					`# Actions variable ${action}\n\n- \`${name}\` in ${owner}/${repo} ${action} (value: \`${value}\`)`,
+					truncate(
+						`# Actions variable ${action}\n\n- \`${name}\` in ${owner}/${repo} ${action} (value: \`${value}\`)`,
+					),
 				);
 			}),
 	);
