@@ -178,6 +178,10 @@ export type WriteAuditFields = {
 	run_id?: number;
 	workflow_id?: number | string; // trigger_workflow_dispatch
 	ref?: string; // trigger_workflow_dispatch
+	secret_name?: string; // set_actions_secret / delete_actions_secret
+	variable_name?: string; // set_actions_variable / delete_actions_variable
+	cache_id?: number; // delete_actions_cache (by ID)
+	cache_key?: string; // delete_actions_cache (by key)
 	release_id?: number; // create_release / update_release / delete_release
 	tag_name?: string; // create_release
 	gist_id?: string; // create_gist / update_gist / delete_gist
