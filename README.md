@@ -180,12 +180,13 @@ After the connector is enabled, start a new Claude chat and ask something like _
 
 The public instance uses GitHub OAuth. It does not ask you to paste a GitHub token into Claude or into this repository.
 
-The OAuth App currently requests `read:user repo delete_repo gist`:
+The OAuth App currently requests `read:user repo delete_repo gist project`:
 
 - `read:user` identifies the authenticated GitHub user.
 - `repo` enables private-repository reads and write tools such as issue comments, branches, pull requests, and commits.
 - `delete_repo` is required only by `delete_repository`.
 - `gist` is required only by the gist tools.
+- `project` covers the GitHub Projects (v2) tools — reads (`list_projects`, `get_project`, `list_project_items`, `list_project_fields`) and writes (`add_project_item`, `remove_project_item`, `update_project_item_field`, `create_project_draft_item`).
 
 The GitHub access token is encrypted in the Worker's OAuth KV storage and used server-side for GitHub API calls. See [Security notes](#security-notes) for the implementation model.
 
