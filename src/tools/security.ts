@@ -49,7 +49,9 @@ export const registerSecurityTools = (server: McpServer, client: OctokitFactory)
 				const created = data.created_at ?? "(unknown date)";
 				const updated = data.updated_at ?? "(unknown date)";
 				return text(
-					`${alertLead(data.number, data.state)}${resolution} — ${type}\n\nCreated: ${created}\nUpdated: ${updated}`,
+					truncate(
+						`${alertLead(data.number, data.state)}${resolution} — ${type}\n\nCreated: ${created}\nUpdated: ${updated}`,
+					),
 				);
 			}),
 	);
@@ -81,7 +83,9 @@ export const registerSecurityTools = (server: McpServer, client: OctokitFactory)
 						? `${location.path}${location.start_line != null ? `:${location.start_line}` : ""}`
 						: "(unknown location)";
 				return text(
-					`${alertLead(data.number, data.state)} — \`${rule}\` (${severity}), ${tool}\n\nLocation: ${where}`,
+					truncate(
+						`${alertLead(data.number, data.state)} — \`${rule}\` (${severity}), ${tool}\n\nLocation: ${where}`,
+					),
 				);
 			}),
 	);
@@ -114,7 +118,9 @@ export const registerSecurityTools = (server: McpServer, client: OctokitFactory)
 				const ghsa = advisory?.ghsa_id ?? "(no GHSA)";
 				const summary = advisory?.summary ?? "(no summary)";
 				return text(
-					`${alertLead(data.number, data.state)} — ${packageName} (${severity})\n\nAdvisory: \`${ghsa}\` — ${summary}`,
+					truncate(
+						`${alertLead(data.number, data.state)} — ${packageName} (${severity})\n\nAdvisory: \`${ghsa}\` — ${summary}`,
+					),
 				);
 			}),
 	);
