@@ -159,6 +159,15 @@ describe("MCP transport E2E", () => {
 			"remove_project_item", // projects write
 			"update_project_item_field", // projects write
 			"create_project_draft_item", // projects write
+			"create_project", // projects write
+			"update_project", // projects write
+			"delete_project", // projects write
+			"copy_project", // projects write
+			"link_project_to_repository", // projects write
+			"unlink_project_from_repository", // projects write
+			"create_project_field", // projects write
+			"delete_project_field", // projects write
+			"archive_project_item", // projects write
 			"list_discussions", // discussions read
 			"list_discussion_categories", // discussions read
 			"get_discussion", // discussions read

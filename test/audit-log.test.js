@@ -363,6 +363,63 @@ const wideOctokit = () => {
 		// The GraphQL-backed tools share one function, so dispatch on the query
 		// text: project writes resolve the project first, then mutate.
 		graphql: async (query) => {
+			if (query.includes("createProjectV2(")) {
+				return {
+					createProjectV2: {
+						projectV2: { id: "PVT_1", number: 4, title: "Roadmap", owner: { login: "o" } },
+					},
+				};
+			}
+			if (query.includes("updateProjectV2(")) {
+				return { updateProjectV2: { projectV2: { id: "PVT_1", number: 4, title: "Roadmap" } } };
+			}
+			if (query.includes("deleteProjectV2(")) {
+				return { deleteProjectV2: { projectV2: { id: "PVT_1", number: 4, title: "Roadmap" } } };
+			}
+			if (query.includes("copyProjectV2(")) {
+				return {
+					copyProjectV2: {
+						projectV2: { id: "PVT_2", number: 5, title: "Copy", owner: { login: "o" } },
+					},
+				};
+			}
+			if (query.includes("linkProjectV2ToRepository(")) {
+				return { linkProjectV2ToRepository: { repository: { nameWithOwner: "o/r" } } };
+			}
+			if (query.includes("unlinkProjectV2FromRepository(")) {
+				return { unlinkProjectV2FromRepository: { repository: { nameWithOwner: "o/r" } } };
+			}
+			if (query.includes("createProjectV2Field(")) {
+				return {
+					createProjectV2Field: {
+						projectV2Field: { id: "PVTF_1", name: "f", dataType: "TEXT" },
+					},
+				};
+			}
+			if (query.includes("deleteProjectV2Field(")) {
+				return {
+					deleteProjectV2Field: {
+						projectV2Field: {
+							id: "PVTF_1",
+							name: "f",
+							dataType: "TEXT",
+							project: { id: "PVT_1", owner: { login: "o" } },
+						},
+					},
+				};
+			}
+			if (query.includes("archiveProjectV2Item(")) {
+				return { archiveProjectV2Item: { item: { id: "PVTI_1" } } };
+			}
+			if (query.includes("viewer { id login }")) {
+				return { viewer: { id: "U_1", login: "o" } };
+			}
+			if (query.includes("repositoryOwner(login: $owner) { id login }")) {
+				return { repositoryOwner: { id: "U_1", login: "o" } };
+			}
+			if (query.includes("repository(owner: $owner, name: $name)")) {
+				return { repository: { id: "R_1", nameWithOwner: "o/r" } };
+			}
 			if (query.includes("addProjectV2ItemById")) {
 				return {
 					addProjectV2ItemById: {
@@ -530,6 +587,60 @@ const WRITE_TOOLS = [
 		"create_project_draft_item",
 		{ owner: "o", number: 4, title: "t" },
 		{ owner: "o", project_id: "PVT_1", item_id: "PVTI_1" },
+	],
+	[
+		registerProjectTools,
+		"create_project",
+		{ owner: "o", title: "t" },
+		{ owner: "o", project_id: "PVT_1" },
+	],
+	[
+		registerProjectTools,
+		"update_project",
+		{ owner: "o", number: 4, title: "t" },
+		{ owner: "o", project_id: "PVT_1" },
+	],
+	[
+		registerProjectTools,
+		"delete_project",
+		{ owner: "o", number: 4 },
+		{ owner: "o", project_id: "PVT_1" },
+	],
+	[
+		registerProjectTools,
+		"copy_project",
+		{ owner: "o", number: 4, title: "t" },
+		{ owner: "o", project_id: "PVT_2", source_project_id: "PVT_1" },
+	],
+	[
+		registerProjectTools,
+		"link_project_to_repository",
+		{ owner: "o", number: 4, repo_owner: "o", repo: "r" },
+		{ owner: "o", repo: "r", project_id: "PVT_1" },
+	],
+	[
+		registerProjectTools,
+		"unlink_project_from_repository",
+		{ owner: "o", number: 4, repo_owner: "o", repo: "r" },
+		{ owner: "o", repo: "r", project_id: "PVT_1" },
+	],
+	[
+		registerProjectTools,
+		"create_project_field",
+		{ owner: "o", number: 4, name: "f", data_type: "TEXT" },
+		{ owner: "o", project_id: "PVT_1", field_id: "PVTF_1" },
+	],
+	[
+		registerProjectTools,
+		"delete_project_field",
+		{ field_id: "PVTF_1" },
+		{ owner: "o", project_id: "PVT_1", field_id: "PVTF_1" },
+	],
+	[
+		registerProjectTools,
+		"archive_project_item",
+		{ owner: "o", number: 4, item_id: "PVTI_1" },
+		{ owner: "o", project_id: "PVT_1", item_id: "PVTI_1", action: "archive" },
 	],
 ];
 

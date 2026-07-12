@@ -186,6 +186,8 @@ export type WriteAuditFields = {
 	comment_id?: number; // add_pr_review_comment_reply
 	review_id?: number; // create_pr_review
 	project_id?: string; // Projects v2 mutations (`PVT_...`; no repo at the call boundary)
+	source_project_id?: string; // copy_project (the project the copy was made from)
+	action?: string; // archive_project_item ("archive" | "unarchive")
 	item_id?: string; // project item mutations (`PVTI_...`)
 	field_id?: string; // update_project_item_field
 	content_id?: string; // add_project_item (the added issue/PR node ID)
