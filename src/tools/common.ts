@@ -113,3 +113,23 @@ export const MAX_TOTAL_COMMIT_CONTENT_LENGTH = 5_000_000;
 /** Standard validation message for a character-count cap (`<label> exceeds the <max>-character limit.`). */
 export const maxCharsMessage = (label: string, max: number): string =>
 	`${label} exceeds the ${max}-character limit.`;
+
+// `workflow_id` accepts either a filename (`ci.yml`) or a numeric ID, matching
+// GitHub's own polymorphism (shared by the Actions run tools and the Actions
+// admin tools). The per-use-site `.describe()` carries the field documentation.
+export const WorkflowId = z.union([z.number().int().positive(), z.string().min(1)]);
+
+// Byte counts span bytes to gigabytes (artifacts, caches); a binary-prefixed
+// rendering keeps list lines readable at every scale (raw byte counts are
+// unreadable past ~1 MiB).
+export const formatBytes = (bytes: number): string => {
+	if (bytes < 1024) return `${bytes} B`;
+	const units = ["KiB", "MiB", "GiB", "TiB"];
+	let value = bytes / 1024;
+	let unit = 0;
+	while (value >= 1024 && unit < units.length - 1) {
+		value /= 1024;
+		unit += 1;
+	}
+	return `${value.toFixed(1)} ${units[unit]}`;
+};

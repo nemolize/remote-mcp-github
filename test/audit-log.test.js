@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { logWrite } from "../src/mcp/response.js";
 import { registerActionTools } from "../src/tools/actions.js";
+import { registerActionAdminTools } from "../src/tools/actions-admin.js";
 import { registerBranchTools } from "../src/tools/branches.js";
 import { registerFileTools } from "../src/tools/files.js";
 import { registerGistTools } from "../src/tools/gists.js";
@@ -335,6 +336,21 @@ const wideOctokit = () => {
 				reRunWorkflowFailedJobs: ok({}),
 				cancelWorkflowRun: ok({}),
 				createWorkflowDispatch: ok({}),
+				// set_actions_secret: a real 32-byte X25519 public key (base64) so the
+				// sealed-box encryption inside the handler succeeds.
+				getRepoPublicKey: ok({
+					key_id: "key-1",
+					key: btoa(String.fromCharCode(...new Uint8Array(32).fill(1))),
+				}),
+				createOrUpdateRepoSecret: async () => ({ data: {}, headers: {}, status: 201 }),
+				deleteRepoSecret: ok({}),
+				createRepoVariable: ok({}),
+				updateRepoVariable: ok({}),
+				deleteRepoVariable: ok({}),
+				deleteActionsCacheById: ok({}),
+				deleteActionsCacheByKey: ok({ total_count: 1, actions_caches: [{}] }),
+				enableWorkflow: ok({}),
+				disableWorkflow: ok({}),
 			},
 			gists: {
 				create: ok({
@@ -555,6 +571,56 @@ const WRITE_TOOLS = [
 		registerActionTools,
 		"trigger_workflow_dispatch",
 		{ owner: "o", repo: "r", workflow_id: "ci.yml", ref: "main" },
+	],
+	[
+		registerActionAdminTools,
+		"set_actions_secret",
+		{ owner: "o", repo: "r", secret_name: "MY_SECRET", value: "v" },
+		{ owner: "o", repo: "r", secret_name: "MY_SECRET" },
+	],
+	[
+		registerActionAdminTools,
+		"delete_actions_secret",
+		{ owner: "o", repo: "r", secret_name: "MY_SECRET" },
+		{ owner: "o", repo: "r", secret_name: "MY_SECRET" },
+	],
+	[
+		registerActionAdminTools,
+		"set_actions_variable",
+		{ owner: "o", repo: "r", name: "MY_VAR", value: "v" },
+		{ owner: "o", repo: "r", variable_name: "MY_VAR" },
+	],
+	[
+		registerActionAdminTools,
+		"delete_actions_variable",
+		{ owner: "o", repo: "r", name: "MY_VAR" },
+		{ owner: "o", repo: "r", variable_name: "MY_VAR" },
+	],
+	[
+		registerActionAdminTools,
+		"delete_actions_cache",
+		{ owner: "o", repo: "r", cache_id: 42 },
+		{ owner: "o", repo: "r", cache_id: 42 },
+	],
+	// Same tool, key-deletion branch — audits cache_key + the scoping ref
+	// instead of cache_id.
+	[
+		registerActionAdminTools,
+		"delete_actions_cache",
+		{ owner: "o", repo: "r", key: "pnpm-store", ref: "refs/heads/main" },
+		{ owner: "o", repo: "r", cache_key: "pnpm-store", ref: "refs/heads/main" },
+	],
+	[
+		registerActionAdminTools,
+		"enable_workflow",
+		{ owner: "o", repo: "r", workflow_id: "ci.yml" },
+		{ owner: "o", repo: "r", workflow_id: "ci.yml" },
+	],
+	[
+		registerActionAdminTools,
+		"disable_workflow",
+		{ owner: "o", repo: "r", workflow_id: "ci.yml" },
+		{ owner: "o", repo: "r", workflow_id: "ci.yml" },
 	],
 	[registerRepoTools, "create_repository", { name: "r" }],
 	[registerRepoTools, "fork_repository", { owner: "o", repo: "r" }],

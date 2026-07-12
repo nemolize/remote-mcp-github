@@ -7,8 +7,12 @@ export const MAX_RESPONSE_CHARS = 8000;
 
 // How the caller fetches the next page once `hasMore` is true. All REST list
 // endpoints here share `page` / `per_page` semantics, so the instruction is the
-// same everywhere — a single constant keeps the wording identical across tools.
-const REST_NEXT_PAGE_HINT = "pass next `page` or raise `per_page` up to 100";
+// same everywhere — a single template keeps the wording identical across tools.
+// `maxPerPage` is almost always GitHub's usual 100; endpoints with a lower cap
+// (e.g. Actions variables at 30) pass theirs so the hint never instructs a
+// `per_page` the schema would reject.
+const restNextPageHint = (maxPerPage: number): string =>
+	`pass next \`page\` or raise \`per_page\` up to ${maxPerPage}`;
 
 // Builds the `# Title (...)` header line for a REST page-based list tool, folding
 // the "more results available" hint into the parenthetical when there is a next
@@ -21,14 +25,16 @@ export const restListHeader = ({
 	count,
 	page,
 	hasMore,
+	maxPerPage = 100,
 }: {
 	title: string;
 	count: number;
 	page?: number | undefined;
 	hasMore: boolean;
+	maxPerPage?: number;
 }): string =>
 	hasMore
-		? `# ${title} (page ${page ?? 1}, ${count} shown; more available — ${REST_NEXT_PAGE_HINT})`
+		? `# ${title} (page ${page ?? 1}, ${count} shown; more available — ${restNextPageHint(maxPerPage)})`
 		: `# ${title} (${count})`;
 
 // Builds the trailing "more results" suffix for a cursor (GraphQL) based list
@@ -176,8 +182,12 @@ export type WriteAuditFields = {
 	issue_number?: number;
 	pull_number?: number;
 	run_id?: number;
-	workflow_id?: number | string; // trigger_workflow_dispatch
-	ref?: string; // trigger_workflow_dispatch
+	workflow_id?: number | string; // trigger_workflow_dispatch, enable_workflow / disable_workflow
+	ref?: string; // trigger_workflow_dispatch, delete_actions_cache (by key, ref-scoped)
+	secret_name?: string; // set_actions_secret / delete_actions_secret
+	variable_name?: string; // set_actions_variable / delete_actions_variable
+	cache_id?: number; // delete_actions_cache (by ID)
+	cache_key?: string; // delete_actions_cache (by key)
 	release_id?: number; // create_release / update_release / delete_release
 	tag_name?: string; // create_release
 	gist_id?: string; // create_gist / update_gist / delete_gist

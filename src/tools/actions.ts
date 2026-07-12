@@ -13,7 +13,7 @@ import {
 } from "../mcp/response.js";
 import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
-import { RepoTarget } from "./common.js";
+import { formatBytes, RepoTarget, WorkflowId } from "./common.js";
 
 // A run / job carries a `status` (lifecycle) and, once finished, a
 // `conclusion` (outcome). Surfacing them together as one token is what the
@@ -21,27 +21,6 @@ import { RepoTarget } from "./common.js";
 // human-facing label: the conclusion when present, else the in-flight status.
 const outcomeOf = (status: string | null, conclusion: string | null): string =>
 	conclusion ?? status ?? "(unknown)";
-
-// `workflow_id` accepts either a filename (`ci.yml`) or a numeric ID, matching
-// GitHub's own polymorphism. Octokit types the path param as `number`, but the
-// REST endpoint resolves a filename string too, so a string is forwarded as-is.
-// The per-use-site `.describe()` carries the field documentation (its sole use
-// re-describes it), so none is set here.
-const WorkflowId = z.union([z.number().int().positive(), z.string().min(1)]);
-
-// Artifact sizes span bytes to gigabytes; a binary-prefixed rendering keeps the
-// list line readable at every scale (raw byte counts are unreadable past ~1 MiB).
-const formatBytes = (bytes: number): string => {
-	if (bytes < 1024) return `${bytes} B`;
-	const units = ["KiB", "MiB", "GiB", "TiB"];
-	let value = bytes / 1024;
-	let unit = 0;
-	while (value >= 1024 && unit < units.length - 1) {
-		value /= 1024;
-		unit += 1;
-	}
-	return `${value.toFixed(1)} ${units[unit]}`;
-};
 
 export const registerActionTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
