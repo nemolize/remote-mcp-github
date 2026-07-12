@@ -23,13 +23,14 @@ export const MAX_SECRET_VALUE_LENGTH = 48_000;
 export const MAX_VARIABLE_VALUE_LENGTH = 48_000;
 
 // Secret and variable names share GitHub's naming rule (alphanumeric + `_`,
-// not starting with a digit). Validated here so a typo like `MY-SECRET` fails
-// fast with the rule spelled out rather than as a remote 422.
+// not starting with a digit, and the `GITHUB_` prefix is reserved). Validated
+// here so a typo like `MY-SECRET` fails fast with the rule spelled out rather
+// than as a remote 422.
 const SecretName = z
 	.string()
 	.regex(
-		/^[A-Za-z_][A-Za-z0-9_]*$/,
-		"Name must contain only alphanumeric characters or underscores and must not start with a digit.",
+		/^(?!GITHUB_)[A-Z_][A-Z0-9_]*$/i,
+		"Name must contain only alphanumeric characters or underscores, must not start with a digit, and must not use the reserved GITHUB_ prefix.",
 	);
 
 const REST_PAGINATION = {
