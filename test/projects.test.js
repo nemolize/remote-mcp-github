@@ -1385,3 +1385,92 @@ describe("archive_project_item", () => {
 		expect(result.content[0].text).toContain("Failed to archive item `PVTI_gone` in project #4.");
 	});
 });
+
+// Every project-ref-taking write tool must reject an ambiguous ref (both `id`
+// and `owner` + `number`) before any API call — including before its own
+// secondary validation (update_project's no-op check and create_project_field's
+// options check deliberately trip here too, proving the ref-error precedence
+// the handlers claim).
+describe("write tools reject an ambiguous project ref before calling the API", () => {
+	it.each([
+		// update_project: no change fields supplied → ref error must still win.
+		["update_project", {}],
+		["delete_project", {}],
+		["copy_project", { title: "t" }],
+		["link_project_to_repository", { repo_owner: "acme", repo: "web" }],
+		["unlink_project_from_repository", { repo_owner: "acme", repo: "web" }],
+		// create_project_field: SINGLE_SELECT without options → ref error must still win.
+		["create_project_field", { name: "f", data_type: "SINGLE_SELECT" }],
+		["archive_project_item", { item_id: "PVTI_1" }],
+	])("%s", async (toolName, extraParams) => {
+		const { handlers, server } = captureHandlers();
+		const { calls, octokit } = writeStub({});
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, toolName, {
+			id: "PVT_kwAA1",
+			owner: "acme",
+			number: 4,
+			...extraParams,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("not both");
+		expect(calls).toHaveLength(0);
+	});
+});
+
+describe("list_project_items archived visibility", () => {
+	const archivedItem = {
+		id: "PVTI_arch",
+		type: "ISSUE",
+		isArchived: true,
+		fieldValueByName: null,
+		content: {
+			title: "Old task",
+			number: 2,
+			repository: { nameWithOwner: "acme/web" },
+			assignees: { totalCount: 0, nodes: [] },
+		},
+	};
+
+	it("omits archivedStates by default so the API-side NOT_ARCHIVED default applies", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedVars;
+		const octokit = stubOctokit(async (_query, vars) => {
+			capturedVars = vars;
+			return { repositoryOwner: { projectV2: { number: 4, title: "Roadmap", items: page([]) } } };
+		});
+		registerProjectTools(server, () => octokit);
+
+		await invoke(handlers, "list_project_items", { owner: "acme", number: 4, per_page: 30 });
+		expect(capturedVars).toEqual({ owner: "acme", number: 4, first: 30, after: undefined });
+		expect("archivedStates" in capturedVars ? capturedVars.archivedStates : undefined).toBe(
+			undefined,
+		);
+	});
+
+	it("passes both archived states and marks archived rows when include_archived is true", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedVars;
+		const octokit = stubOctokit(async (_query, vars) => {
+			capturedVars = vars;
+			return {
+				repositoryOwner: {
+					projectV2: { number: 4, title: "Roadmap", items: page([archivedItem]) },
+				},
+			};
+		});
+		registerProjectTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_project_items", {
+			owner: "acme",
+			number: 4,
+			per_page: 30,
+			include_archived: true,
+		});
+		expect(capturedVars.archivedStates).toEqual(["ARCHIVED", "NOT_ARCHIVED"]);
+		expect(result.content[0].text).toContain(
+			"- ISSUE — Old task (acme/web#2) — archived — id: `PVTI_arch`",
+		);
+	});
+});

@@ -399,7 +399,12 @@ const wideOctokit = () => {
 			if (query.includes("deleteProjectV2Field(")) {
 				return {
 					deleteProjectV2Field: {
-						projectV2Field: { id: "PVTF_1", name: "f", dataType: "TEXT" },
+						projectV2Field: {
+							id: "PVTF_1",
+							name: "f",
+							dataType: "TEXT",
+							project: { id: "PVT_1", owner: { login: "o" } },
+						},
 					},
 				};
 			}
@@ -605,7 +610,7 @@ const WRITE_TOOLS = [
 		registerProjectTools,
 		"copy_project",
 		{ owner: "o", number: 4, title: "t" },
-		{ owner: "o", project_id: "PVT_2" },
+		{ owner: "o", project_id: "PVT_2", source_project_id: "PVT_1" },
 	],
 	[
 		registerProjectTools,
@@ -625,12 +630,17 @@ const WRITE_TOOLS = [
 		{ owner: "o", number: 4, name: "f", data_type: "TEXT" },
 		{ owner: "o", project_id: "PVT_1", field_id: "PVTF_1" },
 	],
-	[registerProjectTools, "delete_project_field", { field_id: "PVTF_1" }, { field_id: "PVTF_1" }],
+	[
+		registerProjectTools,
+		"delete_project_field",
+		{ field_id: "PVTF_1" },
+		{ owner: "o", project_id: "PVT_1", field_id: "PVTF_1" },
+	],
 	[
 		registerProjectTools,
 		"archive_project_item",
 		{ owner: "o", number: 4, item_id: "PVTI_1" },
-		{ owner: "o", project_id: "PVT_1", item_id: "PVTI_1" },
+		{ owner: "o", project_id: "PVT_1", item_id: "PVTI_1", action: "archive" },
 	],
 ];
 

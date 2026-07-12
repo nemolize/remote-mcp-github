@@ -44,6 +44,7 @@ type ProjectFieldNode = {
 type ProjectItemNode = {
 	id: string;
 	type: string;
+	isArchived: boolean;
 	fieldValueByName: { name?: string } | null;
 	content: {
 		title?: string;
@@ -111,15 +112,18 @@ const PROJECT_FIELDS_SELECTION = `
 
 // `fieldValueByName("Status")` targets the default single-select Status column;
 // a project that renamed it simply renders no status segment.
+// `archivedStates` defaults to [NOT_ARCHIVED] on the API side; the variable is
+// only supplied when the caller opts in to seeing archived items.
 const PROJECT_ITEMS_SELECTION = `
 	number
 	title
-	items(first: $first, after: $after) {
+	items(first: $first, after: $after, archivedStates: $archivedStates) {
 		totalCount
 		pageInfo { hasNextPage endCursor }
 		nodes {
 			id
 			type
+			isArchived
 			fieldValueByName(name: "Status") {
 				... on ProjectV2ItemFieldSingleSelectValue { name }
 			}
@@ -147,6 +151,9 @@ const PROJECT_ITEMS_SELECTION = `
 
 /** Pagination variable declarations appended to a list tool's query signature. */
 const PAGINATION_VARS = ", $first: Int!, $after: String";
+
+/** Extra variable declaration for list_project_items' archived-state opt-in. */
+const ARCHIVED_STATES_VAR = ", $archivedStates: [ProjectV2ItemArchivedState!]";
 
 /**
  * Build the by-node-ID and by-owner+number query pair around a shared
@@ -405,10 +412,23 @@ const CREATE_PROJECT_FIELD_MUTATION = `
 	}
 `;
 
+// The deleted field's parent project is selected so the audit line carries
+// owner + project context — an irreversible mutation deserves a full trail.
 const DELETE_PROJECT_FIELD_MUTATION = `
 	mutation ($fieldId: ID!) {
 		deleteProjectV2Field(input: { fieldId: $fieldId }) {
-			projectV2Field { ${FIELD_RESULT_SELECTION} }
+			projectV2Field {
+				${FIELD_RESULT_SELECTION}
+				... on ProjectV2FieldCommon {
+					project {
+						id
+						owner {
+							... on User { login }
+							... on Organization { login }
+						}
+					}
+				}
+			}
 		}
 	}
 `;
@@ -562,9 +582,12 @@ const itemLine = (item: ProjectItemNode): string => {
 	const total = item.content?.assignees?.totalCount ?? assigneeList.length;
 	const overflow = total > assigneeList.length ? ` +${total - assigneeList.length} more` : "";
 	const assigneeSuffix = assignees === "" ? "" : ` — ${assignees}${overflow}`;
+	// The archived marker keeps archived rows (surfaced via include_archived)
+	// distinguishable — their node ID is what archive_project_item's undo needs.
+	const archived = item.isArchived ? " — archived" : "";
 	// The trailing item node ID is what remove_project_item and
 	// update_project_item_field expect as `item_id`.
-	return `- ${item.type} — ${title}${ref}${status}${assigneeSuffix} — id: \`${item.id}\``;
+	return `- ${item.type} — ${title}${ref}${status}${assigneeSuffix}${archived} — id: \`${item.id}\``;
 };
 
 export const registerProjectTools = (server: McpServer, client: OctokitFactory): void => {
@@ -682,17 +705,29 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		"list_project_items",
 		{
 			description:
-				"List the items on a GitHub Project (v2) board — one row per item with its content type (ISSUE / PULL_REQUEST / DRAFT_ISSUE), title, linked `owner/repo#number` where applicable, Status field value, assignees, and item node ID (`PVTI_...`, usable as remove_project_item / update_project_item_field's `item_id`). Identify the project by `owner` + `number`, or by node ID (`id`). Cursor pagination via `cursor`. Requires the `read:project` scope.",
-			inputSchema: { ...ProjectRefSchema, ...PaginationSchema },
+				"List the items on a GitHub Project (v2) board — one row per item with its content type (ISSUE / PULL_REQUEST / DRAFT_ISSUE), title, linked `owner/repo#number` where applicable, Status field value, assignees, and item node ID (`PVTI_...`, usable as remove_project_item / update_project_item_field's `item_id`). Archived items are hidden by default; pass `include_archived: true` to list them too (marked `archived` — their node ID is what archive_project_item's `undo` needs). Identify the project by `owner` + `number`, or by node ID (`id`). Cursor pagination via `cursor`. Requires the `read:project` scope.",
+			inputSchema: {
+				...ProjectRefSchema,
+				...PaginationSchema,
+				include_archived: z
+					.boolean()
+					.optional()
+					.describe("Also list archived items (marked `archived` in the output)."),
+			},
 		},
-		async ({ owner, number, id, per_page, cursor }) =>
+		async ({ owner, number, id, per_page, cursor, include_archived }) =>
 			wrapTool(async () => {
 				type ItemsProject = { number: number; title: string; items: Page<ProjectItemNode> };
 				const resolved = await resolveProject<ItemsProject>(
 					client(),
 					{ id, owner, number },
-					projectQueryPair(PROJECT_ITEMS_SELECTION, PAGINATION_VARS),
-					{ first: per_page, after: cursor },
+					projectQueryPair(PROJECT_ITEMS_SELECTION, PAGINATION_VARS + ARCHIVED_STATES_VAR),
+					{
+						first: per_page,
+						after: cursor,
+						// Omitted → the argument-level default ([NOT_ARCHIVED]) applies.
+						archivedStates: include_archived === true ? ["ARCHIVED", "NOT_ARCHIVED"] : undefined,
+					},
 				);
 				if ("error" in resolved) return resolved.error;
 				const { project } = resolved;
@@ -1115,6 +1150,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 						tool: "copy_project",
 						owner: copy.owner?.login ?? ownerNode.login,
 						project_id: copy.id,
+						source_project_id: project.id,
 					}),
 				);
 				return text(
@@ -1124,22 +1160,30 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 	);
 
 	// link / unlink share everything but the mutation and the verb — register
-	// them from one loop so the repo-resolution prologue lives once.
-	for (const [toolName, mutation, verb, preposition, summary] of [
-		[
-			"link_project_to_repository",
-			LINK_PROJECT_MUTATION,
-			"link",
-			"to",
-			"Link a GitHub Project (v2) to a repository so the project appears in the repository's Projects tab.",
-		],
-		[
-			"unlink_project_from_repository",
-			UNLINK_PROJECT_MUTATION,
-			"unlink",
-			"from",
-			"Unlink a GitHub Project (v2) from a repository, removing it from the repository's Projects tab.",
-		],
+	// them from one loop so the repo-resolution prologue lives once. They stay
+	// two sibling tools (rather than one tool with an `unlink` flag, the shape
+	// archive_project_item uses for undo) to match the `gh project link` /
+	// `gh project unlink` subcommand split — each verb keeps its own
+	// discoverable identity in the tool list.
+	for (const { toolName, mutation, verb, pastTense, preposition, summary } of [
+		{
+			toolName: "link_project_to_repository",
+			mutation: LINK_PROJECT_MUTATION,
+			verb: "link",
+			pastTense: "Linked",
+			preposition: "to",
+			summary:
+				"Link a GitHub Project (v2) to a repository so the project appears in the repository's Projects tab.",
+		},
+		{
+			toolName: "unlink_project_from_repository",
+			mutation: UNLINK_PROJECT_MUTATION,
+			verb: "unlink",
+			pastTense: "Unlinked",
+			preposition: "from",
+			summary:
+				"Unlink a GitHub Project (v2) from a repository, removing it from the repository's Projects tab.",
+		},
 	] as const) {
 		server.registerTool(
 			toolName,
@@ -1177,16 +1221,18 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 							`Failed to ${verb} project #${project.number} ${preposition} ${repo_owner}/${repo}.`,
 						);
 					}
+					// `owner` is the project owner, matching every sibling project write;
+					// the linked repository is identified by its own `repo` field.
 					logWrite(
 						stripUndefined({
 							tool: toolName,
-							owner: repo_owner,
+							owner: project.owner?.login,
 							repo,
 							project_id: project.id,
 						}),
 					);
 					return text(
-						`${verb === "link" ? "Linked" : "Unlinked"} project #${project.number} "${project.title}" ${preposition} ${payload.repository.nameWithOwner}.`,
+						`${pastTense} project #${project.number} "${project.title}" ${preposition} ${payload.repository.nameWithOwner}.`,
 					);
 				}),
 		);
@@ -1199,12 +1245,21 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 				"Create a custom field on a GitHub Project (v2). `data_type` is one of TEXT, NUMBER, DATE, or SINGLE_SELECT; a SINGLE_SELECT field additionally requires `options` (its option names). Returns the new field's node ID (and option IDs for single-select). Identify the project by `owner` + `number`, or by node ID (`id`). Requires the `project` scope.",
 			inputSchema: {
 				...ProjectRefSchema,
-				name: z.string().min(1).describe("Name of the new field."),
+				name: z
+					.string()
+					.min(1)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Field name", MAX_TEXT_FIELD_LENGTH))
+					.describe("Name of the new field."),
 				data_type: z
 					.enum(["TEXT", "NUMBER", "DATE", "SINGLE_SELECT"])
 					.describe("Data type of the new field."),
 				options: z
-					.array(z.string().min(1))
+					.array(
+						z
+							.string()
+							.min(1)
+							.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Option name", MAX_TEXT_FIELD_LENGTH)),
+					)
 					.min(1)
 					.optional()
 					.describe(
@@ -1272,14 +1327,24 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 		},
 		async ({ field_id }) =>
 			wrapTool(async () => {
+				type DeletedFieldNode = ProjectFieldNode & {
+					project?: { id: string; owner: { login?: string } | null };
+				};
 				const result = await client().graphql<{
-					deleteProjectV2Field: { projectV2Field: ProjectFieldNode | null };
+					deleteProjectV2Field: { projectV2Field: DeletedFieldNode | null };
 				}>(DELETE_PROJECT_FIELD_MUTATION, { fieldId: field_id });
 				const field = result.deleteProjectV2Field.projectV2Field;
 				if (field?.id == null) {
 					return errorResult(`Failed to delete field \`${field_id}\`.`);
 				}
-				logWrite({ tool: "delete_project_field", field_id });
+				logWrite(
+					stripUndefined({
+						tool: "delete_project_field",
+						owner: field.project?.owner?.login,
+						project_id: field.project?.id,
+						field_id,
+					}),
+				);
 				return text(`Deleted field "${field.name}" (${field.dataType}, \`${field.id}\`).`);
 			}),
 	);
@@ -1325,6 +1390,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 						owner: project.owner?.login,
 						project_id: project.id,
 						item_id,
+						action: unarchive ? "unarchive" : "archive",
 					}),
 				);
 				return text(
