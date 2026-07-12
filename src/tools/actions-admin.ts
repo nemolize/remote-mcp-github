@@ -49,7 +49,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 		"list_actions_secrets",
 		{
 			description:
-				"List a repository's GitHub Actions secrets — names and created/updated timestamps only; GitHub never returns secret values. Use to check whether a secret exists or when it last changed. Requires admin access to the repository. Set or remove secrets with `set_actions_secret` / `delete_actions_secret`.",
+				"List a repository's GitHub Actions secrets — names and created/updated timestamps only; GitHub never returns secret values. Use to check whether a secret exists or when it last changed. Requires collaborator access to the repository. Set or remove secrets with `set_actions_secret` / `delete_actions_secret`.",
 			inputSchema: { ...RepoTarget, ...REST_PAGINATION },
 		},
 		async ({ owner, repo, per_page, page }) =>
@@ -77,7 +77,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 		"set_actions_secret",
 		{
 			description:
-				"Create or update a repository GitHub Actions secret. The value is encrypted client-side (libsodium sealed box against the repo's public key) before upload — GitHub never sees or returns the plaintext, and this tool echoes only the secret's name back, never its value. Use when the user asks to set / rotate an Actions secret. Requires admin access to the repository. Mutates repository configuration.",
+				"Create or update a repository GitHub Actions secret. The value is encrypted client-side (libsodium sealed box against the repo's public key) before upload — GitHub never sees or returns the plaintext, and this tool echoes only the secret's name back, never its value. Use when the user asks to set / rotate an Actions secret. Requires collaborator access to the repository. Mutates repository configuration.",
 			inputSchema: {
 				...RepoTarget,
 				secret_name: ActionsName.describe("Secret name (e.g. 'DEPLOY_TOKEN')."),
@@ -112,7 +112,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 		"delete_actions_secret",
 		{
 			description:
-				"Delete a repository GitHub Actions secret by name. Use when the user asks to remove a secret. A name that doesn't exist returns 404. Requires admin access to the repository. Mutates repository configuration.",
+				"Delete a repository GitHub Actions secret by name. Use when the user asks to remove a secret. A name that doesn't exist returns 404. Requires collaborator access to the repository. Mutates repository configuration.",
 			inputSchema: {
 				...RepoTarget,
 				secret_name: ActionsName.describe("Secret name to delete."),
@@ -137,7 +137,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 		"list_actions_variables",
 		{
 			description:
-				"List a repository's GitHub Actions variables (name, value, created/updated timestamps). Unlike secrets, variable values are plaintext and are returned. Use to inspect repo-level configuration values workflows read via the `vars` context. Requires admin access to the repository.",
+				"List a repository's GitHub Actions variables (name, value, created/updated timestamps). Unlike secrets, variable values are plaintext and are returned. Use to inspect repo-level configuration values workflows read via the `vars` context. Requires collaborator access to the repository.",
 			inputSchema: {
 				...RepoTarget,
 				...REST_PAGINATION,
@@ -173,7 +173,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 		"get_actions_variable",
 		{
 			description:
-				"Fetch a single repository GitHub Actions variable by name: its value and created/updated timestamps. Use when the user asks what a specific variable is set to. Requires admin access to the repository.",
+				"Fetch a single repository GitHub Actions variable by name: its value and created/updated timestamps. Use when the user asks what a specific variable is set to. Requires collaborator access to the repository.",
 			inputSchema: {
 				...RepoTarget,
 				name: ActionsName.describe("Variable name."),
@@ -203,7 +203,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 		"set_actions_variable",
 		{
 			description:
-				"Create or update a repository GitHub Actions variable (plaintext, readable by workflows via the `vars` context — use `set_actions_secret` for anything sensitive). Creates the variable if it doesn't exist, updates it otherwise. Requires admin access to the repository. Mutates repository configuration.",
+				"Create or update a repository GitHub Actions variable (plaintext, readable by workflows via the `vars` context — use `set_actions_secret` for anything sensitive). Creates the variable if it doesn't exist, updates it otherwise. Requires collaborator access to the repository. Mutates repository configuration.",
 			inputSchema: {
 				...RepoTarget,
 				name: ActionsName.describe("Variable name (e.g. 'NODE_VERSION')."),
@@ -252,7 +252,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 		"delete_actions_variable",
 		{
 			description:
-				"Delete a repository GitHub Actions variable by name. Use when the user asks to remove a variable. A name that doesn't exist returns 404. Requires admin access to the repository. Mutates repository configuration.",
+				"Delete a repository GitHub Actions variable by name. Use when the user asks to remove a variable. A name that doesn't exist returns 404. Requires collaborator access to the repository. Mutates repository configuration.",
 			inputSchema: {
 				...RepoTarget,
 				name: ActionsName.describe("Variable name to delete."),
