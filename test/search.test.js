@@ -112,10 +112,10 @@ describe("registerSearchTools — search_users", () => {
 		const result = await invoke(handlers, "search_users", { query: "nobody-here", per_page: 20 });
 		const body = result.content[0].text;
 		expect(result.isError).toBeUndefined();
-		expect(body).toContain("No users matched `nobody-here`.");
+		expect(body).toContain("No users matched `type:user nobody-here`.");
 	});
 
-	it("passes the query through unchanged and renders login + profile URL", async () => {
+	it("forces `type:user` and renders login + profile URL", async () => {
 		let capturedQ;
 		const handlers = register(
 			stubOctokit({
@@ -131,11 +131,28 @@ describe("registerSearchTools — search_users", () => {
 			page: 1,
 		});
 		const body = result.content[0].text;
-		expect(capturedQ).toBe("fullname:jane location:tokyo");
+		expect(capturedQ).toBe("type:user fullname:jane location:tokyo");
 		expect(body).toContain(
-			"# User search results for `fullname:jane location:tokyo` (showing 1 of 1)",
+			"# User search results for `type:user fullname:jane location:tokyo` (showing 1 of 1)",
 		);
-		expect(body).toContain("- **@user0** (User) — https://example.test/user0");
+		expect(body).toContain("- **@user0** — https://example.test/user0");
+	});
+
+	it("overrides a conflicting `type:org` with the forced `type:user`", async () => {
+		let capturedQ;
+		const handlers = register(
+			stubOctokit({
+				users: async ({ q }) => {
+					capturedQ = q;
+					return { data: { total_count: 0, items: [] }, headers: {} };
+				},
+			}),
+		);
+		await invoke(handlers, "search_users", {
+			query: "type:org followers:>100",
+			per_page: 20,
+		});
+		expect(capturedQ).toBe("type:user followers:>100");
 	});
 
 	it("forwards sort/order and paging hint", async () => {
@@ -157,7 +174,7 @@ describe("registerSearchTools — search_users", () => {
 			page: 1,
 		});
 		expect(captured).toMatchObject({
-			q: "followers:>100",
+			q: "type:user followers:>100",
 			sort: "followers",
 			order: "desc",
 			per_page: 20,

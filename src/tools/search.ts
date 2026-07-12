@@ -16,8 +16,14 @@ const stripQualifierValues = (query: string, key: string, values: readonly strin
 	return query.replace(pattern, " ").replace(/\s+/g, " ").trim();
 };
 
-// `type:` accepts only `user` / `org` on the Search API, so stripping both
-// covers every caller-supplied conflict with the forced `type:org` scope.
+// `type:` accepts only `user` / `org` on the Search API. The endpoint mixes
+// both by default, so each search_users / search_orgs must force its own
+// scope to keep the tools non-overlapping.
+const forceUserType = (query: string): string => {
+	const stripped = stripQualifierValues(query, "type", ["user", "org"]);
+	return stripped === "" ? "type:user" : `type:user ${stripped}`;
+};
+
 const forceOrgType = (query: string): string => {
 	const stripped = stripQualifierValues(query, "type", ["user", "org"]);
 	return stripped === "" ? "type:org" : `type:org ${stripped}`;
@@ -82,13 +88,13 @@ export const registerSearchTools = (server: McpServer, client: OctokitFactory): 
 		"search_users",
 		{
 			description:
-				'Search GitHub users via the Search API. Use to look up user logins by name/company/location (`fullname:"jane doe"`, `location:tokyo`, `language:go`). Returns login, type, and profile URL for each match. For organizations, use `search_orgs` instead — it force-scopes to `type:org`.',
+				'Search GitHub users via the Search API. `type:user` is forced automatically so results never mix in organizations — use `search_orgs` for those. Combine with qualifiers like `fullname:"jane doe"`, `location:tokyo`, `language:go`, `followers:>100`.',
 			inputSchema: {
 				query: z
 					.string()
 					.min(1)
 					.describe(
-						"GitHub user-search query. Combine with qualifiers like 'fullname:\"Jane Doe\"', 'location:tokyo', 'language:go', 'followers:>100'.",
+						"GitHub user-search query. `type:user` is prepended automatically. Combine with qualifiers like 'fullname:\"Jane Doe\"', 'location:tokyo', 'language:go', 'followers:>100'.",
 					),
 				sort: z
 					.enum(["followers", "repositories", "joined"])
@@ -108,9 +114,10 @@ export const registerSearchTools = (server: McpServer, client: OctokitFactory): 
 		},
 		async ({ query, sort, order, per_page, page }) =>
 			wrapTool(async () => {
+				const q = forceUserType(query);
 				const { data, headers } = await client().rest.search.users(
 					stripUndefined({
-						q: query,
+						q,
 						sort,
 						order,
 						per_page,
@@ -118,11 +125,11 @@ export const registerSearchTools = (server: McpServer, client: OctokitFactory): 
 					}),
 				);
 				logRateLimit(headers);
-				if (data.total_count === 0) return text(`# User search\n\nNo users matched \`${query}\`.`);
-				const lines = data.items.map((u) => `- **@${u.login}** (${u.type}) — ${u.html_url}`);
+				if (data.total_count === 0) return text(`# User search\n\nNo users matched \`${q}\`.`);
+				const lines = data.items.map((u) => `- **@${u.login}** — ${u.html_url}`);
 				const header = searchHeader({
 					label: "User search results",
-					query,
+					query: q,
 					page,
 					perPage: per_page,
 					totalCount: data.total_count,
