@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import {
+	errorResult,
 	logRateLimit,
 	logWrite,
 	restListHeader,
@@ -326,7 +327,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 		async ({ owner, repo, cache_id, key, ref }) =>
 			wrapTool(async () => {
 				if (cache_id != null && key != null) {
-					return text("Error: provide exactly one of `cache_id` or `key`, not both.");
+					return errorResult("Provide exactly one of `cache_id` or `key`, not both.");
 				}
 				const octokit = client();
 				if (cache_id != null) {
@@ -342,7 +343,7 @@ export const registerActionAdminTools = (server: McpServer, client: OctokitFacto
 					);
 				}
 				if (key == null) {
-					return text("Error: provide exactly one of `cache_id` or `key`.");
+					return errorResult("Provide exactly one of `cache_id` or `key`.");
 				}
 				const { data, headers } = await octokit.rest.actions.deleteActionsCacheByKey(
 					stripUndefined({ owner, repo, key, ref }),

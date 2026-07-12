@@ -291,6 +291,7 @@ describe("registerActionAdminTools", () => {
 			cache_id: 42,
 			key: "k",
 		});
+		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("exactly one of");
 	});
 
@@ -298,6 +299,7 @@ describe("registerActionAdminTools", () => {
 		const { handlers, server } = captureHandlers();
 		registerActionAdminTools(server, () => stubOctokit());
 		const result = await invoke(handlers, "delete_actions_cache", { owner: "o", repo: "r" });
+		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("exactly one of");
 	});
 
