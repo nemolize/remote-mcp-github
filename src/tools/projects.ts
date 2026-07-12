@@ -322,6 +322,155 @@ const ADD_PROJECT_DRAFT_ISSUE_MUTATION = `
 	}
 `;
 
+const CREATE_PROJECT_MUTATION = `
+	mutation ($ownerId: ID!, $title: String!) {
+		createProjectV2(input: { ownerId: $ownerId, title: $title }) {
+			projectV2 { ${PROJECT_WRITE_SELECTION} }
+		}
+	}
+`;
+
+const UPDATE_PROJECT_MUTATION = `
+	mutation ($projectId: ID!, $title: String, $shortDescription: String, $public: Boolean, $closed: Boolean) {
+		updateProjectV2(
+			input: {
+				projectId: $projectId
+				title: $title
+				shortDescription: $shortDescription
+				public: $public
+				closed: $closed
+			}
+		) {
+			projectV2 { id number title public closed }
+		}
+	}
+`;
+
+const DELETE_PROJECT_MUTATION = `
+	mutation ($projectId: ID!) {
+		deleteProjectV2(input: { projectId: $projectId }) {
+			projectV2 { id number title }
+		}
+	}
+`;
+
+const COPY_PROJECT_MUTATION = `
+	mutation ($projectId: ID!, $ownerId: ID!, $title: String!, $includeDraftIssues: Boolean) {
+		copyProjectV2(
+			input: {
+				projectId: $projectId
+				ownerId: $ownerId
+				title: $title
+				includeDraftIssues: $includeDraftIssues
+			}
+		) {
+			projectV2 { ${PROJECT_WRITE_SELECTION} }
+		}
+	}
+`;
+
+const LINK_PROJECT_MUTATION = `
+	mutation ($projectId: ID!, $repositoryId: ID!) {
+		linkProjectV2ToRepository(input: { projectId: $projectId, repositoryId: $repositoryId }) {
+			repository { nameWithOwner }
+		}
+	}
+`;
+
+const UNLINK_PROJECT_MUTATION = `
+	mutation ($projectId: ID!, $repositoryId: ID!) {
+		unlinkProjectV2FromRepository(input: { projectId: $projectId, repositoryId: $repositoryId }) {
+			repository { nameWithOwner }
+		}
+	}
+`;
+
+const FIELD_RESULT_SELECTION = `
+	... on ProjectV2FieldCommon { id name dataType }
+	... on ProjectV2SingleSelectField { options { id name } }
+`;
+
+const CREATE_PROJECT_FIELD_MUTATION = `
+	mutation ($projectId: ID!, $dataType: ProjectV2CustomFieldType!, $name: String!, $singleSelectOptions: [ProjectV2SingleSelectFieldOptionInput!]) {
+		createProjectV2Field(
+			input: {
+				projectId: $projectId
+				dataType: $dataType
+				name: $name
+				singleSelectOptions: $singleSelectOptions
+			}
+		) {
+			projectV2Field { ${FIELD_RESULT_SELECTION} }
+		}
+	}
+`;
+
+const DELETE_PROJECT_FIELD_MUTATION = `
+	mutation ($fieldId: ID!) {
+		deleteProjectV2Field(input: { fieldId: $fieldId }) {
+			projectV2Field { ${FIELD_RESULT_SELECTION} }
+		}
+	}
+`;
+
+const ARCHIVE_PROJECT_ITEM_MUTATION = `
+	mutation ($projectId: ID!, $itemId: ID!) {
+		archiveProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
+			item { id }
+		}
+	}
+`;
+
+const UNARCHIVE_PROJECT_ITEM_MUTATION = `
+	mutation ($projectId: ID!, $itemId: ID!) {
+		unarchiveProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
+			item { id }
+		}
+	}
+`;
+
+const OWNER_ID_QUERY = `
+	query ($owner: String!) {
+		repositoryOwner(login: $owner) { id login }
+	}
+`;
+
+const VIEWER_ID_QUERY = `
+	query {
+		viewer { id login }
+	}
+`;
+
+const REPOSITORY_ID_QUERY = `
+	query ($owner: String!, $name: String!) {
+		repository(owner: $owner, name: $name) { id nameWithOwner }
+	}
+`;
+
+type OwnerNode = { id: string; login: string };
+
+/**
+ * Resolve a login — or the authenticated viewer when omitted — to the node ID
+ * that ownerId-taking mutations (createProjectV2, copyProjectV2) require.
+ * Returns `null` when the login does not resolve.
+ */
+const resolveOwnerId = async (
+	octo: ReturnType<OctokitFactory>,
+	owner: string | undefined,
+): Promise<OwnerNode | null> => {
+	if (owner == null) {
+		const result = await octo.graphql<{ viewer: OwnerNode }>(VIEWER_ID_QUERY);
+		return result.viewer;
+	}
+	const result = await octo.graphql<{ repositoryOwner: OwnerNode | null }>(OWNER_ID_QUERY, {
+		owner,
+	});
+	return result.repositoryOwner;
+};
+
+const ownerNotFoundError = (owner: string): ToolResult =>
+	errorResult(`Owner ${owner} not found (check the user or organisation login).`);
+
 type AddedProjectItem = {
 	id: string;
 	type: string;
@@ -768,6 +917,418 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 				);
 				return text(
 					`Created draft item "${previewLine(title, 120)}" in project #${project.number} "${project.title}". Item ID: \`${item.id}\`.`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"create_project",
+		{
+			description:
+				"Create a GitHub Project (v2) owned by a user or organisation (`owner`), or by the authenticated user when `owner` is omitted. Returns the new project's number and node ID (`PVT_...`). Requires the `project` scope.",
+			inputSchema: {
+				owner: z
+					.string()
+					.optional()
+					.describe(
+						"User or organisation login to own the project. Omit to create it under the authenticated user.",
+					),
+				title: z
+					.string()
+					.min(1)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Project title", MAX_TEXT_FIELD_LENGTH))
+					.describe("Title of the new project."),
+			},
+		},
+		async ({ owner, title }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const ownerNode = await resolveOwnerId(octo, owner);
+				if (ownerNode == null) return ownerNotFoundError(owner ?? "?");
+				const result = await octo.graphql<{
+					createProjectV2: { projectV2: ProjectWriteTarget | null };
+				}>(CREATE_PROJECT_MUTATION, { ownerId: ownerNode.id, title });
+				const project = result.createProjectV2.projectV2;
+				if (project == null) {
+					return errorResult(`Failed to create project "${previewLine(title, 120)}".`);
+				}
+				logWrite(
+					stripUndefined({
+						tool: "create_project",
+						owner: project.owner?.login ?? ownerNode.login,
+						project_id: project.id,
+					}),
+				);
+				return text(
+					`Created project #${project.number} "${project.title}" for ${ownerNode.login}. Project ID: \`${project.id}\`.`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"update_project",
+		{
+			description:
+				"Edit a GitHub Project (v2) — set its title, short description, visibility (`public`), and/or open/closed state (`closed: true` closes, `closed: false` reopens). Provide at least one of those fields. Identify the project by `owner` + `number`, or by node ID (`id`). Requires the `project` scope.",
+			inputSchema: {
+				...ProjectRefSchema,
+				title: z
+					.string()
+					.min(1)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Project title", MAX_TEXT_FIELD_LENGTH))
+					.optional()
+					.describe("New project title."),
+				description: z
+					.string()
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Project description", MAX_TEXT_FIELD_LENGTH))
+					.optional()
+					.describe("New short description."),
+				public: z.boolean().optional().describe("New visibility: true = public, false = private."),
+				closed: z.boolean().optional().describe("New state: true = closed, false = open."),
+			},
+		},
+		async ({ owner, number, id, title, description, public: isPublic, closed }) =>
+			wrapTool(async () => {
+				// Keep ref-error precedence over the no-op error (same discipline as
+				// update_project_item_field's ref-before-value ordering).
+				const refError = refValidationError({ id, owner, number });
+				if (refError != null) return refError;
+				if (title == null && description == null && isPublic == null && closed == null) {
+					return errorResult(
+						"Provide at least one of `title`, `description`, `public`, or `closed`.",
+					);
+				}
+				const octo = client();
+				const resolved = await resolveProjectForWrite(octo, { id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
+				const result = await octo.graphql<{
+					updateProjectV2: {
+						projectV2: { id: string; number: number; title: string } | null;
+					};
+				}>(UPDATE_PROJECT_MUTATION, {
+					projectId: project.id,
+					title,
+					shortDescription: description,
+					public: isPublic,
+					closed,
+				});
+				const updated = result.updateProjectV2.projectV2;
+				if (updated == null) {
+					return errorResult(`Failed to update project #${project.number}.`);
+				}
+				logWrite(
+					stripUndefined({
+						tool: "update_project",
+						owner: project.owner?.login,
+						project_id: project.id,
+					}),
+				);
+				const changes = [
+					...(title != null ? [`title to "${previewLine(title, 80)}"`] : []),
+					...(description != null ? ["description"] : []),
+					...(isPublic != null ? [`visibility to ${isPublic ? "public" : "private"}`] : []),
+					...(closed != null ? [`state to ${closed ? "closed" : "open"}`] : []),
+				];
+				return text(
+					`Updated project #${updated.number} "${updated.title}" — set ${changes.join(", ")}.`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"delete_project",
+		{
+			description:
+				"Delete a GitHub Project (v2) permanently, including its draft items and field configuration (irreversible; issues and PRs on the board are not deleted). Identify the project by `owner` + `number`, or by node ID (`id`). Requires the `project` scope.",
+			inputSchema: ProjectRefSchema,
+		},
+		async ({ owner, number, id }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const resolved = await resolveProjectForWrite(octo, { id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
+				const result = await octo.graphql<{
+					deleteProjectV2: { projectV2: { id: string } | null };
+				}>(DELETE_PROJECT_MUTATION, { projectId: project.id });
+				if (result.deleteProjectV2.projectV2 == null) {
+					return errorResult(`Failed to delete project #${project.number}.`);
+				}
+				logWrite(
+					stripUndefined({
+						tool: "delete_project",
+						owner: project.owner?.login,
+						project_id: project.id,
+					}),
+				);
+				return text(`Deleted project #${project.number} "${project.title}" (\`${project.id}\`).`);
+			}),
+	);
+
+	server.registerTool(
+		"copy_project",
+		{
+			description:
+				"Copy a GitHub Project (v2) — its fields, views, and workflows — to a new project. The copy is owned by `target_owner` (user or organisation login), or by the authenticated user when omitted. Draft items are copied only when `include_draft_issues` is true. Identify the source project by `owner` + `number`, or by node ID (`id`). Requires the `project` scope.",
+			inputSchema: {
+				...ProjectRefSchema,
+				title: z
+					.string()
+					.min(1)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Project title", MAX_TEXT_FIELD_LENGTH))
+					.describe("Title of the new (copied) project."),
+				target_owner: z
+					.string()
+					.optional()
+					.describe(
+						"User or organisation login to own the copy. Omit to copy under the authenticated user.",
+					),
+				include_draft_issues: z
+					.boolean()
+					.optional()
+					.describe("Also copy the source project's draft items."),
+			},
+		},
+		async ({ owner, number, id, title, target_owner, include_draft_issues }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const resolved = await resolveProjectForWrite(octo, { id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
+				const ownerNode = await resolveOwnerId(octo, target_owner);
+				if (ownerNode == null) return ownerNotFoundError(target_owner ?? "?");
+				const result = await octo.graphql<{
+					copyProjectV2: { projectV2: ProjectWriteTarget | null };
+				}>(COPY_PROJECT_MUTATION, {
+					projectId: project.id,
+					ownerId: ownerNode.id,
+					title,
+					includeDraftIssues: include_draft_issues,
+				});
+				const copy = result.copyProjectV2.projectV2;
+				if (copy == null) {
+					return errorResult(`Failed to copy project #${project.number}.`);
+				}
+				logWrite(
+					stripUndefined({
+						tool: "copy_project",
+						owner: copy.owner?.login ?? ownerNode.login,
+						project_id: copy.id,
+					}),
+				);
+				return text(
+					`Copied project #${project.number} "${project.title}" to new project #${copy.number} "${copy.title}" for ${ownerNode.login}. Project ID: \`${copy.id}\`.`,
+				);
+			}),
+	);
+
+	// link / unlink share everything but the mutation and the verb — register
+	// them from one loop so the repo-resolution prologue lives once.
+	for (const [toolName, mutation, verb, preposition, summary] of [
+		[
+			"link_project_to_repository",
+			LINK_PROJECT_MUTATION,
+			"link",
+			"to",
+			"Link a GitHub Project (v2) to a repository so the project appears in the repository's Projects tab.",
+		],
+		[
+			"unlink_project_from_repository",
+			UNLINK_PROJECT_MUTATION,
+			"unlink",
+			"from",
+			"Unlink a GitHub Project (v2) from a repository, removing it from the repository's Projects tab.",
+		],
+	] as const) {
+		server.registerTool(
+			toolName,
+			{
+				description: `${summary} Identify the project by \`owner\` + \`number\`, or by node ID (\`id\`); identify the repository by \`repo_owner\` + \`repo\`. Requires the \`project\` scope.`,
+				inputSchema: {
+					...ProjectRefSchema,
+					repo_owner: z.string().describe("Owner (user or organisation login) of the repository."),
+					repo: z.string().describe("Repository name."),
+				},
+			},
+			async ({ owner, number, id, repo_owner, repo }) =>
+				wrapTool(async () => {
+					const octo = client();
+					const resolved = await resolveProjectForWrite(octo, { id, owner, number });
+					if ("error" in resolved) return resolved.error;
+					const { project } = resolved;
+					const repoResult = await octo.graphql<{
+						repository: { id: string; nameWithOwner: string } | null;
+					}>(REPOSITORY_ID_QUERY, { owner: repo_owner, name: repo });
+					if (repoResult.repository == null) {
+						return errorResult(`Repository ${repo_owner}/${repo} not found or not accessible.`);
+					}
+					type LinkPayload = { repository: { nameWithOwner: string } | null };
+					const result = await octo.graphql<{
+						linkProjectV2ToRepository?: LinkPayload;
+						unlinkProjectV2FromRepository?: LinkPayload;
+					}>(mutation, { projectId: project.id, repositoryId: repoResult.repository.id });
+					const payload =
+						verb === "link"
+							? result.linkProjectV2ToRepository
+							: result.unlinkProjectV2FromRepository;
+					if (payload?.repository == null) {
+						return errorResult(
+							`Failed to ${verb} project #${project.number} ${preposition} ${repo_owner}/${repo}.`,
+						);
+					}
+					logWrite(
+						stripUndefined({
+							tool: toolName,
+							owner: repo_owner,
+							repo,
+							project_id: project.id,
+						}),
+					);
+					return text(
+						`${verb === "link" ? "Linked" : "Unlinked"} project #${project.number} "${project.title}" ${preposition} ${payload.repository.nameWithOwner}.`,
+					);
+				}),
+		);
+	}
+
+	server.registerTool(
+		"create_project_field",
+		{
+			description:
+				"Create a custom field on a GitHub Project (v2). `data_type` is one of TEXT, NUMBER, DATE, or SINGLE_SELECT; a SINGLE_SELECT field additionally requires `options` (its option names). Returns the new field's node ID (and option IDs for single-select). Identify the project by `owner` + `number`, or by node ID (`id`). Requires the `project` scope.",
+			inputSchema: {
+				...ProjectRefSchema,
+				name: z.string().min(1).describe("Name of the new field."),
+				data_type: z
+					.enum(["TEXT", "NUMBER", "DATE", "SINGLE_SELECT"])
+					.describe("Data type of the new field."),
+				options: z
+					.array(z.string().min(1))
+					.min(1)
+					.optional()
+					.describe(
+						"Option names for a SINGLE_SELECT field (required for SINGLE_SELECT, rejected otherwise).",
+					),
+			},
+		},
+		async ({ owner, number, id, name, data_type, options }) =>
+			wrapTool(async () => {
+				const refError = refValidationError({ id, owner, number });
+				if (refError != null) return refError;
+				if (data_type === "SINGLE_SELECT" && options == null) {
+					return errorResult("A SINGLE_SELECT field requires `options` (its option names).");
+				}
+				if (data_type !== "SINGLE_SELECT" && options != null) {
+					return errorResult(`\`options\` only applies to SINGLE_SELECT fields, not ${data_type}.`);
+				}
+				const octo = client();
+				const resolved = await resolveProjectForWrite(octo, { id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
+				const result = await octo.graphql<{
+					createProjectV2Field: { projectV2Field: ProjectFieldNode | null };
+				}>(CREATE_PROJECT_FIELD_MUTATION, {
+					projectId: project.id,
+					dataType: data_type,
+					name,
+					// The API requires color + description per option; default them so
+					// the tool surface stays the option-name list gh takes.
+					singleSelectOptions: options?.map((option) => ({
+						name: option,
+						color: "GRAY",
+						description: "",
+					})),
+				});
+				const field = result.createProjectV2Field.projectV2Field;
+				if (field?.id == null) {
+					return errorResult(`Failed to create field "${name}" in project #${project.number}.`);
+				}
+				logWrite(
+					stripUndefined({
+						tool: "create_project_field",
+						owner: project.owner?.login,
+						project_id: project.id,
+						field_id: field.id,
+					}),
+				);
+				return text(
+					`Created field in project #${project.number} "${project.title}":\n${fieldLine(field)}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"delete_project_field",
+		{
+			description:
+				"Delete a custom field from a GitHub Project (v2) by its field node ID (from list_project_fields), discarding the field's values on every item (irreversible). Built-in fields (Title, Assignees, Status, ...) cannot be deleted. Requires the `project` scope.",
+			inputSchema: {
+				field_id: z
+					.string()
+					.min(1)
+					.describe("Project field node ID. Discover via list_project_fields."),
+			},
+		},
+		async ({ field_id }) =>
+			wrapTool(async () => {
+				const result = await client().graphql<{
+					deleteProjectV2Field: { projectV2Field: ProjectFieldNode | null };
+				}>(DELETE_PROJECT_FIELD_MUTATION, { fieldId: field_id });
+				const field = result.deleteProjectV2Field.projectV2Field;
+				if (field?.id == null) {
+					return errorResult(`Failed to delete field \`${field_id}\`.`);
+				}
+				logWrite({ tool: "delete_project_field", field_id });
+				return text(`Deleted field "${field.name}" (${field.dataType}, \`${field.id}\`).`);
+			}),
+	);
+
+	server.registerTool(
+		"archive_project_item",
+		{
+			description:
+				"Archive an item on a GitHub Project (v2) by its item node ID (`PVTI_...`, from list_project_items) — the item leaves the board but stays restorable, unlike remove_project_item. Pass `undo: true` to unarchive (restore) instead. Identify the project by `owner` + `number`, or by node ID (`id`). Requires the `project` scope.",
+			inputSchema: {
+				...ProjectRefSchema,
+				item_id: ItemIdSchema,
+				undo: z
+					.boolean()
+					.optional()
+					.describe("Unarchive (restore) the item instead of archiving it."),
+			},
+		},
+		async ({ owner, number, id, item_id, undo }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const resolved = await resolveProjectForWrite(octo, { id, owner, number });
+				if ("error" in resolved) return resolved.error;
+				const { project } = resolved;
+				const unarchive = undo === true;
+				type ArchivePayload = { item: { id: string } | null };
+				const result = await octo.graphql<{
+					archiveProjectV2Item?: ArchivePayload;
+					unarchiveProjectV2Item?: ArchivePayload;
+				}>(unarchive ? UNARCHIVE_PROJECT_ITEM_MUTATION : ARCHIVE_PROJECT_ITEM_MUTATION, {
+					projectId: project.id,
+					itemId: item_id,
+				});
+				const payload = unarchive ? result.unarchiveProjectV2Item : result.archiveProjectV2Item;
+				if (payload?.item == null) {
+					return errorResult(
+						`Failed to ${unarchive ? "unarchive" : "archive"} item \`${item_id}\` in project #${project.number}.`,
+					);
+				}
+				logWrite(
+					stripUndefined({
+						tool: "archive_project_item",
+						owner: project.owner?.login,
+						project_id: project.id,
+						item_id,
+					}),
+				);
+				return text(
+					`${unarchive ? "Unarchived" : "Archived"} item \`${item_id}\` in project #${project.number} "${project.title}".`,
 				);
 			}),
 	);
