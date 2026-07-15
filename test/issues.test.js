@@ -344,3 +344,308 @@ describe("registerIssueTools", () => {
 		expect(body).toContain("HTTP 422");
 	});
 });
+
+// Focused module-level tests for the issue #190 lifecycle + comment edit/delete
+// tools. audit-log.test.js already covers one happy path per tool via a shared
+// generous GraphQL mock; these tests exercise the branches that the generous
+// shape hides — not-found paths, GraphQL null-payload guards, develop_issue's
+// base_ref variant, list_linked_branches's render paths.
+
+const lifecycleOctokit = (graphql, restOverrides = {}) => ({
+	graphql,
+	rest: {
+		issues: {
+			lock: async () => ({ data: undefined, headers: {} }),
+			unlock: async () => ({ data: undefined, headers: {} }),
+			updateComment: async () => ({ data: { html_url: "https://x/c" }, headers: {} }),
+			deleteComment: async () => ({ data: undefined, headers: {} }),
+			...restOverrides,
+		},
+	},
+});
+
+describe("registerIssueTools — lifecycle branches", () => {
+	it("pin_issue surfaces an error when the issue is not found (null node id)", async () => {
+		const graphql = async () => ({ repository: { issue: null } });
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "pin_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 999,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("o/r#999");
+	});
+
+	it("pin_issue surfaces an error when the mutation payload is null (silent-failure guard)", async () => {
+		const graphql = async (query) => {
+			if (query.includes("pinIssue(")) return { pinIssue: null };
+			return {
+				repository: {
+					issue: { id: "I_1" },
+					defaultBranchRef: { target: { oid: "oid0" } },
+				},
+			};
+		};
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "pin_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to pin");
+	});
+
+	it("unpin_issue routes through its own mutation branch (unpinIssue, not pinIssue)", async () => {
+		let sawUnpinMutation = false;
+		const graphql = async (query) => {
+			if (query.includes("unpinIssue(")) {
+				sawUnpinMutation = true;
+				return { unpinIssue: { issue: { url: "https://x/1" } } };
+			}
+			if (query.includes("pinIssue(")) {
+				throw new Error("unpin_issue must not route through pinIssue mutation");
+			}
+			return { repository: { issue: { id: "I_1" } } };
+		};
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "unpin_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+		});
+		expect(result.isError).toBeFalsy();
+		expect(sawUnpinMutation).toBe(true);
+	});
+
+	it("transfer_issue surfaces an error when the destination repo is not found", async () => {
+		const graphql = async () => ({
+			source: { issue: { id: "I_1" } },
+			destination: null,
+		});
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "transfer_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			new_repository_owner: "o2",
+			new_repository_name: "r2",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("o2/r2");
+	});
+
+	it("transfer_issue surfaces an error when the mutation payload is null", async () => {
+		const graphql = async (query) => {
+			if (query.includes("transferIssue(")) return { transferIssue: { issue: null } };
+			return {
+				source: { issue: { id: "I_1" } },
+				destination: { id: "R_2" },
+			};
+		};
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "transfer_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			new_repository_owner: "o2",
+			new_repository_name: "r2",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to transfer");
+	});
+
+	it("delete_issue surfaces an error when the mutation payload is null", async () => {
+		const graphql = async (query) => {
+			if (query.includes("deleteIssue(")) return { deleteIssue: null };
+			return { repository: { issue: { id: "I_1" } } };
+		};
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "delete_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to delete");
+	});
+
+	it("develop_issue with base_ref queries the named ref (not defaultBranchRef)", async () => {
+		let sawBaseRefQuery = false;
+		const graphql = async (query, vars) => {
+			if (query.includes("createLinkedBranch(")) {
+				return {
+					createLinkedBranch: {
+						linkedBranch: {
+							ref: { name: "1-feat", repository: { url: "https://x/o/r" } },
+						},
+					},
+				};
+			}
+			if (query.includes("baseRef: ref(qualifiedName:")) {
+				sawBaseRefQuery = true;
+				expect(vars.base_ref).toBe("develop");
+				return {
+					repository: {
+						issue: { id: "I_1" },
+						baseRef: { target: { oid: "oid_dev" } },
+					},
+				};
+			}
+			// defaultBranchRef path must not fire when base_ref is given
+			throw new Error(`unexpected query dispatched for base_ref call: ${query}`);
+		};
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "develop_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			base_ref: "develop",
+			branch_name: "1-feat",
+		});
+		expect(result.isError).toBeFalsy();
+		expect(sawBaseRefQuery).toBe(true);
+	});
+
+	it("develop_issue surfaces an error when the base_ref does not exist", async () => {
+		const graphql = async () => ({
+			repository: {
+				issue: { id: "I_1" },
+				baseRef: null,
+			},
+		});
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "develop_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			base_ref: "nope",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Base ref `nope`");
+	});
+
+	it("develop_issue URL-encodes special characters in the created branch name", async () => {
+		const graphql = async (query) => {
+			if (query.includes("createLinkedBranch(")) {
+				return {
+					createLinkedBranch: {
+						linkedBranch: {
+							ref: { name: "issue-#42/name%foo", repository: { url: "https://x/o/r" } },
+						},
+					},
+				};
+			}
+			return {
+				repository: {
+					issue: { id: "I_1" },
+					defaultBranchRef: { target: { oid: "oid0" } },
+				},
+			};
+		};
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "develop_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 42,
+		});
+		expect(result.isError).toBeFalsy();
+		const body = result.content[0].text;
+		expect(body).toContain("issue-%23");
+		expect(body).toContain("%25foo");
+	});
+
+	it("list_linked_branches renders the empty-list case", async () => {
+		const graphql = async () => ({
+			repository: {
+				issue: {
+					linkedBranches: { pageInfo: { hasNextPage: false }, nodes: [] },
+				},
+			},
+		});
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "list_linked_branches", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+		});
+		expect(result.isError).toBeFalsy();
+		expect(result.content[0].text).toContain("(no linked branches)");
+	});
+
+	it("list_linked_branches filters null nodes/refs and lists valid ones", async () => {
+		const graphql = async () => ({
+			repository: {
+				issue: {
+					linkedBranches: {
+						pageInfo: { hasNextPage: false },
+						nodes: [
+							null,
+							{ ref: null },
+							{ ref: { name: "feat/a", repository: { nameWithOwner: "o/r" } } },
+							{ ref: { name: "feat/b", repository: { nameWithOwner: "o/r" } } },
+						],
+					},
+				},
+			},
+		});
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "list_linked_branches", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+		});
+		expect(result.isError).toBeFalsy();
+		const body = result.content[0].text;
+		expect(body).toContain("(2)");
+		expect(body).toContain("`feat/a`");
+		expect(body).toContain("`feat/b`");
+	});
+
+	it("list_linked_branches appends a truncation hint when hasNextPage is true", async () => {
+		const graphql = async () => ({
+			repository: {
+				issue: {
+					linkedBranches: {
+						pageInfo: { hasNextPage: true },
+						nodes: [{ ref: { name: "feat/a", repository: { nameWithOwner: "o/r" } } }],
+					},
+				},
+			},
+		});
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "list_linked_branches", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+		});
+		expect(result.isError).toBeFalsy();
+		expect(result.content[0].text).toContain("more linked branches exist");
+	});
+
+	it("list_linked_branches surfaces an error when the issue is not found", async () => {
+		const graphql = async () => ({ repository: { issue: null } });
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "list_linked_branches", {
+			owner: "o",
+			repo: "r",
+			issue_number: 999,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("o/r#999");
+	});
+});

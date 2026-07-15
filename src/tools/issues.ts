@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import {
+	errorResult,
 	logRateLimit,
 	logWrite,
 	previewLine,
@@ -18,6 +19,187 @@ import { searchHeader } from "./search-helpers.js";
 const formatNameList = (names: string[], wrap: "code" | "at"): string => {
 	if (names.length === 0) return "(none)";
 	return names.map((n) => (wrap === "code" ? `\`${n}\`` : `@${n}`)).join(", ");
+};
+
+// --- GraphQL plumbing for the lifecycle tools (pin / unpin / transfer /
+// delete / develop). These mutations have no REST equivalent (the REST pin
+// endpoint is preview-only and returns 410), so each first resolves the
+// issue's node ID, then mutates.
+
+const ISSUE_NODE_ID_QUERY = `
+	query ($owner: String!, $repo: String!, $issue_number: Int!) {
+		repository(owner: $owner, name: $repo) {
+			issue(number: $issue_number) { id }
+		}
+	}
+`;
+
+type IssueNodeIdResult = {
+	repository: { issue: { id: string } | null } | null;
+};
+
+const issueNotFoundError = (owner: string, repo: string, issue_number: number) =>
+	errorResult(
+		`Issue ${owner}/${repo}#${issue_number} not found or not accessible (check the repo name, the issue number, and your token's permissions).`,
+	);
+
+const resolveIssueNodeId = async (
+	octo: ReturnType<OctokitFactory>,
+	owner: string,
+	repo: string,
+	issue_number: number,
+): Promise<string | null> => {
+	const result = await octo.graphql<IssueNodeIdResult>(ISSUE_NODE_ID_QUERY, {
+		owner,
+		repo,
+		issue_number,
+	});
+	return result.repository?.issue?.id ?? null;
+};
+
+const PIN_ISSUE_MUTATION = `
+	mutation ($issue_id: ID!) {
+		pinIssue(input: { issueId: $issue_id }) {
+			issue { url }
+		}
+	}
+`;
+
+const UNPIN_ISSUE_MUTATION = `
+	mutation ($issue_id: ID!) {
+		unpinIssue(input: { issueId: $issue_id }) {
+			issue { url }
+		}
+	}
+`;
+
+type PinIssueResult = { pinIssue: { issue: { url: string } | null } | null };
+type UnpinIssueResult = { unpinIssue: { issue: { url: string } | null } | null };
+
+const TRANSFER_ISSUE_TARGETS_QUERY = `
+	query ($owner: String!, $repo: String!, $issue_number: Int!, $new_owner: String!, $new_repo: String!) {
+		source: repository(owner: $owner, name: $repo) {
+			issue(number: $issue_number) { id }
+		}
+		destination: repository(owner: $new_owner, name: $new_repo) { id }
+	}
+`;
+
+type TransferIssueTargetsResult = {
+	source: { issue: { id: string } | null } | null;
+	destination: { id: string } | null;
+};
+
+const TRANSFER_ISSUE_MUTATION = `
+	mutation ($issue_id: ID!, $repository_id: ID!, $create_labels_if_missing: Boolean!) {
+		transferIssue(
+			input: {
+				issueId: $issue_id
+				repositoryId: $repository_id
+				createLabelsIfMissing: $create_labels_if_missing
+			}
+		) {
+			issue { number url }
+		}
+	}
+`;
+
+type TransferIssueResult = {
+	transferIssue: { issue: { number: number; url: string } | null } | null;
+};
+
+const DELETE_ISSUE_MUTATION = `
+	mutation ($issue_id: ID!) {
+		deleteIssue(input: { issueId: $issue_id }) {
+			repository { nameWithOwner }
+		}
+	}
+`;
+
+type DeleteIssueResult = {
+	deleteIssue: { repository: { nameWithOwner: string } | null } | null;
+};
+
+// `createLinkedBranch` requires the OID the new branch starts from, so the
+// resolution query also fetches the base: the default branch's head by
+// default, or the caller-named `base_ref` when provided (separate query so an
+// omitted base never sends an empty `qualifiedName`).
+const DEVELOP_ISSUE_TARGETS_QUERY = `
+	query ($owner: String!, $repo: String!, $issue_number: Int!) {
+		repository(owner: $owner, name: $repo) {
+			issue(number: $issue_number) { id }
+			defaultBranchRef { target { oid } }
+		}
+	}
+`;
+
+const DEVELOP_ISSUE_TARGETS_WITH_BASE_QUERY = `
+	query ($owner: String!, $repo: String!, $issue_number: Int!, $base_ref: String!) {
+		repository(owner: $owner, name: $repo) {
+			issue(number: $issue_number) { id }
+			baseRef: ref(qualifiedName: $base_ref) { target { oid } }
+		}
+	}
+`;
+
+type DevelopIssueTargetsResult = {
+	repository: {
+		issue: { id: string } | null;
+		defaultBranchRef?: { target: { oid: string } | null } | null;
+		baseRef?: { target: { oid: string } | null } | null;
+	} | null;
+};
+
+const CREATE_LINKED_BRANCH_MUTATION = `
+	mutation ($issue_id: ID!, $oid: GitObjectID!, $name: String) {
+		createLinkedBranch(input: { issueId: $issue_id, oid: $oid, name: $name }) {
+			linkedBranch {
+				ref {
+					name
+					repository { url }
+				}
+			}
+		}
+	}
+`;
+
+type CreateLinkedBranchResult = {
+	createLinkedBranch: {
+		linkedBranch: {
+			ref: { name: string; repository: { url: string } } | null;
+		} | null;
+	} | null;
+};
+
+const LIST_LINKED_BRANCHES_QUERY = `
+	query ($owner: String!, $repo: String!, $issue_number: Int!) {
+		repository(owner: $owner, name: $repo) {
+			issue(number: $issue_number) {
+				linkedBranches(first: 20) {
+					pageInfo { hasNextPage }
+					nodes {
+						ref {
+							name
+							repository { nameWithOwner }
+						}
+					}
+				}
+			}
+		}
+	}
+`;
+
+type ListLinkedBranchesResult = {
+	repository: {
+		issue: {
+			linkedBranches: {
+				pageInfo: { hasNextPage: boolean };
+				nodes: Array<{
+					ref: { name: string; repository: { nameWithOwner: string } } | null;
+				} | null>;
+			};
+		} | null;
+	} | null;
 };
 
 export const registerIssueTools = (server: McpServer, client: OctokitFactory): void => {
@@ -130,7 +312,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 		"list_issue_comments",
 		{
 			description:
-				"List conversation comments on an issue or pull request. Use when the user asks to read the discussion, comments, or replies on an issue/PR. Returns one bullet per comment with author, timestamp, URL, and a short body preview.",
+				"List conversation comments on an issue or pull request. Use when the user asks to read the discussion, comments, or replies on an issue/PR. Returns one bullet per comment with author, timestamp, numeric comment ID (the `comment_id` for update_issue_comment / delete_issue_comment), URL, and a short body preview.",
 			inputSchema: {
 				...RepoTarget,
 				issue_number: z
@@ -182,7 +364,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 						c.updated_at !== c.created_at
 							? `${c.updated_at} (created ${c.created_at})`
 							: c.created_at;
-					return `- ${author} — ${ts} — ${c.html_url}\n  - ${preview.length > 0 ? preview : "(empty)"}`;
+					return `- ${author} — ${ts} — id: \`${c.id}\` — ${c.html_url}\n  - ${preview.length > 0 ? preview : "(empty)"}`;
 				});
 				const hasMore = (headers.link ?? "").includes('rel="next"');
 				const header = restListHeader({
@@ -515,6 +697,374 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 				const logins = (data.assignees ?? []).map((a) => a.login);
 				return text(
 					`# Assignees removed\n\n- from #${issue_number}\n- assignees now: ${formatNameList(logins, "at")}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"pin_issue",
+		{
+			description:
+				"Pin an issue to the top of the repository's issue list (GitHub allows at most three pinned issues per repo). Use when the user asks to pin, feature, or highlight an issue. Returns a confirmation with the issue's URL. Backed by GraphQL — the REST pin endpoint is preview-only.",
+			inputSchema: {
+				...RepoTarget,
+				issue_number: z.number().int().positive().describe("Issue number to pin."),
+			},
+		},
+		async ({ owner, repo, issue_number }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const issueId = await resolveIssueNodeId(octo, owner, repo, issue_number);
+				if (issueId == null) return issueNotFoundError(owner, repo, issue_number);
+				const result = await octo.graphql<PinIssueResult>(PIN_ISSUE_MUTATION, {
+					issue_id: issueId,
+				});
+				const issue = result.pinIssue?.issue;
+				if (issue == null) return errorResult(`Failed to pin ${owner}/${repo}#${issue_number}.`);
+				logWrite({ tool: "pin_issue", owner, repo, issue_number });
+				return text(
+					`# Issue pinned\n\n- #${issue_number} pinned in ${owner}/${repo}\n- ${issue.url}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"unpin_issue",
+		{
+			description:
+				"Unpin a currently pinned issue from the top of the repository's issue list. Use when the user asks to unpin or remove an issue from the pinned section. Returns a confirmation with the issue's URL.",
+			inputSchema: {
+				...RepoTarget,
+				issue_number: z.number().int().positive().describe("Issue number to unpin."),
+			},
+		},
+		async ({ owner, repo, issue_number }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const issueId = await resolveIssueNodeId(octo, owner, repo, issue_number);
+				if (issueId == null) return issueNotFoundError(owner, repo, issue_number);
+				const result = await octo.graphql<UnpinIssueResult>(UNPIN_ISSUE_MUTATION, {
+					issue_id: issueId,
+				});
+				const issue = result.unpinIssue?.issue;
+				if (issue == null) return errorResult(`Failed to unpin ${owner}/${repo}#${issue_number}.`);
+				logWrite({ tool: "unpin_issue", owner, repo, issue_number });
+				return text(
+					`# Issue unpinned\n\n- #${issue_number} unpinned in ${owner}/${repo}\n- ${issue.url}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"lock_issue",
+		{
+			description:
+				"Lock an issue or pull request's conversation so only collaborators can comment (PRs share the same endpoint). Use when the user asks to lock, freeze, or restrict a discussion — optionally with a reason shown on the timeline. Returns a confirmation.",
+			inputSchema: {
+				...RepoTarget,
+				issue_number: z.number().int().positive().describe("Issue or PR number to lock."),
+				lock_reason: z
+					.enum(["off-topic", "too heated", "resolved", "spam"])
+					.optional()
+					.describe("Reason for locking, shown on the issue timeline; omit for no reason."),
+			},
+		},
+		async ({ owner, repo, issue_number, lock_reason }) =>
+			wrapTool(async () => {
+				const { headers } = await client().rest.issues.lock(
+					stripUndefined({ owner, repo, issue_number, lock_reason }),
+				);
+				logRateLimit(headers);
+				logWrite(stripUndefined({ tool: "lock_issue", owner, repo, issue_number, lock_reason }));
+				return text(
+					`# Conversation locked\n\n- ${owner}/${repo}#${issue_number} locked${lock_reason != null ? ` (${lock_reason})` : ""}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"unlock_issue",
+		{
+			description:
+				"Unlock a previously locked issue or pull request conversation so anyone can comment again (PRs share the same endpoint). Use when the user asks to unlock or reopen a discussion. Returns a confirmation.",
+			inputSchema: {
+				...RepoTarget,
+				issue_number: z.number().int().positive().describe("Issue or PR number to unlock."),
+			},
+		},
+		async ({ owner, repo, issue_number }) =>
+			wrapTool(async () => {
+				const { headers } = await client().rest.issues.unlock({ owner, repo, issue_number });
+				logRateLimit(headers);
+				logWrite({ tool: "unlock_issue", owner, repo, issue_number });
+				return text(`# Conversation unlocked\n\n- ${owner}/${repo}#${issue_number} unlocked`);
+			}),
+	);
+
+	server.registerTool(
+		"transfer_issue",
+		{
+			description:
+				"Transfer an issue to another repository owned by the same user or organization. Moves the issue permanently — GitHub preserves comments, assignees, and reactions across the transfer, and the source issue redirects to the new one; labels not present in the destination are dropped unless `create_labels_if_missing` is set. Use only when the user explicitly asks to transfer/move an issue. Returns the issue's new number and URL in the destination repo.",
+			inputSchema: {
+				...RepoTarget,
+				issue_number: z.number().int().positive().describe("Issue number to transfer."),
+				new_repository_owner: z
+					.string()
+					.min(1)
+					.describe("Owner of the destination repository (must match the source issue's owner)."),
+				new_repository_name: z.string().min(1).describe("Name of the destination repository."),
+				create_labels_if_missing: z
+					.boolean()
+					.optional()
+					.describe(
+						"Create the issue's labels in the destination repo when they don't exist there. Defaults to false (missing labels are dropped).",
+					),
+			},
+		},
+		async ({
+			owner,
+			repo,
+			issue_number,
+			new_repository_owner,
+			new_repository_name,
+			create_labels_if_missing,
+		}) =>
+			wrapTool(async () => {
+				const octo = client();
+				const targets = await octo.graphql<TransferIssueTargetsResult>(
+					TRANSFER_ISSUE_TARGETS_QUERY,
+					{
+						owner,
+						repo,
+						issue_number,
+						new_owner: new_repository_owner,
+						new_repo: new_repository_name,
+					},
+				);
+				const issueId = targets.source?.issue?.id;
+				if (issueId == null) return issueNotFoundError(owner, repo, issue_number);
+				const repositoryId = targets.destination?.id;
+				if (repositoryId == null)
+					return errorResult(
+						`Destination repository ${new_repository_owner}/${new_repository_name} not found or not accessible.`,
+					);
+				const result = await octo.graphql<TransferIssueResult>(TRANSFER_ISSUE_MUTATION, {
+					issue_id: issueId,
+					repository_id: repositoryId,
+					create_labels_if_missing: create_labels_if_missing ?? false,
+				});
+				const moved = result.transferIssue?.issue;
+				if (moved == null)
+					return errorResult(
+						`Failed to transfer ${owner}/${repo}#${issue_number} to ${new_repository_owner}/${new_repository_name}.`,
+					);
+				logWrite({
+					tool: "transfer_issue",
+					owner,
+					repo,
+					issue_number,
+					new_repository_owner,
+					new_repository_name,
+				});
+				return text(
+					`# Issue transferred\n\n- ${owner}/${repo}#${issue_number} → ${new_repository_owner}/${new_repository_name}#${moved.number}\n- ${moved.url}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"delete_issue",
+		{
+			description:
+				"Permanently delete an issue. **Destructive and irrevocable** — the issue is permanently removed with no restoration window; comments, reactions, and cross-references are lost. Requires admin rights on the repo. Use only when the user explicitly asks to delete an issue. Returns a confirmation.",
+			inputSchema: {
+				...RepoTarget,
+				issue_number: z.number().int().positive().describe("Issue number to delete."),
+			},
+		},
+		async ({ owner, repo, issue_number }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const issueId = await resolveIssueNodeId(octo, owner, repo, issue_number);
+				if (issueId == null) return issueNotFoundError(owner, repo, issue_number);
+				const result = await octo.graphql<DeleteIssueResult>(DELETE_ISSUE_MUTATION, {
+					issue_id: issueId,
+				});
+				const repoName = result.deleteIssue?.repository?.nameWithOwner;
+				if (repoName == null)
+					return errorResult(`Failed to delete ${owner}/${repo}#${issue_number}.`);
+				logWrite({ tool: "delete_issue", owner, repo, issue_number });
+				return text(`# Issue deleted\n\n- #${issue_number} permanently deleted from ${repoName}`);
+			}),
+	);
+
+	server.registerTool(
+		"develop_issue",
+		{
+			description:
+				"Create a branch linked to an issue (the 'Create a branch' development link in the GitHub UI). Use when the user asks to start development on an issue with a linked branch. Branches from the default branch's head unless `base_ref` names another base; GitHub derives a branch name from the issue when `branch_name` is omitted. Returns the new branch's name and URL.",
+			inputSchema: {
+				...RepoTarget,
+				issue_number: z.number().int().positive().describe("Issue number to link the branch to."),
+				branch_name: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Name for the new branch; omit to let GitHub derive one from the issue number and title.",
+					),
+				base_ref: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						'Branch (or qualified ref) to branch from, e.g. "develop". Defaults to the repository\'s default branch.',
+					),
+			},
+		},
+		async ({ owner, repo, issue_number, branch_name, base_ref }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const targets = await octo.graphql<DevelopIssueTargetsResult>(
+					base_ref != null ? DEVELOP_ISSUE_TARGETS_WITH_BASE_QUERY : DEVELOP_ISSUE_TARGETS_QUERY,
+					stripUndefined({ owner, repo, issue_number, base_ref }),
+				);
+				const issueId = targets.repository?.issue?.id;
+				if (issueId == null) return issueNotFoundError(owner, repo, issue_number);
+				const oid =
+					base_ref != null
+						? targets.repository?.baseRef?.target?.oid
+						: targets.repository?.defaultBranchRef?.target?.oid;
+				if (oid == null)
+					return errorResult(
+						base_ref != null
+							? `Base ref \`${base_ref}\` not found in ${owner}/${repo}.`
+							: `Could not resolve the default branch head of ${owner}/${repo}.`,
+					);
+				const result = await octo.graphql<CreateLinkedBranchResult>(
+					CREATE_LINKED_BRANCH_MUTATION,
+					stripUndefined({ issue_id: issueId, oid, name: branch_name }),
+				);
+				const ref = result.createLinkedBranch?.linkedBranch?.ref;
+				if (ref == null)
+					return errorResult(
+						`Failed to create a linked branch for ${owner}/${repo}#${issue_number}.`,
+					);
+				logWrite({
+					tool: "develop_issue",
+					owner,
+					repo,
+					issue_number,
+					branch_name: ref.name,
+				});
+				return text(
+					`# Linked branch created\n\n- for issue #${issue_number}\n- branch: \`${ref.name}\`\n- ${ref.repository.url}/tree/${encodeURIComponent(ref.name)}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"list_linked_branches",
+		{
+			description:
+				"List the branches linked to an issue via the development sidebar (created by develop_issue or the GitHub UI). Use when the user asks which branches are attached to an issue. Returns one bullet per linked branch with its name and repository.",
+			inputSchema: {
+				...RepoTarget,
+				issue_number: z
+					.number()
+					.int()
+					.positive()
+					.describe("Issue number whose linked branches to list."),
+			},
+		},
+		async ({ owner, repo, issue_number }) =>
+			wrapTool(async () => {
+				const result = await client().graphql<ListLinkedBranchesResult>(
+					LIST_LINKED_BRANCHES_QUERY,
+					{ owner, repo, issue_number },
+				);
+				if (result.repository?.issue == null) return issueNotFoundError(owner, repo, issue_number);
+				const linkedBranches = result.repository.issue.linkedBranches;
+				const branches = linkedBranches.nodes
+					.map((n) => n?.ref)
+					.filter((r): r is NonNullable<typeof r> => r != null);
+				if (branches.length === 0)
+					return text(`# Linked branches on #${issue_number}\n\n(no linked branches)`);
+				const lines = branches.map((r) => `- \`${r.name}\` in ${r.repository.nameWithOwner}`);
+				const truncatedHint = linkedBranches.pageInfo.hasNextPage
+					? "\n\n_more linked branches exist beyond the first 20; not currently paginated._"
+					: "";
+				return text(
+					truncate(
+						`# Linked branches on #${issue_number} (${branches.length})\n\n${lines.join("\n")}${truncatedHint}`,
+					),
+				);
+			}),
+	);
+
+	server.registerTool(
+		"update_issue_comment",
+		{
+			description:
+				"Edit the body of an existing conversation comment on an issue or pull request. Use when the user asks to edit, correct, or rewrite a comment they can identify by ID (discover via list_issue_comments). Replaces the whole body; returns the comment's URL.",
+			inputSchema: {
+				...RepoTarget,
+				comment_id: z
+					.number()
+					.int()
+					.positive()
+					.describe(
+						"Numeric ID of the conversation comment to edit. Discover via list_issue_comments (the `id` field).",
+					),
+				body: z
+					.string()
+					.min(1)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Comment body", MAX_TEXT_FIELD_LENGTH))
+					.describe("New comment body (Markdown supported); replaces the existing body entirely."),
+			},
+		},
+		async ({ owner, repo, comment_id, body }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.issues.updateComment({
+					owner,
+					repo,
+					comment_id,
+					body,
+				});
+				logRateLimit(headers);
+				logWrite({ tool: "update_issue_comment", owner, repo, comment_id });
+				return text(`# Comment updated\n\n- comment \`${comment_id}\`\n- ${data.html_url}`);
+			}),
+	);
+
+	server.registerTool(
+		"delete_issue_comment",
+		{
+			description:
+				"Permanently delete a conversation comment from an issue or pull request. Destructive — the comment cannot be restored. Use only when the user explicitly asks to delete a comment they can identify by ID (discover via list_issue_comments). Returns a confirmation.",
+			inputSchema: {
+				...RepoTarget,
+				comment_id: z
+					.number()
+					.int()
+					.positive()
+					.describe(
+						"Numeric ID of the conversation comment to delete. Discover via list_issue_comments (the `id` field).",
+					),
+			},
+		},
+		async ({ owner, repo, comment_id }) =>
+			wrapTool(async () => {
+				const { headers } = await client().rest.issues.deleteComment({
+					owner,
+					repo,
+					comment_id,
+				});
+				logRateLimit(headers);
+				logWrite({ tool: "delete_issue_comment", owner, repo, comment_id });
+				return text(
+					`# Comment deleted\n\n- comment \`${comment_id}\` deleted from ${owner}/${repo}`,
 				);
 			}),
 	);

@@ -315,6 +315,10 @@ const wideOctokit = () => {
 				removeLabel: ok([]),
 				addAssignees: ok({ assignees: [{ login: "a" }] }),
 				removeAssignees: ok({ assignees: [] }),
+				lock: ok(undefined),
+				unlock: ok(undefined),
+				updateComment: ok({ id: 42, html_url: "https://x" }),
+				deleteComment: ok(undefined),
 			},
 			pulls: {
 				create: ok({ number: 7, title: "t", draft: false, html_url: "https://x" }),
@@ -330,6 +334,8 @@ const wideOctokit = () => {
 				}),
 				submitReview: ok({ id: 42, state: "COMMENTED", html_url: "https://x/review/42" }),
 				deletePendingReview: ok({ id: 42 }),
+				updateReviewComment: ok({ id: 42, html_url: "https://x" }),
+				deleteReviewComment: ok(undefined),
 			},
 			actions: {
 				reRunWorkflow: ok({}),
@@ -463,6 +469,44 @@ const wideOctokit = () => {
 					},
 				};
 			}
+			// Issue-lifecycle mutations (pin / unpin / transfer / delete / develop).
+			// Check unpinIssue BEFORE pinIssue — the former's string contains the
+			// latter as a substring, so the pin branch would otherwise swallow unpin
+			// calls and the unpin branch would be dead code.
+			if (query.includes("unpinIssue(")) {
+				return { unpinIssue: { issue: { url: "https://x/issues/1" } } };
+			}
+			if (query.includes("pinIssue(")) {
+				return { pinIssue: { issue: { url: "https://x/issues/1" } } };
+			}
+			if (query.includes("transferIssue(")) {
+				return { transferIssue: { issue: { number: 2, url: "https://y/issues/2" } } };
+			}
+			if (query.includes("deleteIssue(")) {
+				return { deleteIssue: { repository: { nameWithOwner: "o/r" } } };
+			}
+			if (query.includes("createLinkedBranch(")) {
+				return {
+					createLinkedBranch: {
+						linkedBranch: { ref: { name: "1-feat", repository: { url: "https://x/o/r" } } },
+					},
+				};
+			}
+			// transfer_issue's target-resolution query (source issue + destination repo).
+			if (query.includes("destination: repository")) {
+				return { source: { issue: { id: "I_1" } }, destination: { id: "R_2" } };
+			}
+			// Issue node-ID resolution (pin/unpin/delete) and develop_issue's
+			// base-resolution variants — one generous shape covers all of them.
+			if (query.includes("issue(number: $issue_number)")) {
+				return {
+					repository: {
+						issue: { id: "I_1" },
+						defaultBranchRef: { target: { oid: "oid0000" } },
+						baseRef: { target: { oid: "oid0000" } },
+					},
+				};
+			}
 			return {
 				addPullRequestReviewThread: {
 					thread: { id: "PRRT_1", comments: { nodes: [{ databaseId: 101 }] } },
@@ -525,6 +569,47 @@ const WRITE_TOOLS = [
 		"remove_assignees",
 		{ owner: "o", repo: "r", issue_number: 1, assignees: ["a"] },
 	],
+	[registerIssueTools, "pin_issue", { owner: "o", repo: "r", issue_number: 1 }],
+	[registerIssueTools, "unpin_issue", { owner: "o", repo: "r", issue_number: 1 }],
+	[
+		registerIssueTools,
+		"lock_issue",
+		{ owner: "o", repo: "r", issue_number: 1, lock_reason: "resolved" },
+		{ owner: "o", repo: "r", issue_number: 1, lock_reason: "resolved" },
+	],
+	[registerIssueTools, "unlock_issue", { owner: "o", repo: "r", issue_number: 1 }],
+	[
+		registerIssueTools,
+		"transfer_issue",
+		{
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			new_repository_owner: "o",
+			new_repository_name: "r2",
+		},
+		{
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			new_repository_owner: "o",
+			new_repository_name: "r2",
+		},
+	],
+	[registerIssueTools, "delete_issue", { owner: "o", repo: "r", issue_number: 1 }],
+	[registerIssueTools, "develop_issue", { owner: "o", repo: "r", issue_number: 1 }],
+	[
+		registerIssueTools,
+		"update_issue_comment",
+		{ owner: "o", repo: "r", comment_id: 42, body: "b" },
+		{ owner: "o", repo: "r", comment_id: 42 },
+	],
+	[
+		registerIssueTools,
+		"delete_issue_comment",
+		{ owner: "o", repo: "r", comment_id: 42 },
+		{ owner: "o", repo: "r", comment_id: 42 },
+	],
 	[registerPullTools, "create_pull_request", { owner: "o", repo: "r", title: "t", head: "feat" }],
 	[
 		registerPullTools,
@@ -563,6 +648,18 @@ const WRITE_TOOLS = [
 		"delete_pending_pr_review",
 		{ owner: "o", repo: "r", pull_number: 1, review_id: 42 },
 		{ owner: "o", repo: "r", review_id: 42 },
+	],
+	[
+		registerPullTools,
+		"update_pr_review_comment",
+		{ owner: "o", repo: "r", comment_id: 42, body: "b" },
+		{ owner: "o", repo: "r", comment_id: 42 },
+	],
+	[
+		registerPullTools,
+		"delete_pr_review_comment",
+		{ owner: "o", repo: "r", comment_id: 42 },
+		{ owner: "o", repo: "r", comment_id: 42 },
 	],
 	[registerActionTools, "rerun_workflow_run", { owner: "o", repo: "r", run_id: 1 }],
 	[registerActionTools, "rerun_failed_jobs", { owner: "o", repo: "r", run_id: 1 }],
