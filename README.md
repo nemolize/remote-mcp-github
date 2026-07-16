@@ -162,7 +162,7 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `delete_pending_pr_review`         | write | Discard a pending review without submitting                                                          |
 | `add_pr_review_comment_reply`      | write | Reply to an existing PR review comment thread (by `comment_id`)                                      |
 | `update_pr_review_comment`         | write | Edit a submitted inline review comment's body (by `comment_id`)                                      |
-| `delete_pr_review_comment`         | write | Delete a submitted inline review comment (destructive; root comment removes the thread)              |
+| `delete_pr_review_comment`         | write | Delete a submitted inline review comment (destructive; replies in the same thread are not affected)  |
 | `resolve_review_thread`            | write | Mark a PR review thread resolved (GraphQL; thread node ID)                                           |
 | `unresolve_review_thread`          | write | Re-open a resolved PR review thread (GraphQL; thread node ID)                                        |
 | `create_issue`                     | write | Title + body + labels + assignees                                                                    |

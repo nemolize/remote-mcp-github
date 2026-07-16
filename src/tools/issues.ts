@@ -5,6 +5,7 @@ import {
 	errorResult,
 	logRateLimit,
 	logWrite,
+	MAX_RESPONSE_CHARS,
 	previewLine,
 	restListHeader,
 	text,
@@ -989,17 +990,25 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 				const branches = linkedBranches.nodes
 					.map((n) => n?.ref)
 					.filter((r): r is NonNullable<typeof r> => r != null);
-				if (branches.length === 0)
-					return text(`# Linked branches on #${issue_number}\n\n(no linked branches)`);
-				const lines = branches.map((r) => `- \`${r.name}\` in ${r.repository.nameWithOwner}`);
+				// Truncation hint must reflect GitHub's own `hasNextPage`, not just the
+				// post-filter list — a page whose refs were all inaccessible still tells
+				// us more entries exist beyond it.
 				const truncatedHint = linkedBranches.pageInfo.hasNextPage
 					? "\n\n_more linked branches exist beyond the first 20; not currently paginated._"
 					: "";
-				return text(
-					truncate(
-						`# Linked branches on #${issue_number} (${branches.length})\n\n${lines.join("\n")}${truncatedHint}`,
-					),
+				if (branches.length === 0)
+					return text(
+						`# Linked branches on #${issue_number}\n\n(no linked branches)${truncatedHint}`,
+					);
+				const lines = branches.map((r) => `- \`${r.name}\` in ${r.repository.nameWithOwner}`);
+				// Reserve the hint's length before truncating so a long page of ref
+				// names can't drop the "more available" signal (same pattern as
+				// paginatedList / list_pr_review_threads).
+				const body = truncate(
+					`# Linked branches on #${issue_number} (${branches.length})\n\n${lines.join("\n")}`,
+					MAX_RESPONSE_CHARS - truncatedHint.length,
 				);
+				return text(`${body}${truncatedHint}`);
 			}),
 	);
 
@@ -1007,7 +1016,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 		"update_issue_comment",
 		{
 			description:
-				"Edit the body of an existing conversation comment on an issue or pull request. Use when the user asks to edit, correct, or rewrite a comment they can identify by ID (discover via list_issue_comments). Replaces the whole body; returns the comment's URL.",
+				"Edit the body of an existing conversation comment on an issue or pull request. Use when the user asks to edit, correct, or rewrite a comment they can identify by ID (discover via list_issue_comments). Replaces the whole body — any unspecified content is lost, and list_issue_comments returns only a 200-character preview, so ask the user for the full replacement body rather than reconstructing it from that preview. Returns the comment's URL.",
 			inputSchema: {
 				...RepoTarget,
 				comment_id: z

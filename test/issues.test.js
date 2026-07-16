@@ -461,6 +461,58 @@ describe("registerIssueTools — lifecycle branches", () => {
 		expect(result.content[0].text).toContain("Failed to transfer");
 	});
 
+	it("transfer_issue forwards create_labels_if_missing to the GraphQL mutation", async () => {
+		let capturedVars;
+		const graphql = async (query, vars) => {
+			if (query.includes("transferIssue(")) {
+				capturedVars = vars;
+				return {
+					transferIssue: { issue: { number: 2, url: "https://x/o2/r2/issues/2" } },
+				};
+			}
+			return {
+				source: { issue: { id: "I_1" } },
+				destination: { id: "R_2" },
+			};
+		};
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		await invoke(handlers, "transfer_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			new_repository_owner: "o2",
+			new_repository_name: "r2",
+			create_labels_if_missing: true,
+		});
+		expect(capturedVars.create_labels_if_missing).toBe(true);
+
+		// And the default path sends false when the caller omits it.
+		let defaultVars;
+		const graphql2 = async (query, vars) => {
+			if (query.includes("transferIssue(")) {
+				defaultVars = vars;
+				return {
+					transferIssue: { issue: { number: 2, url: "https://x/o2/r2/issues/2" } },
+				};
+			}
+			return {
+				source: { issue: { id: "I_1" } },
+				destination: { id: "R_2" },
+			};
+		};
+		const cap2 = captureHandlers();
+		registerIssueTools(cap2.server, () => lifecycleOctokit(graphql2));
+		await invoke(cap2.handlers, "transfer_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			new_repository_owner: "o2",
+			new_repository_name: "r2",
+		});
+		expect(defaultVars.create_labels_if_missing).toBe(false);
+	});
+
 	it("delete_issue surfaces an error when the mutation payload is null", async () => {
 		const graphql = async (query) => {
 			if (query.includes("deleteIssue(")) return { deleteIssue: null };
@@ -582,6 +634,32 @@ describe("registerIssueTools — lifecycle branches", () => {
 		});
 		expect(result.isError).toBeFalsy();
 		expect(result.content[0].text).toContain("(no linked branches)");
+	});
+
+	it("list_linked_branches surfaces hasNextPage even when the filtered page is empty", async () => {
+		// GitHub reports more entries, but the first page's only nodes had null
+		// refs (deleted / inaccessible). Empty display + truncation hint.
+		const graphql = async () => ({
+			repository: {
+				issue: {
+					linkedBranches: {
+						pageInfo: { hasNextPage: true },
+						nodes: [{ ref: null }, { ref: null }],
+					},
+				},
+			},
+		});
+		const { handlers, server } = captureHandlers();
+		registerIssueTools(server, () => lifecycleOctokit(graphql));
+		const result = await invoke(handlers, "list_linked_branches", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+		});
+		expect(result.isError).toBeFalsy();
+		const body = result.content[0].text;
+		expect(body).toContain("(no linked branches)");
+		expect(body).toContain("more linked branches exist");
 	});
 
 	it("list_linked_branches filters null nodes/refs and lists valid ones", async () => {

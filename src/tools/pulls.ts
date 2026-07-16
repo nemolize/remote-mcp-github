@@ -726,7 +726,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		"update_pr_review_comment",
 		{
 			description:
-				"Edit the body of a submitted inline review comment on a pull request diff. Use when the user asks to edit or correct an inline review comment they can identify by its numeric ID. `list_pr_review_threads` surfaces only each thread's root-comment ID; reply-comment IDs currently have no read-tool surface (fetch them from the GitHub UI or `gh api`). Pending-review comments cannot be edited — delete and recreate via the pending-review flow instead. Replaces the whole body; returns the comment's URL.",
+				"Edit the body of a submitted inline review comment on a pull request diff. Use when the user asks to edit or correct an inline review comment they can identify by its numeric ID. `list_pr_review_threads` surfaces only each thread's root-comment ID plus a 120-character preview of the first line; reply-comment IDs currently have no read-tool surface (fetch them from the GitHub UI or `gh api`). Replaces the whole body — any unspecified content is lost, so ask the user for the full replacement body rather than reconstructing it from the thread preview. Pending-review comments cannot be edited — delete and recreate via the pending-review flow instead. Returns the comment's URL.",
 			inputSchema: {
 				...RepoTarget,
 				comment_id: z
@@ -761,7 +761,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		"delete_pr_review_comment",
 		{
 			description:
-				"Permanently delete a submitted inline review comment from a pull request diff. Destructive — the comment cannot be restored; deleting a thread's root comment removes the whole thread. Use only when the user explicitly asks to delete an inline review comment. `list_pr_review_threads` surfaces only each thread's root-comment ID; reply-comment IDs currently have no read-tool surface (fetch them from the GitHub UI or `gh api`). Returns a confirmation.",
+				"Permanently delete a submitted inline review comment from a pull request diff. Destructive — the comment cannot be restored. This deletes only the named comment; replies in the same thread are independent comments and remain. Use only when the user explicitly asks to delete an inline review comment. `list_pr_review_threads` surfaces only each thread's root-comment ID; reply-comment IDs currently have no read-tool surface (fetch them from the GitHub UI or `gh api`). Returns a confirmation.",
 			inputSchema: {
 				...RepoTarget,
 				comment_id: z
