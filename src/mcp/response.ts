@@ -180,6 +180,10 @@ export type WriteAuditFields = {
 	branch?: string;
 	path?: string;
 	issue_number?: number;
+	lock_reason?: string; // lock_issue
+	new_repository_owner?: string; // transfer_issue (destination)
+	new_repository_name?: string; // transfer_issue (destination)
+	branch_name?: string; // develop_issue (the created linked branch)
 	pull_number?: number;
 	run_id?: number;
 	workflow_id?: number | string; // trigger_workflow_dispatch, enable_workflow / disable_workflow

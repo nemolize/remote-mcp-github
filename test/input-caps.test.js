@@ -172,6 +172,26 @@ describe("input size caps", () => {
 		expect(result.success).toBe(false);
 	});
 
+	it("update_issue_comment rejects an oversized body", () => {
+		const schema = issueSchemas.get("update_issue_comment");
+		const result = schema.safeParse({
+			...repo,
+			comment_id: 1,
+			body: overLimit(MAX_TEXT_FIELD_LENGTH),
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("update_pr_review_comment rejects an oversized body", () => {
+		const schema = pullSchemas.get("update_pr_review_comment");
+		const result = schema.safeParse({
+			...repo,
+			comment_id: 1,
+			body: overLimit(MAX_TEXT_FIELD_LENGTH),
+		});
+		expect(result.success).toBe(false);
+	});
+
 	it("create_pull_request rejects an oversized body", () => {
 		const schema = pullSchemas.get("create_pull_request");
 		const result = schema.safeParse({

@@ -723,6 +723,72 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 	);
 
 	server.registerTool(
+		"update_pr_review_comment",
+		{
+			description:
+				"Edit the body of a submitted inline review comment on a pull request diff. Use when the user asks to edit or correct an inline review comment they can identify by its numeric ID. `list_pr_review_threads` surfaces only each thread's root-comment ID plus a 120-character preview of the first line; reply-comment IDs currently have no read-tool surface (fetch them from the GitHub UI or `gh api`). Replaces the whole body — any unspecified content is lost, so ask the user for the full replacement body rather than reconstructing it from the thread preview. Pending-review comments cannot be edited — delete and recreate via the pending-review flow instead. Returns the comment's URL.",
+			inputSchema: {
+				...RepoTarget,
+				comment_id: z
+					.number()
+					.int()
+					.positive()
+					.describe(
+						"Numeric ID of the submitted inline review comment to edit. Discover via list_pr_review_threads (the `reply to comment <id>` field).",
+					),
+				body: z
+					.string()
+					.min(1)
+					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Comment body", MAX_TEXT_FIELD_LENGTH))
+					.describe("New comment body (Markdown supported); replaces the existing body entirely."),
+			},
+		},
+		async ({ owner, repo, comment_id, body }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.pulls.updateReviewComment({
+					owner,
+					repo,
+					comment_id,
+					body,
+				});
+				logRateLimit(headers);
+				logWrite({ tool: "update_pr_review_comment", owner, repo, comment_id });
+				return text(`# Review comment updated\n\n- comment \`${comment_id}\`\n- ${data.html_url}`);
+			}),
+	);
+
+	server.registerTool(
+		"delete_pr_review_comment",
+		{
+			description:
+				"Permanently delete a submitted inline review comment from a pull request diff. Destructive — the comment cannot be restored. This deletes only the named comment; replies in the same thread are independent comments and remain. Use only when the user explicitly asks to delete an inline review comment. `list_pr_review_threads` surfaces only each thread's root-comment ID; reply-comment IDs currently have no read-tool surface (fetch them from the GitHub UI or `gh api`). Returns a confirmation.",
+			inputSchema: {
+				...RepoTarget,
+				comment_id: z
+					.number()
+					.int()
+					.positive()
+					.describe(
+						"Numeric ID of the submitted inline review comment to delete. Discover via list_pr_review_threads (the `reply to comment <id>` field).",
+					),
+			},
+		},
+		async ({ owner, repo, comment_id }) =>
+			wrapTool(async () => {
+				const { headers } = await client().rest.pulls.deleteReviewComment({
+					owner,
+					repo,
+					comment_id,
+				});
+				logRateLimit(headers);
+				logWrite({ tool: "delete_pr_review_comment", owner, repo, comment_id });
+				return text(
+					`# Review comment deleted\n\n- comment \`${comment_id}\` deleted from ${owner}/${repo}`,
+				);
+			}),
+	);
+
+	server.registerTool(
 		"create_pr_review",
 		{
 			description:

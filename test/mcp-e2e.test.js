@@ -132,6 +132,12 @@ describe("MCP transport E2E", () => {
 			"delete_repository", // repos write
 			"search_issues", // issues read
 			"add_comment", // issues write
+			"lock_issue", // issues write (lifecycle)
+			"transfer_issue", // issues write (lifecycle)
+			"delete_issue", // issues write (lifecycle)
+			"develop_issue", // issues write (lifecycle)
+			"update_issue_comment", // issues write (comment edit)
+			"update_pr_review_comment", // pulls write (review comment edit)
 			"list_branches", // branches
 			"commit_file", // files
 			"create_pull_request", // pulls
