@@ -21,10 +21,11 @@ const threadsResult = (threads, { totalCount, hasNextPage = false, endCursor = n
 });
 
 describe("registerPullTools — review thread tools", () => {
-	it("registers all three review-thread tools", () => {
+	it("registers all four review-thread tools", () => {
 		const { handlers, server } = captureHandlers();
 		registerPullTools(server, () => stubOctokit(async () => ({})));
 		expect(handlers.has("list_pr_review_threads")).toBe(true);
+		expect(handlers.has("list_pr_review_thread_comments")).toBe(true);
 		expect(handlers.has("resolve_review_thread")).toBe(true);
 		expect(handlers.has("unresolve_review_thread")).toBe(true);
 	});
@@ -316,6 +317,279 @@ describe("registerPullTools — review thread tools", () => {
 		expect(body).toContain("# Review thread re-opened");
 		expect(body).toContain("`PRRT_aaa` — resolved: false");
 		expect(result.isError).toBeUndefined();
+	});
+
+	// --- list_pr_review_thread_comments ---
+
+	const threadCommentsResult = (
+		comments,
+		{ totalCount, hasNextPage = false, endCursor = null, threadId = "PRRT_zzz" } = {},
+	) => ({
+		node: {
+			__typename: "PullRequestReviewThread",
+			id: threadId,
+			comments: {
+				totalCount: totalCount ?? comments.length,
+				pageInfo: { hasNextPage, endCursor },
+				nodes: comments,
+			},
+		},
+	});
+
+	it("list_pr_review_thread_comments renders each comment with root/reply role, author, location, snippet", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () =>
+			threadCommentsResult(
+				[
+					{
+						databaseId: 4242,
+						author: { login: "alice" },
+						path: "src/foo.ts",
+						line: 12,
+						body: "Please fix this\nsecond line ignored",
+						replyTo: null,
+					},
+					{
+						databaseId: 4243,
+						author: { login: "bob" },
+						path: "src/foo.ts",
+						line: 12,
+						body: "Done in commit abc",
+						replyTo: { databaseId: 4242 },
+					},
+				],
+				{ threadId: "PRRT_aaa" },
+			),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_thread_comments", {
+			thread_id: "PRRT_aaa",
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Comments in review thread `PRRT_aaa` (2)");
+		expect(body).toContain("- comment `4242` — root — @alice on src/foo.ts:12");
+		expect(body).toContain("  > Please fix this");
+		expect(body).toContain("- comment `4243` — reply to `4242` — @bob on src/foo.ts:12");
+		expect(body).toContain("  > Done in commit abc");
+	});
+
+	it("list_pr_review_thread_comments passes thread_id / first / after to graphql", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedVars;
+		const octokit = stubOctokit(async (_query, vars) => {
+			capturedVars = vars;
+			return threadCommentsResult([], { threadId: "PRRT_aaa" });
+		});
+		registerPullTools(server, () => octokit);
+
+		await invoke(handlers, "list_pr_review_thread_comments", {
+			thread_id: "PRRT_aaa",
+			first: 10,
+			after: "CURSOR_x",
+		});
+		expect(capturedVars).toEqual({ thread_id: "PRRT_aaa", first: 10, after: "CURSOR_x" });
+	});
+
+	it("list_pr_review_thread_comments forwards first/after as-passed", async () => {
+		// The raw handler bypasses Zod, so `.default(30)` isn't applied — pass `first` explicitly.
+		const { handlers, server } = captureHandlers();
+		let capturedVars;
+		const octokit = stubOctokit(async (_query, vars) => {
+			capturedVars = vars;
+			return threadCommentsResult([], { threadId: "PRRT_aaa" });
+		});
+		registerPullTools(server, () => octokit);
+
+		await invoke(handlers, "list_pr_review_thread_comments", {
+			thread_id: "PRRT_aaa",
+			first: 30,
+		});
+		expect(capturedVars).toEqual({
+			thread_id: "PRRT_aaa",
+			first: 30,
+			after: undefined,
+		});
+	});
+
+	it("list_pr_review_thread_comments reports an empty page with totalCount", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () =>
+			threadCommentsResult([], { totalCount: 0, threadId: "PRRT_empty" }),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_thread_comments", {
+			thread_id: "PRRT_empty",
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Comments in review thread `PRRT_empty` (0/0)");
+		expect(body).toContain("No comments on this page.");
+	});
+
+	it("list_pr_review_thread_comments shows a pagination hint when hasNextPage", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () =>
+			threadCommentsResult(
+				[
+					{
+						databaseId: 1,
+						author: { login: "alice" },
+						path: "a",
+						line: 1,
+						body: "hi",
+						replyTo: null,
+					},
+				],
+				{ totalCount: 50, hasNextPage: true, endCursor: "CURSOR_more", threadId: "PRRT_aaa" },
+			),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_thread_comments", {
+			thread_id: "PRRT_aaa",
+		});
+		const body = result.content[0].text;
+		expect(body).toContain('after: "CURSOR_more"');
+	});
+
+	it("list_pr_review_thread_comments omits the pagination hint when no next page", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () =>
+			threadCommentsResult(
+				[
+					{
+						databaseId: 1,
+						author: { login: "alice" },
+						path: "a",
+						line: 1,
+						body: "hi",
+						replyTo: null,
+					},
+				],
+				{ totalCount: 1, hasNextPage: false, threadId: "PRRT_aaa" },
+			),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_thread_comments", {
+			thread_id: "PRRT_aaa",
+		});
+		const body = result.content[0].text;
+		expect(body).not.toContain("after:");
+	});
+
+	it("list_pr_review_thread_comments keeps the cursor hint when a large page overflows the truncation cap", async () => {
+		// Parallel to the sibling #50 regression test on list_pr_review_threads:
+		// a thread with 100 long-snippet comments overflows MAX_RESPONSE_CHARS (8000),
+		// so a naive `truncate(body + hint)` would drop the trailing cursor and make
+		// later pages unreachable. The tool reserves the hint's length before
+		// truncating body, so both survive.
+		const { handlers, server } = captureHandlers();
+		const bigComments = Array.from({ length: 100 }, (_, i) => ({
+			databaseId: 1000 + i,
+			author: { login: "alice" },
+			path: "src/foo.ts",
+			line: i,
+			body: "y".repeat(120),
+			replyTo: i === 0 ? null : { databaseId: 1000 },
+		}));
+		const octokit = stubOctokit(async () =>
+			threadCommentsResult(bigComments, {
+				totalCount: 250,
+				hasNextPage: true,
+				endCursor: "CURSOR_tail",
+				threadId: "PRRT_big",
+			}),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_thread_comments", {
+			thread_id: "PRRT_big",
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("truncated;");
+		expect(body).toContain('after: "CURSOR_tail"');
+	});
+
+	it("list_pr_review_thread_comments handles a missing databaseId gracefully", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () =>
+			threadCommentsResult(
+				[
+					{
+						databaseId: null,
+						author: null,
+						path: null,
+						line: null,
+						body: "",
+						replyTo: null,
+					},
+				],
+				{ threadId: "PRRT_aaa" },
+			),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_thread_comments", {
+			thread_id: "PRRT_aaa",
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("- comment (no databaseId) — root — (unknown) on (no location)");
+	});
+
+	it("list_pr_review_thread_comments renders a reply as reply even if parent databaseId is null", async () => {
+		// Defensive: a reply always carries `replyTo` (non-null); the parent's
+		// databaseId can be null (deleted parent, permission gap). The role tag
+		// must stay "reply to …" instead of silently collapsing to "root".
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () =>
+			threadCommentsResult(
+				[
+					{
+						databaseId: 999,
+						author: { login: "bob" },
+						path: "a",
+						line: 1,
+						body: "orphaned reply",
+						replyTo: { databaseId: null },
+					},
+				],
+				{ threadId: "PRRT_aaa" },
+			),
+		);
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_thread_comments", {
+			thread_id: "PRRT_aaa",
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("reply to (unknown)");
+		expect(body).not.toContain("— root —");
+	});
+
+	it("list_pr_review_thread_comments errors when the node is not found", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () => ({ node: null }));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_thread_comments", {
+			thread_id: "PRRT_missing",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("not found");
+	});
+
+	it("list_pr_review_thread_comments errors when the node is a different type", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(async () => ({ node: { __typename: "Issue" } }));
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "list_pr_review_thread_comments", {
+			thread_id: "I_notathread",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("not a PullRequestReviewThread");
 	});
 
 	it("review-thread tools propagate graphql errors via wrapTool", async () => {

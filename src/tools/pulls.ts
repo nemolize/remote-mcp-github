@@ -686,7 +686,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		"add_pr_review_comment_reply",
 		{
 			description:
-				"Reply to an existing pull request review comment thread. Use when the user wants to respond to a reviewer's inline comment. `comment_id` is the numeric ID of a comment in the target thread; the reply is added to that comment's thread (GitHub resolves the thread from the comment). Discover the numeric id via list_pr_review_threads (it prints `reply to comment <id>` per thread) or the GitHub UI. To start a *new* review (with or without inline findings), use create_pr_review instead.",
+				"Reply to an existing pull request review comment thread. Use when the user wants to respond to a reviewer's inline comment. `comment_id` is the numeric ID of a comment in the target thread; the reply is added to that comment's thread (GitHub resolves the thread from the comment). Discover the numeric id via list_pr_review_threads (it prints `reply to comment <id>` for each thread's root) or, for a reply inside a thread, via list_pr_review_thread_comments (which lists every comment in a given thread). To start a *new* review (with or without inline findings), use create_pr_review instead.",
 			inputSchema: {
 				...RepoTarget,
 				pull_number: z.number().int().positive().describe("Pull request number."),
@@ -695,7 +695,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					.int()
 					.positive()
 					.describe(
-						"Numeric ID of a comment in the target thread to reply to. Discover via list_pr_review_threads (the `reply to comment <id>` field).",
+						"Numeric ID of a comment in the target thread to reply to. Discover via list_pr_review_threads (root comment) or list_pr_review_thread_comments (any reply in a thread).",
 					),
 				body: z
 					.string()
@@ -726,7 +726,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		"update_pr_review_comment",
 		{
 			description:
-				"Edit the body of a submitted inline review comment on a pull request diff. Use when the user asks to edit or correct an inline review comment they can identify by its numeric ID. `list_pr_review_threads` surfaces only each thread's root-comment ID plus a 120-character preview of the first line; reply-comment IDs currently have no read-tool surface (fetch them from the GitHub UI or `gh api`). Replaces the whole body — any unspecified content is lost, so ask the user for the full replacement body rather than reconstructing it from the thread preview. Pending-review comments cannot be edited — delete and recreate via the pending-review flow instead. Returns the comment's URL.",
+				"Edit the body of a submitted inline review comment on a pull request diff. Use when the user asks to edit or correct an inline review comment they can identify by its numeric ID. Discover the numeric id via list_pr_review_threads (each thread's root comment, plus a 120-char preview) or, for a reply inside a thread, via list_pr_review_thread_comments (every comment in a thread, root and replies). Replaces the whole body — any unspecified content is lost, so ask the user for the full replacement body rather than reconstructing it from the thread preview. Pending-review comments cannot be edited — delete and recreate via the pending-review flow instead. Returns the comment's URL.",
 			inputSchema: {
 				...RepoTarget,
 				comment_id: z
@@ -734,7 +734,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					.int()
 					.positive()
 					.describe(
-						"Numeric ID of the submitted inline review comment to edit. Discover via list_pr_review_threads (the `reply to comment <id>` field).",
+						"Numeric ID of the submitted inline review comment to edit. Discover via list_pr_review_threads (root comment) or list_pr_review_thread_comments (any reply).",
 					),
 				body: z
 					.string()
@@ -761,7 +761,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		"delete_pr_review_comment",
 		{
 			description:
-				"Permanently delete a submitted inline review comment from a pull request diff. Destructive — the comment cannot be restored. This deletes only the named comment; replies in the same thread are independent comments and remain. Use only when the user explicitly asks to delete an inline review comment. `list_pr_review_threads` surfaces only each thread's root-comment ID; reply-comment IDs currently have no read-tool surface (fetch them from the GitHub UI or `gh api`). Returns a confirmation.",
+				"Permanently delete a submitted inline review comment from a pull request diff. Destructive — the comment cannot be restored. This deletes only the named comment; replies in the same thread are independent comments and remain. Use only when the user explicitly asks to delete an inline review comment. Discover the numeric id via list_pr_review_threads (root comment) or list_pr_review_thread_comments (any reply). Returns a confirmation.",
 			inputSchema: {
 				...RepoTarget,
 				comment_id: z
@@ -769,7 +769,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					.int()
 					.positive()
 					.describe(
-						"Numeric ID of the submitted inline review comment to delete. Discover via list_pr_review_threads (the `reply to comment <id>` field).",
+						"Numeric ID of the submitted inline review comment to delete. Discover via list_pr_review_threads (root comment) or list_pr_review_thread_comments (any reply).",
 					),
 			},
 		},
@@ -1123,6 +1123,30 @@ type ReviewThreadsQueryResult = {
 	} | null;
 };
 
+/** One comment node inside a review thread's `comments` connection. */
+type ThreadCommentNode = {
+	databaseId: number | null;
+	author: { login: string } | null;
+	path: string | null;
+	line: number | null;
+	body: string;
+	replyTo: { databaseId: number | null } | null;
+};
+
+type ThreadWithCommentsNode = {
+	__typename: "PullRequestReviewThread";
+	id: string;
+	comments: {
+		totalCount: number;
+		pageInfo: { hasNextPage: boolean; endCursor: string | null };
+		nodes: Array<ThreadCommentNode | null>;
+	};
+};
+
+type ThreadCommentsQueryResult = {
+	node: ThreadWithCommentsNode | { __typename: string } | null;
+};
+
 type ReviewThreadState = { thread: { id: string; isResolved: boolean } | null };
 type ResolveReviewThreadResult = { resolveReviewThread: ReviewThreadState };
 type UnresolveReviewThreadResult = { unresolveReviewThread: ReviewThreadState };
@@ -1158,6 +1182,29 @@ const REVIEW_THREADS_QUERY = `
 								body
 							}
 						}
+					}
+				}
+			}
+		}
+	}
+`;
+
+const THREAD_COMMENTS_QUERY = `
+	query ($thread_id: ID!, $first: Int!, $after: String) {
+		node(id: $thread_id) {
+			__typename
+			... on PullRequestReviewThread {
+				id
+				comments(first: $first, after: $after) {
+					totalCount
+					pageInfo { hasNextPage endCursor }
+					nodes {
+						databaseId
+						author { login }
+						path
+						line
+						body
+						replyTo { databaseId }
 					}
 				}
 			}
@@ -1215,7 +1262,7 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 		"list_pr_review_threads",
 		{
 			description:
-				"List the review threads on a pull request, including each thread's node ID (`PRRT_...`), resolved state, and the numeric ID of its first comment (for replying). Use this to discover thread IDs before resolve_review_thread / unresolve_review_thread, the comment ID before add_pr_review_comment_reply, or to check which review threads are still unresolved. Supports cursor pagination via `after` for PRs with more than 100 threads. Backed by GraphQL since the REST review-comment surface does not expose thread IDs.",
+				"List the review threads on a pull request, including each thread's node ID (`PRRT_...`), resolved state, and the numeric ID of its first (root) comment (for replying). Use this to discover thread IDs before resolve_review_thread / unresolve_review_thread, the root comment ID before add_pr_review_comment_reply, or to check which review threads are still unresolved. For the IDs of *reply* comments inside a thread (required by update_pr_review_comment / delete_pr_review_comment when the target is a reply), pass the thread ID to list_pr_review_thread_comments. Supports cursor pagination via `after` for PRs with more than 100 threads. Backed by GraphQL since the REST review-comment surface does not expose thread IDs.",
 			inputSchema: {
 				...RepoTarget,
 				pull_number: z.number().int().positive().describe("Pull request number."),
@@ -1294,6 +1341,93 @@ const registerReviewThreadTools = (server: McpServer, client: OctokitFactory): v
 				// #50 set out to fix.
 				const body = truncate(
 					`# Review threads on ${owner}/${repo}#${pull_number} (${threads.length})\n\n${lines.join("\n")}`,
+					MAX_RESPONSE_CHARS - more.length,
+				);
+				return text(`${body}${more}`);
+			}),
+	);
+
+	server.registerTool(
+		"list_pr_review_thread_comments",
+		{
+			description:
+				"List every comment (root and replies) in a single PR review thread, so update_pr_review_comment / delete_pr_review_comment / add_pr_review_comment_reply can find the numeric `comment_id` of any reply — not just the thread's root. Operates on a thread node ID (`PRRT_...`); discover the thread ID via list_pr_review_threads. Renders each comment as `` comment `<databaseId>` — root|reply to `<parentId>` — @author on path:line `` with a short body preview. Supports cursor pagination via `after` for threads with more than ~30 comments.",
+			inputSchema: {
+				thread_id: z
+					.string()
+					.min(1)
+					.describe("Review thread node ID, e.g. 'PRRT_...'. Discover via list_pr_review_threads."),
+				first: z
+					.number()
+					.int()
+					.min(1)
+					.max(100)
+					.optional()
+					.default(30)
+					.describe("Maximum number of comments to return (1-100)."),
+				after: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Opaque pagination cursor from a previous page's endCursor. Omit for the first page.",
+					),
+			},
+		},
+		async ({ thread_id, first, after }) =>
+			wrapTool(async () => {
+				const result = await client().graphql<ThreadCommentsQueryResult>(THREAD_COMMENTS_QUERY, {
+					thread_id,
+					first,
+					after,
+				});
+				const node = result.node;
+				if (node == null) {
+					return errorResult(
+						`Review thread ${thread_id} not found or not accessible (check the ID and your token's permissions).`,
+					);
+				}
+				const isThread = (n: { __typename: string }): n is ThreadWithCommentsNode =>
+					n.__typename === "PullRequestReviewThread";
+				if (!isThread(node)) {
+					return errorResult(
+						`Node ${thread_id} is a ${node.__typename}, not a PullRequestReviewThread. Pass a 'PRRT_...' ID discovered via list_pr_review_threads.`,
+					);
+				}
+				const { totalCount, pageInfo, nodes } = node.comments;
+				const comments = nodes.filter((c): c is ThreadCommentNode => c != null);
+				if (comments.length === 0) {
+					// totalCount > 0 with an empty page is legitimate — the caller paged
+					// past the last comment. Surface both counts so the caller can tell
+					// "the thread has no comments" from "we walked off the end".
+					return text(
+						`# Comments in review thread \`${node.id}\` (0/${totalCount})\n\nNo comments on this page.`,
+					);
+				}
+				const lines = comments.map((c) => {
+					const idLabel = c.databaseId != null ? `\`${c.databaseId}\`` : "(no databaseId)";
+					// A parent's `databaseId` can be null (deleted / permission-gapped);
+					// keep the "reply" framing so it isn't silently promoted to root.
+					const role =
+						c.replyTo == null
+							? "root"
+							: c.replyTo.databaseId != null
+								? `reply to \`${c.replyTo.databaseId}\``
+								: "reply to (unknown)";
+					const author = c.author?.login != null ? `@${c.author.login}` : "(unknown)";
+					const location =
+						c.path != null ? `${c.path}${c.line != null ? `:${c.line}` : ""}` : "(no location)";
+					const snippet = snippetBlock(c.body);
+					return `- comment ${idLabel} — ${role} — ${author} on ${location}${snippet}`;
+				});
+				const more = cursorMoreHint({
+					shown: comments.length,
+					total: totalCount,
+					hasMore: pageInfo.hasNextPage && pageInfo.endCursor != null,
+					nextPageInstruction: `Re-invoke with \`after: "${pageInfo.endCursor}"\` to fetch the next page.`,
+				});
+				const body = truncate(
+					`# Comments in review thread \`${node.id}\` (${comments.length})\n\n${lines.join("\n")}`,
 					MAX_RESPONSE_CHARS - more.length,
 				);
 				return text(`${body}${more}`);

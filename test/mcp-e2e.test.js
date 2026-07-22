@@ -138,6 +138,7 @@ describe("MCP transport E2E", () => {
 			"develop_issue", // issues write (lifecycle)
 			"update_issue_comment", // issues write (comment edit)
 			"update_pr_review_comment", // pulls write (review comment edit)
+			"list_pr_review_thread_comments", // pulls read (thread comments discovery)
 			"list_branches", // branches
 			"commit_file", // files
 			"create_pull_request", // pulls

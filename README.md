@@ -78,6 +78,7 @@ All tools respond in Markdown (not raw JSON) so the model can read them efficien
 | `get_pull_request_status`          | read  | Combined merge-readiness — Actions check-runs + legacy commit statuses, in one call                  |
 | `list_pr_reviews`                  | read  | Submitted reviews — state (APPROVED / CHANGES_REQUESTED / …), reviewer, summary body, submitted_at   |
 | `list_pr_review_threads`           | read  | PR review threads with node IDs (`PRRT_…`) + resolved state (companion read for resolve/unresolve)   |
+| `list_pr_review_thread_comments`   | read  | All comments (root + replies) in one review thread — surfaces reply `databaseId` for update/delete   |
 | `search_code`                      | read  | Code search across GitHub                                                                            |
 | `search_users`                     | read  | Cross-GitHub user search (`type:user` forced automatically; login + profile URL)                     |
 | `search_orgs`                      | read  | Cross-GitHub organization search (`type:org` forced automatically)                                   |
