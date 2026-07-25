@@ -1,16 +1,10 @@
 # remote-mcp-github
 
-A Claude.ai-ready remote MCP server that exposes GitHub as a custom connector through a public Cloudflare Workers deployment.
+A remote MCP server that exposes GitHub through a public Cloudflare Workers deployment.
 
-Connect this server in `Claude.ai → Settings → Connectors → Add custom connector` and Claude can list/search/inspect your repositories, read files, fetch PR diffs, and (with `repo` scope) create issues, comment, and branch — all under the user's own GitHub identity via standard OAuth 2.1 / PKCE.
+Connect it from Claude.ai (custom connector) or the [Codex CLI](https://github.com/openai/codex) (`codex mcp add`), and the client can list/search/inspect your repositories, read files, fetch PR diffs, and (with `repo` scope) create issues, comment, and branch — all under the user's own GitHub identity via standard OAuth 2.1 / PKCE.
 
-The standard endpoint is the public instance maintained by the author:
-
-```text
-https://remote-mcp-github.nemolize.workers.dev/sse
-```
-
-It is offered on a best-effort basis with no uptime or quota guarantees. Self-host only when you need your own Cloudflare account, quota, operational controls, or OAuth App ownership.
+See [Setup](#setup) for the exact commands. Best-effort service — no uptime or quota guarantees. Self-hosting is documented under [Self-Hosting Setup](#self-hosting-setup) for anyone who wants their own Cloudflare account, quota, or OAuth App ownership.
 
 ## Why this server
 
@@ -209,6 +203,17 @@ Use the public endpoint unless you specifically need to operate your own Worker.
 
 After the connector is enabled, start a new Claude chat and ask something like _"List my GitHub repositories by most recently updated"_. Claude should call `list_my_repos`.
 
+### Codex CLI
+
+For the [Codex CLI](https://github.com/openai/codex):
+
+```sh
+codex mcp add remote-mcp-github --url https://remote-mcp-github.nemolize.workers.dev/mcp
+codex mcp login remote-mcp-github
+```
+
+`codex mcp add` registers the server against its streamable-HTTP transport (`/mcp`); `codex mcp login` walks through the same GitHub OAuth flow as the Claude.ai connector. Once logged in, the tools become available to Codex sessions.
+
 ### What You Authorize
 
 The public instance uses GitHub OAuth. It does not ask you to paste a GitHub token into Claude or into this repository.
@@ -223,15 +228,75 @@ The OAuth App currently requests `read:user repo delete_repo gist project`:
 
 The GitHub access token is encrypted in the Worker's OAuth KV storage and used server-side for GitHub API calls. See [Security notes](#security-notes) for the implementation model.
 
-### When to Self-Host
+## Code quality
 
-The public instance is the default path for normal use. Self-host if you need any of these:
+```bash
+pnpm lint     # eslint + tsc --noEmit + prettier --check, in parallel
+pnpm fix      # eslint --fix && prettier --write
+```
 
-- your own uptime, quota, logs, and incident response;
-- a GitHub OAuth App that you control;
-- a different GitHub OAuth scope set;
-- Worker-level policy changes such as allowed origins, username restrictions, or extra audit handling;
-- private experimentation before exposing a modified tool surface.
+CI runs each sub-check (`lint:eslint`, `lint:typecheck`, `lint:prettier`) as a separate matrix job for clearer status reporting; locally, `pnpm lint` is the one-shot equivalent and `pnpm fix` auto-resolves formatting and any autofixable ESLint findings before opening a PR.
+
+## Testing
+
+Tests run with [Vitest](https://vitest.dev/) via [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/), so they execute inside the real Workers runtime (`workerd`) backed by Miniflare — not Node.
+
+```bash
+pnpm test         # one-shot run
+pnpm test:watch   # watch mode
+```
+
+Cross-cutting tests live under top-level `test/`. Tests that exercise a single module can also be co-located as `*.test.ts` next to the source. CI runs `pnpm test` as a dedicated `Test` job on every PR.
+
+The suite includes `test/mcp-e2e.test.js`, a transport-level E2E that drives `/register` → `/authorize` → `/token` and exercises `/mcp initialize` + `tools/list` against the real OAuth provider. To avoid a GitHub round-trip in CI, the test pool swaps in `test/_fixtures/fake-github-handler.ts` via the `buildOAuthProvider` factory in `src/index.ts`; tool execution against real GitHub is covered separately by the manual harness below.
+
+### Manual OAuth E2E
+
+`scripts/e2e/oauth-e2e.mjs` drives the full OAuth 2.1 + PKCE handshake against a locally-running server and then exercises a few read tools over the Streamable HTTP MCP transport, asserting on the rendered Markdown. It is **manual** — approving the GitHub consent in a browser window is the one non-scripted step — and is deliberately not wired into CI.
+
+```bash
+pnpm dev                # in one shell
+pnpm run e2e:oauth      # in another; prints an authorize URL (open it manually), then waits for ?code=...
+```
+
+Defaults assert against `nemolize/remote-mcp-github` so the maintainer can run it with no setup. Forks override via env:
+
+```bash
+EXPECTED_OWNER=acme EXPECTED_REPO=widget EXPECTED_LOGIN=acmebot pnpm run e2e:oauth
+```
+
+Other knobs: `MCP_BASE` (default `http://localhost:8788`), `CALLBACK_PORT` (default `9876`), `TIMEOUT_MS` (default `300000`).
+
+## OAuth scopes
+
+The server requests `read:user repo delete_repo gist project` from GitHub. The `repo` portion is what enables private-repo visibility for read tools and the create/comment/branch capabilities of the write tools; `delete_repo` is required only by `delete_repository`; `gist` is required only by the gist tools (`list_gists`, `get_gist`, `list_gist_comments`, `create_gist`, `update_gist`, `delete_gist`); `project` is required only by the Projects (v2) tools — it covers both the read tools (`list_projects`, `get_project`, `list_project_items`, `list_project_fields`) and the write tools (`add_project_item`, `remove_project_item`, `update_project_item_field`, `create_project_draft_item`, `create_project`, `update_project`, `delete_project`, `copy_project`, `link_project_to_repository`, `unlink_project_from_repository`, `create_project_field`, `delete_project_field`, `archive_project_item`). Existing connections authorized under the previous `read:project` scope must re-authorize before the Projects write tools work. To run the read tools only against public repositories, change `src/github-handler.ts` to `read:user public_repo gist read:project` (the read-only `read:project` suffices when the write tools aren't needed).
+
+The Actions administration tools (`list_actions_secrets`, `set_actions_secret`, `delete_actions_secret`, the variable tools, the cache tools, `enable_workflow` / `disable_workflow`) need **no additional OAuth scope**: the classic `repo` scope already covers the Actions secrets / variables / cache / workflow-state endpoints. What they do require is a sufficient **repository permission level** on the target repo — collaborator access for secrets and variables (per GitHub's REST docs: "authenticated users must have collaborator access to a repository to create, update, or read" them), and write access for cache eviction and workflow enable / disable — which is a property of your access to the repository, not of the token's scopes.
+
+## Project structure
+
+```
+src/
+├── index.ts             # OAuthProvider + MyMCP class wiring
+├── tools.ts             # GitHub tools + helpers (truncation, rate-limit log)
+├── github-handler.ts    # OAuth redirect handler (scope set here)
+├── workers-oauth-utils.ts
+└── utils.ts
+wrangler.jsonc           # Cloudflare Workers config; KV id goes here
+.dev.vars.example        # Template for the dev secrets
+```
+
+## Issue labels
+
+Two prefixed axes: `type:*` mirror the repo's conventional-commit types (`feat` / `fix` / `chore` / `docs`); `area:*` map to a responsibility area — a `src/tools/*.ts` module or a planned tool surface — and are created on demand when the first issue touching that area is filed. GitHub's standard workflow labels (`good first issue`, `help wanted`, `duplicate`, `invalid`, `question`, `wontfix`) are kept as-is.
+
+## Security notes
+
+- Tokens are encrypted at rest in the `OAUTH_KV` namespace using `COOKIE_ENCRYPTION_KEY`. Rotate the key (and re-deploy) to invalidate all active grants.
+- The Worker is the OAuth _server_ for Claude.ai (and any other MCP client) and the OAuth _client_ for GitHub. The GitHub access token never leaves the Worker — it sits in `this.props.accessToken` inside the Durable Object instance, used by Octokit per request.
+- All tool calls go through a `wrapTool()` boundary that converts thrown errors into `{ isError: true, content: [{ type: "text", text: "Error: …" }] }` so the model sees the failure mode rather than the connection dropping. The error text is forwarded verbatim; Octokit already redacts the Authorization header, so tokens do not leak, though other fields are not sanitised (defence-in-depth, not done today).
+- Write-tool payloads carry input-size caps (file content, commit/PR/issue/comment text, per-commit file count, and the aggregate content size of a multi-file commit — see `src/tools/common.ts`) as defence-in-depth, so a runaway model can't burn Worker CPU/memory with a multi-megabyte payload well under the platform's 100 MiB request limit. Oversized input is rejected with a descriptive error (per-field caps at schema validation; the aggregate-commit cap in the `commit_files` handler before any API call).
+- This is still a small server. Audit before exposing to untrusted users; consider tightening CORS, limiting allowed origins, or restricting `ALLOWED_USERNAMES` for sensitive write tools.
 
 ## Self-Hosting Setup
 
@@ -329,76 +394,6 @@ curl https://remote-mcp-github.<your-subdomain>.workers.dev/.well-known/oauth-au
 4. Add → Connect → approve on the MCP authorize page → authorize on GitHub → done
 
 In a new chat, prompt Claude with something like _"List my GitHub repositories by most recently updated"_ — Claude will pick `list_my_repos` and call it.
-
-## Code quality
-
-```bash
-pnpm lint     # eslint + tsc --noEmit + prettier --check, in parallel
-pnpm fix      # eslint --fix && prettier --write
-```
-
-CI runs each sub-check (`lint:eslint`, `lint:typecheck`, `lint:prettier`) as a separate matrix job for clearer status reporting; locally, `pnpm lint` is the one-shot equivalent and `pnpm fix` auto-resolves formatting and any autofixable ESLint findings before opening a PR.
-
-## Testing
-
-Tests run with [Vitest](https://vitest.dev/) via [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/), so they execute inside the real Workers runtime (`workerd`) backed by Miniflare — not Node.
-
-```bash
-pnpm test         # one-shot run
-pnpm test:watch   # watch mode
-```
-
-Cross-cutting tests live under top-level `test/`. Tests that exercise a single module can also be co-located as `*.test.ts` next to the source. CI runs `pnpm test` as a dedicated `Test` job on every PR.
-
-The suite includes `test/mcp-e2e.test.js`, a transport-level E2E that drives `/register` → `/authorize` → `/token` and exercises `/mcp initialize` + `tools/list` against the real OAuth provider. To avoid a GitHub round-trip in CI, the test pool swaps in `test/_fixtures/fake-github-handler.ts` via the `buildOAuthProvider` factory in `src/index.ts`; tool execution against real GitHub is covered separately by the manual harness below.
-
-### Manual OAuth E2E
-
-`scripts/e2e/oauth-e2e.mjs` drives the full OAuth 2.1 + PKCE handshake against a locally-running server and then exercises a few read tools over the Streamable HTTP MCP transport, asserting on the rendered Markdown. It is **manual** — approving the GitHub consent in a browser window is the one non-scripted step — and is deliberately not wired into CI.
-
-```bash
-pnpm dev                # in one shell
-pnpm run e2e:oauth      # in another; prints an authorize URL (open it manually), then waits for ?code=...
-```
-
-Defaults assert against `nemolize/remote-mcp-github` so the maintainer can run it with no setup. Forks override via env:
-
-```bash
-EXPECTED_OWNER=acme EXPECTED_REPO=widget EXPECTED_LOGIN=acmebot pnpm run e2e:oauth
-```
-
-Other knobs: `MCP_BASE` (default `http://localhost:8788`), `CALLBACK_PORT` (default `9876`), `TIMEOUT_MS` (default `300000`).
-
-## OAuth scopes
-
-The server requests `read:user repo delete_repo gist project` from GitHub. The `repo` portion is what enables private-repo visibility for read tools and the create/comment/branch capabilities of the write tools; `delete_repo` is required only by `delete_repository`; `gist` is required only by the gist tools (`list_gists`, `get_gist`, `list_gist_comments`, `create_gist`, `update_gist`, `delete_gist`); `project` is required only by the Projects (v2) tools — it covers both the read tools (`list_projects`, `get_project`, `list_project_items`, `list_project_fields`) and the write tools (`add_project_item`, `remove_project_item`, `update_project_item_field`, `create_project_draft_item`, `create_project`, `update_project`, `delete_project`, `copy_project`, `link_project_to_repository`, `unlink_project_from_repository`, `create_project_field`, `delete_project_field`, `archive_project_item`). Existing connections authorized under the previous `read:project` scope must re-authorize before the Projects write tools work. To run the read tools only against public repositories, change `src/github-handler.ts` to `read:user public_repo gist read:project` (the read-only `read:project` suffices when the write tools aren't needed).
-
-The Actions administration tools (`list_actions_secrets`, `set_actions_secret`, `delete_actions_secret`, the variable tools, the cache tools, `enable_workflow` / `disable_workflow`) need **no additional OAuth scope**: the classic `repo` scope already covers the Actions secrets / variables / cache / workflow-state endpoints. What they do require is a sufficient **repository permission level** on the target repo — collaborator access for secrets and variables (per GitHub's REST docs: "authenticated users must have collaborator access to a repository to create, update, or read" them), and write access for cache eviction and workflow enable / disable — which is a property of your access to the repository, not of the token's scopes.
-
-## Project structure
-
-```
-src/
-├── index.ts             # OAuthProvider + MyMCP class wiring
-├── tools.ts             # GitHub tools + helpers (truncation, rate-limit log)
-├── github-handler.ts    # OAuth redirect handler (scope set here)
-├── workers-oauth-utils.ts
-└── utils.ts
-wrangler.jsonc           # Cloudflare Workers config; KV id goes here
-.dev.vars.example        # Template for the dev secrets
-```
-
-## Issue labels
-
-Two prefixed axes: `type:*` mirror the repo's conventional-commit types (`feat` / `fix` / `chore` / `docs`); `area:*` map to a responsibility area — a `src/tools/*.ts` module or a planned tool surface — and are created on demand when the first issue touching that area is filed. GitHub's standard workflow labels (`good first issue`, `help wanted`, `duplicate`, `invalid`, `question`, `wontfix`) are kept as-is.
-
-## Security notes
-
-- Tokens are encrypted at rest in the `OAUTH_KV` namespace using `COOKIE_ENCRYPTION_KEY`. Rotate the key (and re-deploy) to invalidate all active grants.
-- The Worker is the OAuth _server_ for Claude.ai (and any other MCP client) and the OAuth _client_ for GitHub. The GitHub access token never leaves the Worker — it sits in `this.props.accessToken` inside the Durable Object instance, used by Octokit per request.
-- All tool calls go through a `wrapTool()` boundary that converts thrown errors into `{ isError: true, content: [{ type: "text", text: "Error: …" }] }` so the model sees the failure mode rather than the connection dropping. The error text is forwarded verbatim; Octokit already redacts the Authorization header, so tokens do not leak, though other fields are not sanitised (defence-in-depth, not done today).
-- Write-tool payloads carry input-size caps (file content, commit/PR/issue/comment text, per-commit file count, and the aggregate content size of a multi-file commit — see `src/tools/common.ts`) as defence-in-depth, so a runaway model can't burn Worker CPU/memory with a multi-megabyte payload well under the platform's 100 MiB request limit. Oversized input is rejected with a descriptive error (per-field caps at schema validation; the aggregate-commit cap in the `commit_files` handler before any API call).
-- This is still a small server. Audit before exposing to untrusted users; consider tightening CORS, limiting allowed origins, or restricting `ALLOWED_USERNAMES` for sensitive write tools.
 
 ## License
 
