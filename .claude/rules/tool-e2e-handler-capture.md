@@ -133,6 +133,20 @@ flagged exactly this miss on the `create_repository`/`fork_repository` PR #111.)
 Also add the tool to the `test/mcp-e2e.test.js` transport spot-check list so a
 "stopped registering over the wire" regression is caught.
 
+### Never reuse a `WriteAuditFields` field for a different unit
+
+Adding a count / id to the audit line → check the target field's declared unit
+(the `// tool names` comment beside it in `src/mcp/response.ts`) and add a **new
+field with its own unit-declaring comment** when nothing matches. Do not borrow a
+near-miss.
+
+The table cannot catch a unit mismatch: it asserts audit-line presence, the tool
+name, and the `owner`/`repo` shape — never a field's semantics. So a wrong field
+passes every test while the audit trail silently lies to whoever reads it later.
+`clone_labels` logged its label count as `file_count` (produced everywhere else by
+`commit_files`, meaning a file total) through a full green suite plus a live E2E,
+and was caught only by review; the fix added `label_count`.
+
 ## Gotcha — the Workers vitest pool does NOT expose `process.env` to the isolate
 
 This repo's `vitest.config.mts` runs **every** spec in `@cloudflare/vitest-pool-workers`,
