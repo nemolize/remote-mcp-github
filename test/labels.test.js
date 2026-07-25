@@ -104,7 +104,20 @@ describe("registerLabelTools", () => {
 	});
 
 	describe("clone_labels", () => {
-		const conflict = () => Object.assign(new Error("already_exists"), { status: 422 });
+		// GitHub's name-collision 422 carries an `already_exists` error code; other
+		// 422s (validation, abuse) do not, and the tool must not treat them as a skip.
+		const conflict = () =>
+			Object.assign(new Error("Validation Failed"), {
+				status: 422,
+				response: {
+					data: { errors: [{ resource: "Label", code: "already_exists", field: "name" }] },
+				},
+			});
+		const otherUnprocessable = () =>
+			Object.assign(new Error("Validation Failed"), {
+				status: 422,
+				response: { data: { errors: [{ resource: "Label", code: "invalid", field: "color" }] } },
+			});
 
 		it("reports the no-op case when the source has no labels", async () => {
 			const { handlers, server } = captureHandlers();
@@ -235,6 +248,99 @@ describe("registerLabelTools", () => {
 			expect(body).toContain("created (1): `ok`");
 			expect(body).toContain("stopped before finishing");
 			expect(body).toContain("rate limited");
+		});
+
+		it("aborts on a 422 that is not a name collision instead of counting it as skipped", async () => {
+			const createLabel = vi
+				.fn()
+				.mockResolvedValueOnce({ data: label({ name: "ok" }), headers: {} })
+				.mockRejectedValueOnce(otherUnprocessable());
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					listLabelsForRepo: async () => ({
+						data: [
+							{ name: "ok", color: "aaaaaa", description: null },
+							{ name: "bad", color: "zzzzzz", description: null },
+						],
+						headers: {},
+					}),
+				}),
+			);
+
+			const result = await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+			});
+			const body = result.content[0].text;
+			expect(body).toContain("stopped before finishing");
+			expect(body).toContain("skipped (0): (none)");
+		});
+
+		it("reports partial progress when the overwrite update fails mid-loop", async () => {
+			const createLabel = vi.fn().mockRejectedValue(conflict());
+			const updateLabel = vi
+				.fn()
+				.mockResolvedValueOnce({ data: label({ name: "first" }), headers: {} })
+				.mockRejectedValueOnce(Object.assign(new Error("rate limited"), { status: 403 }));
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					updateLabel,
+					listLabelsForRepo: async () => ({
+						data: [
+							{ name: "first", color: "aaaaaa", description: null },
+							{ name: "second", color: "bbbbbb", description: null },
+						],
+						headers: {},
+					}),
+				}),
+			);
+
+			const result = await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+				overwrite: true,
+			});
+			// A failure on the overwrite path must abort like a failed create — surfacing
+			// what already landed rather than escaping as an unhandled throw.
+			expect(result.isError).toBeUndefined();
+			const body = result.content[0].text;
+			expect(body).toContain("updated (1): `first`");
+			expect(body).toContain("stopped before finishing");
+			expect(body).toContain("rate limited");
+		});
+
+		it("puts the interruption warning before the per-label lists so truncation cannot drop it", async () => {
+			const createLabel = vi
+				.fn()
+				.mockResolvedValueOnce({ data: label({ name: "ok" }), headers: {} })
+				.mockRejectedValueOnce(Object.assign(new Error("rate limited"), { status: 403 }));
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					listLabelsForRepo: async () => ({
+						data: [
+							{ name: "ok", color: "aaaaaa", description: null },
+							{ name: "boom", color: "bbbbbb", description: null },
+						],
+						headers: {},
+					}),
+				}),
+			);
+
+			const result = await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+			});
+			const body = result.content[0].text;
+			expect(body.indexOf("stopped before finishing")).toBeLessThan(body.indexOf("created (1)"));
 		});
 
 		it("propagates a non-conflict error from the source read", async () => {

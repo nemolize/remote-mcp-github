@@ -21,6 +21,25 @@ const ColorSchema = z
 // pass `#rrggbb`, so strip it (and lower-case) before the API call.
 const normalizeColor = (color: string): string => color.replace(/^#/, "").toLowerCase();
 
+// GitHub returns 422 for several distinct conditions on `createLabel` (name
+// collision, validation failure, abuse detection). Only the collision means
+// "already there, safe to skip/overwrite" — the rest must abort the clone, so
+// match the error code rather than the bare status.
+const isAlreadyExists = (err: unknown): boolean => {
+	if (!isHttpStatus(err, 422)) return false;
+	if (err == null || typeof err !== "object" || !("response" in err)) return false;
+	const response: unknown = err.response;
+	if (response == null || typeof response !== "object" || !("data" in response)) return false;
+	const data: unknown = response.data;
+	if (data == null || typeof data !== "object" || !("errors" in data)) return false;
+	const errors: unknown = data.errors;
+	if (!Array.isArray(errors)) return false;
+	return errors.some(
+		(e: unknown) =>
+			e != null && typeof e === "object" && "code" in e && e.code === "already_exists",
+	);
+};
+
 const labelLine = (l: { name: string; color: string; description?: string | null }): string => {
 	const desc = l.description != null && l.description.length > 0 ? ` — ${l.description}` : "";
 	return `- **${l.name}** (#${l.color})${desc}`;
@@ -153,10 +172,10 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 				const created: string[] = [];
 				const updated: string[] = [];
 				const skipped: string[] = [];
-				// A non-422 failure mid-loop (rate limit, 5xx, or the Workers subrequest
-				// cap on a large set) leaves earlier mutations applied. Capture it and
-				// still emit the audit line + partial summary rather than throwing away
-				// what already landed.
+				// Any failure mid-loop (rate limit, 5xx, or the Workers subrequest cap on
+				// a large set) leaves earlier mutations applied. Capture it and still
+				// emit the audit line + partial summary rather than throwing away what
+				// already landed.
 				let aborted: string | null = null;
 				let lastHeaders: Record<string, string | number | undefined> | undefined;
 				for (const label of source) {
@@ -172,28 +191,33 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 						);
 						lastHeaders = headers;
 						created.push(label.name);
+						continue;
 					} catch (err: unknown) {
-						// 422 = a label with this name already exists in the destination.
-						if (!isHttpStatus(err, 422)) {
+						if (!isAlreadyExists(err)) {
 							aborted = err instanceof Error ? err.message : String(err);
 							break;
 						}
-						if (overwrite === true) {
-							// Send `description: ""` (not undefined) for a null-description
-							// source so the destination's stale description is cleared — GitHub
-							// only clears it on an explicit empty string.
-							const { headers } = await octo.rest.issues.updateLabel({
-								owner,
-								repo,
-								name: label.name,
-								...(label.color != null ? { color: label.color } : {}),
-								description: label.description ?? "",
-							});
-							lastHeaders = headers;
-							updated.push(label.name);
-						} else {
-							skipped.push(label.name);
-						}
+					}
+					if (overwrite !== true) {
+						skipped.push(label.name);
+						continue;
+					}
+					try {
+						// Send `description: ""` (not undefined) for a null-description
+						// source so the destination's stale description is cleared — GitHub
+						// only clears it on an explicit empty string.
+						const { headers } = await octo.rest.issues.updateLabel({
+							owner,
+							repo,
+							name: label.name,
+							...(label.color != null ? { color: label.color } : {}),
+							description: label.description ?? "",
+						});
+						lastHeaders = headers;
+						updated.push(label.name);
+					} catch (err: unknown) {
+						aborted = err instanceof Error ? err.message : String(err);
+						break;
 					}
 				}
 				if (lastHeaders != null) logRateLimit(lastHeaders);
@@ -213,20 +237,23 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 				}
 				const fmt = (names: string[]) =>
 					names.length > 0 ? names.map((n) => `\`${n}\``).join(", ") : "(none)";
+				// The warning goes *before* the per-label lists: those lists can be long
+				// enough to hit `truncate`'s cap, and a trailing warning would be the
+				// part cut — making an interrupted clone read as a complete one.
 				const lines = [
 					`# Labels cloned`,
 					``,
+					...(aborted != null
+						? [
+								`⚠ stopped before finishing: ${aborted}. The counts below reflect what was applied before the error.`,
+								``,
+							]
+						: []),
 					`- from ${source_owner}/${source_repo} into ${owner}/${repo}`,
 					`- created (${created.length}): ${fmt(created)}`,
 					`- updated (${updated.length}): ${fmt(updated)}`,
 					`- skipped (${skipped.length}): ${fmt(skipped)}`,
 				];
-				if (aborted != null) {
-					lines.push(
-						``,
-						`⚠ stopped before finishing: ${aborted}. The counts above reflect what was applied before the error.`,
-					);
-				}
 				return text(truncate(lines.join("\n")));
 			}),
 	);
