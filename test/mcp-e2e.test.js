@@ -190,6 +190,8 @@ describe("MCP transport E2E", () => {
 			"list_discussion_categories", // discussions read
 			"get_discussion", // discussions read
 			"get_discussion_comments", // discussions read
+			"create_label", // labels write (definition CRUD)
+			"clone_labels", // labels write (cross-repo clone)
 		]) {
 			expect(names, `tools/list missing ${required}`).toContain(required);
 		}

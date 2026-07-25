@@ -7,6 +7,7 @@ import { registerBranchTools } from "../src/tools/branches.js";
 import { registerFileTools } from "../src/tools/files.js";
 import { registerGistTools } from "../src/tools/gists.js";
 import { registerIssueTools } from "../src/tools/issues.js";
+import { registerLabelTools } from "../src/tools/labels.js";
 import { registerProjectTools } from "../src/tools/projects.js";
 import { registerPullTools } from "../src/tools/pulls.js";
 import { registerRepoTools } from "../src/tools/repos.js";
@@ -319,6 +320,10 @@ const wideOctokit = () => {
 				unlock: ok(undefined),
 				updateComment: ok({ id: 42, html_url: "https://x" }),
 				deleteComment: ok(undefined),
+				createLabel: ok({ name: "bug", color: "f29513", description: "d" }),
+				updateLabel: ok({ name: "bug", color: "f29513", description: "d" }),
+				deleteLabel: ok(undefined),
+				listLabelsForRepo: ok([]),
 			},
 			pulls: {
 				create: ok({ number: 7, title: "t", draft: false, html_url: "https://x" }),
@@ -513,6 +518,9 @@ const wideOctokit = () => {
 				},
 			};
 		},
+		// clone_labels reads the source repo's labels via octo.paginate; return the
+		// wrapped endpoint's `data` (an empty list, so the tool takes its no-op path).
+		paginate: async (endpoint, params) => (await endpoint(params)).data,
 	};
 };
 
@@ -609,6 +617,14 @@ const WRITE_TOOLS = [
 		"delete_issue_comment",
 		{ owner: "o", repo: "r", comment_id: 42 },
 		{ owner: "o", repo: "r", comment_id: 42 },
+	],
+	[registerLabelTools, "create_label", { owner: "o", repo: "r", name: "bug" }],
+	[registerLabelTools, "update_label", { owner: "o", repo: "r", name: "bug", new_name: "defect" }],
+	[registerLabelTools, "delete_label", { owner: "o", repo: "r", name: "bug" }],
+	[
+		registerLabelTools,
+		"clone_labels",
+		{ owner: "o", repo: "r", source_owner: "o", source_repo: "r2" },
 	],
 	[registerPullTools, "create_pull_request", { owner: "o", repo: "r", title: "t", head: "feat" }],
 	[
