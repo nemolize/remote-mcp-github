@@ -159,9 +159,11 @@ describe("registerLabelTools", () => {
 			});
 			expect(updateLabel).not.toHaveBeenCalled();
 			const body = result.content[0].text;
-			expect(body).toContain("created (1): `new`");
-			expect(body).toContain("skipped (1): `existing`");
-			expect(body).toContain("updated (0): (none)");
+			expect(body).toContain("created: 1");
+			expect(body).toContain("created: `new`");
+			expect(body).toContain("skipped: 1");
+			expect(body).toContain("skipped: `existing`");
+			expect(body).toContain("updated: 0");
 		});
 
 		it("overwrites existing labels when overwrite is true", async () => {
@@ -188,7 +190,7 @@ describe("registerLabelTools", () => {
 			expect(updateLabel).toHaveBeenCalledWith(
 				expect.objectContaining({ name: "existing", color: "bbbbbb", description: "d" }),
 			);
-			expect(result.content[0].text).toContain("updated (1): `existing`");
+			expect(result.content[0].text).toContain("updated: `existing`");
 		});
 
 		it("clears the destination description when the source label has none (overwrite)", async () => {
@@ -245,9 +247,57 @@ describe("registerLabelTools", () => {
 			// surface that partial progress instead of discarding it via a throw.
 			expect(result.isError).toBeUndefined();
 			const body = result.content[0].text;
-			expect(body).toContain("created (1): `ok`");
+			expect(body).toContain("created: `ok`");
 			expect(body).toContain("stopped before finishing");
 			expect(body).toContain("rate limited");
+		});
+
+		it("returns an error when the interruption applied nothing at all", async () => {
+			const createLabel = vi
+				.fn()
+				.mockRejectedValue(Object.assign(new Error("rate limited"), { status: 403 }));
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					listLabelsForRepo: async () => ({
+						data: [{ name: "boom", color: "aaaaaa", description: null }],
+						headers: {},
+					}),
+				}),
+			);
+
+			const result = await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+			});
+			// Nothing landed, so this is a failed clone rather than a partial one — a
+			// success-shaped result would read as a completed copy to the caller.
+			expect(result.isError).toBe(true);
+			expect(result.content[0].text).toContain("rate limited");
+		});
+
+		it("keeps the counts ahead of the unbounded name lists so truncation drops names first", async () => {
+			const createLabel = vi.fn(async () => ({ data: label(), headers: {} }));
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					listLabelsForRepo: async () => ({
+						data: [{ name: "a", color: "aaaaaa", description: null }],
+						headers: {},
+					}),
+				}),
+			);
+
+			const result = await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+			});
+			const body = result.content[0].text;
+			expect(body.indexOf("- skipped: 0")).toBeLessThan(body.indexOf("created: `a`"));
 		});
 
 		it("aborts on a 422 that is not a name collision instead of counting it as skipped", async () => {
@@ -276,7 +326,7 @@ describe("registerLabelTools", () => {
 			});
 			const body = result.content[0].text;
 			expect(body).toContain("stopped before finishing");
-			expect(body).toContain("skipped (0): (none)");
+			expect(body).toContain("skipped: 0");
 		});
 
 		it("reports partial progress when the overwrite update fails mid-loop", async () => {
@@ -310,7 +360,7 @@ describe("registerLabelTools", () => {
 			// what already landed rather than escaping as an unhandled throw.
 			expect(result.isError).toBeUndefined();
 			const body = result.content[0].text;
-			expect(body).toContain("updated (1): `first`");
+			expect(body).toContain("updated: `first`");
 			expect(body).toContain("stopped before finishing");
 			expect(body).toContain("rate limited");
 		});
@@ -340,7 +390,7 @@ describe("registerLabelTools", () => {
 				source_repo: "src",
 			});
 			const body = result.content[0].text;
-			expect(body.indexOf("stopped before finishing")).toBeLessThan(body.indexOf("created (1)"));
+			expect(body.indexOf("stopped before finishing")).toBeLessThan(body.indexOf("created: 1"));
 		});
 
 		it("propagates a non-conflict error from the source read", async () => {

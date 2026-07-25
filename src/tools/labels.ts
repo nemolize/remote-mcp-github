@@ -227,8 +227,14 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 					repo,
 					source_owner,
 					source_repo,
-					file_count: created.length + updated.length,
+					label_count: created.length + updated.length,
 				});
+
+				// An interruption that applied nothing is a failed clone, not a partial
+				// one — return an error so the caller can't read it as a completed copy.
+				if (aborted != null && created.length === 0 && updated.length === 0) {
+					return errorResult(`Cloning labels failed before any label was applied: ${aborted}`);
+				}
 
 				if (source.length === 0) {
 					return text(
@@ -237,9 +243,9 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 				}
 				const fmt = (names: string[]) =>
 					names.length > 0 ? names.map((n) => `\`${n}\``).join(", ") : "(none)";
-				// The warning goes *before* the per-label lists: those lists can be long
-				// enough to hit `truncate`'s cap, and a trailing warning would be the
-				// part cut — making an interrupted clone read as a complete one.
+				// Counts and the abort warning come first, unbounded name lists last:
+				// `truncate` keeps the head, so a large clone drops names rather than the
+				// summary that says how many landed and whether the copy finished.
 				const lines = [
 					`# Labels cloned`,
 					``,
@@ -250,9 +256,13 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 							]
 						: []),
 					`- from ${source_owner}/${source_repo} into ${owner}/${repo}`,
-					`- created (${created.length}): ${fmt(created)}`,
-					`- updated (${updated.length}): ${fmt(updated)}`,
-					`- skipped (${skipped.length}): ${fmt(skipped)}`,
+					`- created: ${created.length}`,
+					`- updated: ${updated.length}`,
+					`- skipped: ${skipped.length}`,
+					``,
+					`created: ${fmt(created)}`,
+					`updated: ${fmt(updated)}`,
+					`skipped: ${fmt(skipped)}`,
 				];
 				return text(truncate(lines.join("\n")));
 			}),

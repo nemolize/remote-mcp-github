@@ -198,6 +198,7 @@ export type WriteAuditFields = {
 	label_name?: string; // create_label / update_label / delete_label (the label acted on)
 	source_owner?: string; // clone_labels (the repo copied from)
 	source_repo?: string; // clone_labels (the repo copied from)
+	label_count?: number; // clone_labels (labels created + updated)
 	file_count?: number;
 	thread_id?: string;
 	comment_id?: number; // add_pr_review_comment_reply
