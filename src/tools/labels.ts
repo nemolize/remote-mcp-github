@@ -277,11 +277,12 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 					);
 					updated.push(label.name);
 				};
-				// A stale snapshot sends a label to the other operation; `retried` bounds
-				// that swap to one hop, so it cannot bounce 404 ↔ already_exists forever.
-				const applyLabel = async (label: RepoLabel, retried = false): Promise<void> => {
+				// A stale snapshot sends a label to the other operation. Each label gets
+				// at most one such swap: `ignoreSnapshot` enters on the create side and
+				// has no hop of its own, so a racer cannot bounce it 404 ↔ 422 forever.
+				const applyLabel = async (label: RepoLabel, ignoreSnapshot = false): Promise<void> => {
 					const present = existing.get(labelKey(label.name));
-					if (present != null && !retried) {
+					if (present != null && !ignoreSnapshot) {
 						if (
 							overwrite !== true ||
 							(present.color === label.color &&
@@ -312,14 +313,9 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 						skipped.push(label.name);
 						return;
 					}
-					try {
-						await overwriteLabel(label.name, label);
-					} catch (err: unknown) {
-						// Deleted again mid-swap; one hop back is all this is allowed.
-						if (!isHttpStatus(err, 404) || retried) throw err;
-						recordFailure(err);
-						return applyLabel(label, true);
-					}
+					// No catch: reaching here means the create→update swap was itself the
+					// hop, so a further failure has no budget left to retry on.
+					await overwriteLabel(label.name, label);
 				};
 				for (const label of source) {
 					try {

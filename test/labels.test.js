@@ -390,6 +390,33 @@ describe("registerLabelTools", () => {
 			expect(createLabel).toHaveBeenCalledTimes(1);
 			expect(updateLabel).toHaveBeenCalledTimes(2);
 			expect(result.isError).toBe(true);
+		});
+
+		it("stops after one hop when the label is absent at prefetch and keeps flipping", async () => {
+			// Same racer, entered from the other side: absent at prefetch, so the
+			// first write is a create. The hop budget has to be the same either way.
+			const createLabel = vi.fn().mockRejectedValue(conflict());
+			const updateLabel = vi
+				.fn()
+				.mockRejectedValue(Object.assign(new Error("Not Found"), { status: 404 }));
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					updateLabel,
+					...cloneLabels([{ name: "flip", color: "aaaaaa", description: "d" }]),
+				}),
+			);
+
+			const result = await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+				overwrite: true,
+			});
+			expect(createLabel).toHaveBeenCalledTimes(1);
+			expect(updateLabel).toHaveBeenCalledTimes(1);
+			expect(result.isError).toBe(true);
 			expect(result.content[0].text).toContain("Not Found");
 		});
 
