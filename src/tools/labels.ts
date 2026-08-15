@@ -56,8 +56,9 @@ const abortMessage = (err: unknown): string => {
 	return message.length > MAX_ABORT_CHARS ? `${message.slice(0, MAX_ABORT_CHARS)}…` : message;
 };
 
-// A failed request carries the rate-limit budget that *caused* the failure, so
-// its headers are the ones worth reporting after an abort.
+// The budget that *caused* a failure is the one worth reporting — but only when
+// the response carries one: an edge 5xx has headers and no quota, and that bag
+// winning would clobber the budget the caller already observed.
 const errorHeaders = (err: unknown): Record<string, string | number | undefined> | undefined => {
 	if (err == null || typeof err !== "object" || !("response" in err)) return undefined;
 	const response: unknown = err.response;
@@ -69,10 +70,10 @@ const errorHeaders = (err: unknown): Record<string, string | number | undefined>
 	for (const [key, value] of Object.entries(headers)) {
 		if (typeof value === "string" || typeof value === "number") picked[key] = value;
 	}
-	return picked;
+	return picked["x-ratelimit-remaining"] != null ? picked : undefined;
 };
 
-const labelLine = (l: { name: string; color: string; description?: string | null }): string => {
+const labelLine = (l: RepoLabel): string => {
 	const desc = l.description != null && l.description.length > 0 ? ` — ${l.description}` : "";
 	return `- **${l.name}** (#${l.color})${desc}`;
 };
@@ -199,11 +200,10 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 				// all-skipped run and an aborted one still carry a rate-limit budget
 				// worth reporting.
 				let lastHeaders: Record<string, string | number | undefined> | undefined;
-				const observe = <T extends { headers: Record<string, string | number | undefined> }>(
-					response: T,
-				): T => {
+				const recordHeaders = (response: {
+					headers: Record<string, string | number | undefined>;
+				}): void => {
 					lastHeaders = response.headers;
-					return response;
 				};
 				const listLabels = async (o: string, r: string): Promise<RepoLabel[]> => {
 					const all: RepoLabel[] = [];
@@ -213,7 +213,7 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 							repo: r,
 							per_page: 100,
 						})) {
-							observe(page);
+							recordHeaders(page);
 							all.push(...page.data);
 						}
 					} catch (err: unknown) {
@@ -228,8 +228,7 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 
 				const source = await listLabels(source_owner, source_repo);
 				// Prefetching the destination makes collision detection an in-memory
-				// diff, so the subrequest budget buys writes rather than 422s: the cost
-				// is both repos' page counts plus one write per label that changes.
+				// diff, so the subrequest budget buys writes rather than 422s.
 				const destination = source.length > 0 ? await listLabels(owner, repo) : [];
 				const existing = new Map(destination.map((l) => [labelKey(l.name), l]));
 
@@ -241,12 +240,17 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 				// emit the audit line + partial summary rather than throwing away what
 				// already landed.
 				let aborted: string | null = null;
-				const abort = (err: unknown): void => {
+				// Every failed request, not only the ones that stop the loop: a
+				// tolerated 404 or `already_exists` is still the newest quota reading.
+				const recordFailure = (err: unknown): void => {
 					lastHeaders = errorHeaders(err) ?? lastHeaders;
+				};
+				const abort = (err: unknown): void => {
+					recordFailure(err);
 					aborted = abortMessage(err);
 				};
 				const createLabel = async (label: RepoLabel) => {
-					observe(
+					recordHeaders(
 						await octo.rest.issues.createLabel(
 							stripUndefined({
 								owner,
@@ -260,7 +264,7 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 					created.push(label.name);
 				};
 				const overwriteLabel = async (destinationName: string, label: RepoLabel) => {
-					observe(
+					recordHeaders(
 						await octo.rest.issues.updateLabel({
 							owner,
 							repo,
@@ -273,46 +277,53 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 					);
 					updated.push(label.name);
 				};
-				for (const label of source) {
+				// A stale snapshot sends a label to the other operation; `retried` bounds
+				// that swap to one hop, so it cannot bounce 404 ↔ already_exists forever.
+				const applyLabel = async (label: RepoLabel, retried = false): Promise<void> => {
 					const present = existing.get(labelKey(label.name));
-					if (present != null) {
+					if (present != null && !retried) {
 						if (
 							overwrite !== true ||
 							(present.color === label.color &&
 								(present.description ?? "") === (label.description ?? ""))
 						) {
 							skipped.push(label.name);
-							continue;
+							return;
 						}
 						try {
 							await overwriteLabel(present.name, label);
-							continue;
+							return;
 						} catch (err: unknown) {
-							// Deleted between the prefetch and this write — the snapshot is
-							// stale, not the request. Fall through to the create path so the
-							// label still lands.
-							if (!isHttpStatus(err, 404)) {
-								abort(err);
-								break;
-							}
+							// Deleted between the prefetch and this write.
+							if (!isHttpStatus(err, 404)) throw err;
+							recordFailure(err);
+							return applyLabel(label, true);
 						}
 					}
 					try {
 						await createLabel(label);
-						continue;
+						return;
 					} catch (err: unknown) {
-						// A label that appeared between the prefetch and this write.
-						if (!isAlreadyExists(err)) {
-							abort(err);
-							break;
-						}
+						// Created between the prefetch and this write.
+						if (!isAlreadyExists(err)) throw err;
+						recordFailure(err);
 					}
 					if (overwrite !== true) {
 						skipped.push(label.name);
-						continue;
+						return;
 					}
 					try {
 						await overwriteLabel(label.name, label);
+					} catch (err: unknown) {
+						// Deleted again mid-swap; one hop back is all this is allowed.
+						if (!isHttpStatus(err, 404) || retried) throw err;
+						recordFailure(err);
+						return applyLabel(label, true);
+					}
+				};
+				for (const label of source) {
+					try {
+						await applyLabel(label);
 					} catch (err: unknown) {
 						abort(err);
 						break;

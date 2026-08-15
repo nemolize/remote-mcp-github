@@ -350,9 +350,110 @@ describe("registerLabelTools", () => {
 			// Deleted between the read and the write: the snapshot is stale, not the
 			// request, so the label should still land rather than abort the clone.
 			expect(createLabel).toHaveBeenCalledWith(expect.objectContaining({ name: "gone" }));
+			// Exactly one hop each way — a second update or create would mean the
+			// label got counted twice or the swap looped.
+			expect(createLabel).toHaveBeenCalledTimes(1);
+			expect(updateLabel).toHaveBeenCalledTimes(1);
 			const body = result.content[0].text;
+			expect(body).toContain("- created: 1");
+			expect(body).toContain("- updated: 0");
+			expect(body).toContain("- skipped: 0");
 			expect(body).toContain("created: `gone`");
 			expect(body).not.toContain("stopped before finishing");
+		});
+
+		it("stops after one hop when the label keeps flipping underneath", async () => {
+			// Deleted, re-created, deleted again: the swap must abort rather than
+			// bounce 404 ↔ already_exists for as long as the racer keeps going.
+			const createLabel = vi.fn().mockRejectedValue(conflict());
+			const updateLabel = vi
+				.fn()
+				.mockRejectedValue(Object.assign(new Error("Not Found"), { status: 404 }));
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					updateLabel,
+					...cloneLabels(
+						[{ name: "flip", color: "aaaaaa", description: "d" }],
+						[{ name: "flip", color: "bbbbbb", description: "stale" }],
+					),
+				}),
+			);
+
+			const result = await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+				overwrite: true,
+			});
+			expect(createLabel).toHaveBeenCalledTimes(1);
+			expect(updateLabel).toHaveBeenCalledTimes(2);
+			expect(result.isError).toBe(true);
+			expect(result.content[0].text).toContain("Not Found");
+		});
+
+		it("reports the rate limit from a tolerated failure, not just a fatal one", async () => {
+			// An already_exists collision does not stop the loop, but it is still the
+			// newest quota reading — the last successful page's is older.
+			const createLabel = vi.fn().mockRejectedValue(
+				Object.assign(new Error("Validation Failed"), {
+					status: 422,
+					response: {
+						data: { errors: [{ resource: "Label", code: "already_exists", field: "name" }] },
+						headers: { "x-ratelimit-remaining": "7", "x-ratelimit-limit": "5000" },
+					},
+				}),
+			);
+			const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					listLabelsForRepo: async ({ repo: name }) => ({
+						data: name === "src" ? [{ name: "racy", color: "aaaaaa", description: null }] : [],
+						headers: { "x-ratelimit-remaining": "99", "x-ratelimit-limit": "5000" },
+					}),
+				}),
+			);
+
+			await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+			});
+			expect(logSpy.mock.calls.flat().join("\n")).toContain("[github-ratelimit] 7/5000");
+			logSpy.mockRestore();
+		});
+
+		it("keeps the observed quota when the failing response carries none", async () => {
+			// An edge 5xx has headers but no budget; letting that bag win would wipe
+			// out the reading the successful page already gave us.
+			const createLabel = vi.fn().mockRejectedValue(
+				Object.assign(new Error("Bad Gateway"), {
+					status: 502,
+					response: { headers: { "content-type": "text/html" } },
+				}),
+			);
+			const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					listLabelsForRepo: async ({ repo: name }) => ({
+						data: name === "src" ? [{ name: "a", color: "aaaaaa", description: null }] : [],
+						headers: { "x-ratelimit-remaining": "55", "x-ratelimit-limit": "5000" },
+					}),
+				}),
+			);
+
+			await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+			});
+			expect(logSpy.mock.calls.flat().join("\n")).toContain("[github-ratelimit] 55/5000");
+			logSpy.mockRestore();
 		});
 
 		it("reports the rate limit from a read when no write happened", async () => {
