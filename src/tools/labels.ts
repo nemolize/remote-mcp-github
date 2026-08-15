@@ -277,9 +277,9 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 					);
 					updated.push(label.name);
 				};
-				// A stale snapshot sends a label to the other operation. Each label gets
-				// at most one such swap: `ignoreSnapshot` enters on the create side and
-				// has no hop of its own, so a racer cannot bounce it 404 ↔ 422 forever.
+				// A stale snapshot sends a label to the other operation, once: the
+				// `ignoreSnapshot` entry never recurses, so a racer cannot bounce it
+				// 404 ↔ 422 forever.
 				const applyLabel = async (label: RepoLabel, ignoreSnapshot = false): Promise<void> => {
 					const present = existing.get(labelKey(label.name));
 					if (present != null && !ignoreSnapshot) {
