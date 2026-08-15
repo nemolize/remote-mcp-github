@@ -207,13 +207,21 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 				};
 				const listLabels = async (o: string, r: string): Promise<RepoLabel[]> => {
 					const all: RepoLabel[] = [];
-					for await (const page of octo.paginate.iterator(octo.rest.issues.listLabelsForRepo, {
-						owner: o,
-						repo: r,
-						per_page: 100,
-					})) {
-						observe(page);
-						all.push(...page.data);
+					try {
+						for await (const page of octo.paginate.iterator(octo.rest.issues.listLabelsForRepo, {
+							owner: o,
+							repo: r,
+							per_page: 100,
+						})) {
+							observe(page);
+							all.push(...page.data);
+						}
+					} catch (err: unknown) {
+						// A read failure exits through `wrapTool`, past the `logRateLimit`
+						// at the end — so report the quota here before rethrowing.
+						const headers = errorHeaders(err) ?? lastHeaders;
+						if (headers != null) logRateLimit(headers);
+						throw err;
 					}
 					return all;
 				};

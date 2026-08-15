@@ -438,6 +438,33 @@ describe("registerLabelTools", () => {
 			expect(result.isError).toBe(true);
 		});
 
+		it("reports the rate limit when a read is what failed", async () => {
+			const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					listLabelsForRepo: async () => {
+						throw Object.assign(new Error("rate limited"), {
+							status: 403,
+							response: {
+								headers: { "x-ratelimit-remaining": "0", "x-ratelimit-limit": "5000" },
+							},
+						});
+					},
+				}),
+			);
+
+			await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+			});
+			// A failed read exits through wrapTool, skipping the logRateLimit at the
+			// end of the handler — so a rate-limited prefetch would report nothing.
+			expect(logSpy.mock.calls.flat().join("\n")).toContain("[github-ratelimit] 0/5000");
+			logSpy.mockRestore();
+		});
+
 		it("overwrites existing labels when overwrite is true", async () => {
 			const createLabel = vi.fn();
 			const updateLabel = vi.fn(async () => ({ data: label(), headers: {} }));
