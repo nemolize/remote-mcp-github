@@ -393,8 +393,8 @@ describe("registerLabelTools", () => {
 		});
 
 		it("stops after one hop when the label is absent at prefetch and keeps flipping", async () => {
-			// Same racer, entered from the other side: absent at prefetch, so the
-			// first write is a create. The hop budget has to be the same either way.
+			// The sibling test covers the present-at-prefetch side; the budget has to
+			// be the same from here, and was not before this test existed.
 			const createLabel = vi.fn().mockRejectedValue(conflict());
 			const updateLabel = vi
 				.fn()
