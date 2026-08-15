@@ -518,9 +518,19 @@ const wideOctokit = () => {
 				},
 			};
 		},
-		// clone_labels reads the source repo's labels via octo.paginate; return the
-		// wrapped endpoint's `data` (an empty list, so the tool takes its no-op path).
-		paginate: async (endpoint, params) => (await endpoint(params)).data,
+		// clone_labels walks both repos' labels via paginate.iterator. The source
+		// must be non-empty and the destination empty, so the tool actually writes
+		// — it only emits its audit line once a label lands.
+		paginate: Object.assign(async (endpoint, params) => (await endpoint(params)).data, {
+			iterator: (endpoint, params) => ({
+				async *[Symbol.asyncIterator]() {
+					yield {
+						data: params.repo === "r2" ? [{ name: "bug", color: "f29513", description: "d" }] : [],
+						headers: {},
+					};
+				},
+			}),
+		}),
 	};
 };
 
