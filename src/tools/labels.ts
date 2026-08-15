@@ -21,6 +21,10 @@ const ColorSchema = z
 // pass `#rrggbb`, so strip it (and lower-case) before the API call.
 const normalizeColor = (color: string): string => color.replace(/^#/, "").toLowerCase();
 
+// GitHub collides label names case-insensitively, so an index keyed on the raw
+// name reads `Bug` as absent beside `bug` and the create then 422s.
+const labelKey = (name: string): string => name.toLowerCase();
+
 // GitHub returns 422 for several distinct conditions on `createLabel` (name
 // collision, validation failure, abuse detection). Only the collision means
 // "already there, safe to skip/overwrite" — the rest must abort the clone, so
@@ -39,6 +43,8 @@ const isAlreadyExists = (err: unknown): boolean => {
 			e != null && typeof e === "object" && "code" in e && e.code === "already_exists",
 	);
 };
+
+const abortMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 const labelLine = (l: { name: string; color: string; description?: string | null }): string => {
 	const desc = l.description != null && l.description.length > 0 ? ` — ${l.description}` : "";
@@ -146,7 +152,7 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 		"clone_labels",
 		{
 			description:
-				"Copy label definitions from a source repository into a destination repository (the `gh label clone` counterpart). By default labels whose name already exists in the destination are skipped; pass `overwrite: true` to update their colour/description to match the source. Returns a per-label summary of created / updated / skipped. If a non-conflict API error interrupts the run (e.g. a rate limit, or the Cloudflare Workers per-request subrequest cap on a very large label set), the partial progress made so far is still reported and audited.",
+				"Copy label definitions from a source repository into a destination repository (the `gh label clone` counterpart). By default labels whose name already exists in the destination are skipped; pass `overwrite: true` to update their colour/description to match the source — a destination label that already matches is skipped either way. Returns a per-label summary of created / updated / skipped. If a non-conflict API error interrupts the run (e.g. a rate limit, or the Cloudflare Workers per-request subrequest cap on a very large label set), the partial progress made so far is still reported and audited.",
 			inputSchema: {
 				owner: z.string().describe("Destination repository owner (receives the copied labels)."),
 				repo: z.string().describe("Destination repository name (receives the copied labels)."),
@@ -168,6 +174,17 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 					repo: source_repo,
 					per_page: 100,
 				});
+				// Prefetching the destination makes collision detection an in-memory
+				// diff, so the subrequest budget buys writes rather than 422s.
+				const destination =
+					source.length > 0
+						? await octo.paginate(octo.rest.issues.listLabelsForRepo, {
+								owner,
+								repo,
+								per_page: 100,
+							})
+						: [];
+				const existing = new Map(destination.map((l) => [labelKey(l.name), l]));
 
 				const created: string[] = [];
 				const updated: string[] = [];
@@ -178,7 +195,38 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 				// already landed.
 				let aborted: string | null = null;
 				let lastHeaders: Record<string, string | number | undefined> | undefined;
+				const overwriteLabel = async (destinationName: string, label: (typeof source)[number]) => {
+					const { headers } = await octo.rest.issues.updateLabel({
+						owner,
+						repo,
+						name: destinationName,
+						...(label.color != null ? { color: label.color } : {}),
+						// `""`, not undefined: GitHub clears a description only on an
+						// explicit empty string.
+						description: label.description ?? "",
+					});
+					lastHeaders = headers;
+					updated.push(label.name);
+				};
 				for (const label of source) {
+					const present = existing.get(labelKey(label.name));
+					if (present != null) {
+						if (
+							overwrite !== true ||
+							(present.color === label.color &&
+								(present.description ?? "") === (label.description ?? ""))
+						) {
+							skipped.push(label.name);
+							continue;
+						}
+						try {
+							await overwriteLabel(present.name, label);
+						} catch (err: unknown) {
+							aborted = abortMessage(err);
+							break;
+						}
+						continue;
+					}
 					try {
 						const { headers } = await octo.rest.issues.createLabel(
 							stripUndefined({
@@ -193,8 +241,9 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 						created.push(label.name);
 						continue;
 					} catch (err: unknown) {
+						// A label that appeared between the prefetch and this write.
 						if (!isAlreadyExists(err)) {
-							aborted = err instanceof Error ? err.message : String(err);
+							aborted = abortMessage(err);
 							break;
 						}
 					}
@@ -203,20 +252,9 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 						continue;
 					}
 					try {
-						// Send `description: ""` (not undefined) for a null-description
-						// source so the destination's stale description is cleared — GitHub
-						// only clears it on an explicit empty string.
-						const { headers } = await octo.rest.issues.updateLabel({
-							owner,
-							repo,
-							name: label.name,
-							...(label.color != null ? { color: label.color } : {}),
-							description: label.description ?? "",
-						});
-						lastHeaders = headers;
-						updated.push(label.name);
+						await overwriteLabel(label.name, label);
 					} catch (err: unknown) {
-						aborted = err instanceof Error ? err.message : String(err);
+						aborted = abortMessage(err);
 						break;
 					}
 				}

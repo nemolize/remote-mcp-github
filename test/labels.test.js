@@ -25,6 +25,15 @@ const stubOctokit = (overrides = {}) => ({
 
 const repo = { owner: "o", repo: "r" };
 
+// clone_labels paginates both repos through the same endpoint, so a clone stub
+// must answer per repo: `src` is the source, `r` the destination.
+const cloneLabels = (source, destination = []) => ({
+	listLabelsForRepo: async ({ repo: name }) => ({
+		data: name === "src" ? source : destination,
+		headers: {},
+	}),
+});
+
 describe("registerLabelTools", () => {
 	describe("create_label", () => {
 		it("renders the created label", async () => {
@@ -132,23 +141,20 @@ describe("registerLabelTools", () => {
 		});
 
 		it("creates non-conflicting labels and skips existing ones by default", async () => {
-			const createLabel = vi
-				.fn()
-				.mockResolvedValueOnce({ data: label({ name: "new" }), headers: {} })
-				.mockRejectedValueOnce(conflict());
+			const createLabel = vi.fn(async () => ({ data: label({ name: "new" }), headers: {} }));
 			const updateLabel = vi.fn();
 			const { handlers, server } = captureHandlers();
 			registerLabelTools(server, () =>
 				stubOctokit({
 					createLabel,
 					updateLabel,
-					listLabelsForRepo: async () => ({
-						data: [
+					...cloneLabels(
+						[
 							{ name: "new", color: "aaaaaa", description: null },
 							{ name: "existing", color: "bbbbbb", description: "d" },
 						],
-						headers: {},
-					}),
+						[{ name: "existing", color: "cccccc", description: "old" }],
+					),
 				}),
 			);
 
@@ -158,6 +164,10 @@ describe("registerLabelTools", () => {
 				source_repo: "src",
 			});
 			expect(updateLabel).not.toHaveBeenCalled();
+			// The label already in the destination costs no subrequest at all — the
+			// diff decides it, so createLabel is never attempted for it.
+			expect(createLabel).toHaveBeenCalledTimes(1);
+			expect(createLabel).toHaveBeenCalledWith(expect.objectContaining({ name: "new" }));
 			const body = result.content[0].text;
 			expect(body).toContain("created: 1");
 			expect(body).toContain("created: `new`");
@@ -166,7 +176,107 @@ describe("registerLabelTools", () => {
 			expect(body).toContain("updated: 0");
 		});
 
-		it("overwrites existing labels when overwrite is true", async () => {
+		it("matches destination names case-insensitively, as GitHub does", async () => {
+			const createLabel = vi.fn();
+			const updateLabel = vi.fn(async () => ({ data: label(), headers: {} }));
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					updateLabel,
+					...cloneLabels(
+						[{ name: "Bug", color: "aaaaaa", description: "d" }],
+						[{ name: "bug", color: "bbbbbb", description: "d" }],
+					),
+				}),
+			);
+
+			await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+				overwrite: true,
+			});
+			// GitHub collides `Bug` with `bug`, so a create would 422; and the update
+			// must address the destination's own spelling, not the source's.
+			expect(createLabel).not.toHaveBeenCalled();
+			expect(updateLabel).toHaveBeenCalledWith(expect.objectContaining({ name: "bug" }));
+		});
+
+		it("skips an already-matching destination label even with overwrite", async () => {
+			const createLabel = vi.fn();
+			const updateLabel = vi.fn();
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					updateLabel,
+					...cloneLabels(
+						[{ name: "same", color: "aaaaaa", description: "d" }],
+						[{ name: "same", color: "aaaaaa", description: "d" }],
+					),
+				}),
+			);
+
+			const result = await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+				overwrite: true,
+			});
+			expect(updateLabel).not.toHaveBeenCalled();
+			expect(createLabel).not.toHaveBeenCalled();
+			expect(result.content[0].text).toContain("skipped: `same`");
+		});
+
+		it("treats a null source description as equal to an empty destination one", async () => {
+			const updateLabel = vi.fn();
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					updateLabel,
+					...cloneLabels(
+						[{ name: "same", color: "aaaaaa", description: null }],
+						[{ name: "same", color: "aaaaaa", description: "" }],
+					),
+				}),
+			);
+
+			await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+				overwrite: true,
+			});
+			// An update here would send description: "" and change nothing, spending a
+			// subrequest to write the state the destination already holds.
+			expect(updateLabel).not.toHaveBeenCalled();
+		});
+
+		it("still skips on a race-created label when overwrite is off", async () => {
+			const createLabel = vi.fn().mockRejectedValue(conflict());
+			const updateLabel = vi.fn();
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					updateLabel,
+					...cloneLabels([{ name: "racy", color: "aaaaaa", description: null }]),
+				}),
+			);
+
+			const result = await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+			});
+			// Absent from the prefetch but present by the time of the write: the
+			// already_exists guard has to stay for exactly this window.
+			expect(updateLabel).not.toHaveBeenCalled();
+			expect(result.content[0].text).toContain("skipped: `racy`");
+		});
+
+		it("overwrites a race-created label when overwrite is on", async () => {
 			const createLabel = vi.fn().mockRejectedValue(conflict());
 			const updateLabel = vi.fn(async () => ({ data: label(), headers: {} }));
 			const { handlers, server } = captureHandlers();
@@ -174,10 +284,55 @@ describe("registerLabelTools", () => {
 				stubOctokit({
 					createLabel,
 					updateLabel,
-					listLabelsForRepo: async () => ({
-						data: [{ name: "existing", color: "bbbbbb", description: "d" }],
-						headers: {},
-					}),
+					...cloneLabels([{ name: "racy", color: "aaaaaa", description: "d" }]),
+				}),
+			);
+
+			const result = await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+				overwrite: true,
+			});
+			expect(updateLabel).toHaveBeenCalledWith(
+				expect.objectContaining({ name: "racy", color: "aaaaaa", description: "d" }),
+			);
+			expect(result.content[0].text).toContain("updated: `racy`");
+		});
+
+		it("propagates a non-conflict error from the destination read", async () => {
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					listLabelsForRepo: async ({ repo: name }) => {
+						if (name === "src") {
+							return { data: [{ name: "a", color: "aaaaaa", description: null }], headers: {} };
+						}
+						throw Object.assign(new Error("boom"), { status: 500 });
+					},
+				}),
+			);
+
+			const result = await invoke(handlers, "clone_labels", {
+				...repo,
+				source_owner: "o",
+				source_repo: "src",
+			});
+			expect(result.isError).toBe(true);
+		});
+
+		it("overwrites existing labels when overwrite is true", async () => {
+			const createLabel = vi.fn();
+			const updateLabel = vi.fn(async () => ({ data: label(), headers: {} }));
+			const { handlers, server } = captureHandlers();
+			registerLabelTools(server, () =>
+				stubOctokit({
+					createLabel,
+					updateLabel,
+					...cloneLabels(
+						[{ name: "existing", color: "bbbbbb", description: "d" }],
+						[{ name: "existing", color: "cccccc", description: "old" }],
+					),
 				}),
 			);
 
@@ -194,17 +349,17 @@ describe("registerLabelTools", () => {
 		});
 
 		it("clears the destination description when the source label has none (overwrite)", async () => {
-			const createLabel = vi.fn().mockRejectedValue(conflict());
+			const createLabel = vi.fn();
 			const updateLabel = vi.fn(async () => ({ data: label(), headers: {} }));
 			const { handlers, server } = captureHandlers();
 			registerLabelTools(server, () =>
 				stubOctokit({
 					createLabel,
 					updateLabel,
-					listLabelsForRepo: async () => ({
-						data: [{ name: "existing", color: "bbbbbb", description: null }],
-						headers: {},
-					}),
+					...cloneLabels(
+						[{ name: "existing", color: "bbbbbb", description: null }],
+						[{ name: "existing", color: "bbbbbb", description: "stale" }],
+					),
 				}),
 			);
 
@@ -228,13 +383,10 @@ describe("registerLabelTools", () => {
 			registerLabelTools(server, () =>
 				stubOctokit({
 					createLabel,
-					listLabelsForRepo: async () => ({
-						data: [
-							{ name: "ok", color: "aaaaaa", description: null },
-							{ name: "boom", color: "bbbbbb", description: null },
-						],
-						headers: {},
-					}),
+					...cloneLabels([
+						{ name: "ok", color: "aaaaaa", description: null },
+						{ name: "boom", color: "bbbbbb", description: null },
+					]),
 				}),
 			);
 
@@ -260,10 +412,7 @@ describe("registerLabelTools", () => {
 			registerLabelTools(server, () =>
 				stubOctokit({
 					createLabel,
-					listLabelsForRepo: async () => ({
-						data: [{ name: "boom", color: "aaaaaa", description: null }],
-						headers: {},
-					}),
+					...cloneLabels([{ name: "boom", color: "aaaaaa", description: null }]),
 				}),
 			);
 
@@ -284,10 +433,7 @@ describe("registerLabelTools", () => {
 			registerLabelTools(server, () =>
 				stubOctokit({
 					createLabel,
-					listLabelsForRepo: async () => ({
-						data: [{ name: "a", color: "aaaaaa", description: null }],
-						headers: {},
-					}),
+					...cloneLabels([{ name: "a", color: "aaaaaa", description: null }]),
 				}),
 			);
 
@@ -309,13 +455,10 @@ describe("registerLabelTools", () => {
 			registerLabelTools(server, () =>
 				stubOctokit({
 					createLabel,
-					listLabelsForRepo: async () => ({
-						data: [
-							{ name: "ok", color: "aaaaaa", description: null },
-							{ name: "bad", color: "zzzzzz", description: null },
-						],
-						headers: {},
-					}),
+					...cloneLabels([
+						{ name: "ok", color: "aaaaaa", description: null },
+						{ name: "bad", color: "zzzzzz", description: null },
+					]),
 				}),
 			);
 
@@ -330,7 +473,7 @@ describe("registerLabelTools", () => {
 		});
 
 		it("reports partial progress when the overwrite update fails mid-loop", async () => {
-			const createLabel = vi.fn().mockRejectedValue(conflict());
+			const createLabel = vi.fn();
 			const updateLabel = vi
 				.fn()
 				.mockResolvedValueOnce({ data: label({ name: "first" }), headers: {} })
@@ -340,13 +483,16 @@ describe("registerLabelTools", () => {
 				stubOctokit({
 					createLabel,
 					updateLabel,
-					listLabelsForRepo: async () => ({
-						data: [
+					...cloneLabels(
+						[
 							{ name: "first", color: "aaaaaa", description: null },
 							{ name: "second", color: "bbbbbb", description: null },
 						],
-						headers: {},
-					}),
+						[
+							{ name: "first", color: "111111", description: "stale" },
+							{ name: "second", color: "222222", description: "stale" },
+						],
+					),
 				}),
 			);
 
@@ -374,13 +520,10 @@ describe("registerLabelTools", () => {
 			registerLabelTools(server, () =>
 				stubOctokit({
 					createLabel,
-					listLabelsForRepo: async () => ({
-						data: [
-							{ name: "ok", color: "aaaaaa", description: null },
-							{ name: "boom", color: "bbbbbb", description: null },
-						],
-						headers: {},
-					}),
+					...cloneLabels([
+						{ name: "ok", color: "aaaaaa", description: null },
+						{ name: "boom", color: "bbbbbb", description: null },
+					]),
 				}),
 			);
 
