@@ -44,6 +44,8 @@ const isAlreadyExists = (err: unknown): boolean => {
 	);
 };
 
+const abortMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
 const labelLine = (l: { name: string; color: string; description?: string | null }): string => {
 	const desc = l.description != null && l.description.length > 0 ? ` — ${l.description}` : "";
 	return `- **${l.name}** (#${l.color})${desc}`;
@@ -173,8 +175,7 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 					per_page: 100,
 				});
 				// Prefetching the destination makes collision detection an in-memory
-				// diff, so the subrequest budget buys writes rather than 422s. Skipped
-				// for an empty source: there is nothing to diff against.
+				// diff, so the subrequest budget buys writes rather than 422s.
 				const destination =
 					source.length > 0
 						? await octo.paginate(octo.rest.issues.listLabelsForRepo, {
@@ -194,15 +195,14 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 				// already landed.
 				let aborted: string | null = null;
 				let lastHeaders: Record<string, string | number | undefined> | undefined;
-				// Send `description: ""` (not undefined) for a null-description source so
-				// the destination's stale description is cleared — GitHub only clears it
-				// on an explicit empty string.
-				const overwriteLabel = async (name: string, label: (typeof source)[number]) => {
+				const overwriteLabel = async (destinationName: string, label: (typeof source)[number]) => {
 					const { headers } = await octo.rest.issues.updateLabel({
 						owner,
 						repo,
-						name,
+						name: destinationName,
 						...(label.color != null ? { color: label.color } : {}),
+						// `""`, not undefined: GitHub clears a description only on an
+						// explicit empty string.
 						description: label.description ?? "",
 					});
 					lastHeaders = headers;
@@ -220,11 +220,9 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 							continue;
 						}
 						try {
-							// Address the destination by its own name: a case-insensitive
-							// match means the source's spelling need not resolve there.
 							await overwriteLabel(present.name, label);
 						} catch (err: unknown) {
-							aborted = err instanceof Error ? err.message : String(err);
+							aborted = abortMessage(err);
 							break;
 						}
 						continue;
@@ -245,7 +243,7 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 					} catch (err: unknown) {
 						// A label that appeared between the prefetch and this write.
 						if (!isAlreadyExists(err)) {
-							aborted = err instanceof Error ? err.message : String(err);
+							aborted = abortMessage(err);
 							break;
 						}
 					}
@@ -256,7 +254,7 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 					try {
 						await overwriteLabel(label.name, label);
 					} catch (err: unknown) {
-						aborted = err instanceof Error ? err.message : String(err);
+						aborted = abortMessage(err);
 						break;
 					}
 				}
