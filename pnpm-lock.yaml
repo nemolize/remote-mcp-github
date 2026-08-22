@@ -16,7 +16,7 @@ importers:
         version: 1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.4.3)
       '@noble/hashes':
         specifier: ^2.2.0
-        version: 2.2.0
+        version: 2.3.0
       agents:
         specifier: ^0.17.0
         version: 0.17.4(@babel/core@8.0.1)(@babel/runtime@7.29.7)(ai@6.0.205(zod@4.4.3))(just-bash@3.0.1(supports-color@10.2.2))(react@19.2.7)(rolldown@1.1.1)(supports-color@10.2.2)(vite@8.0.16(@types/node@24.13.3)(esbuild@0.28.1)(yaml@2.9.0))(zod@4.4.3)
@@ -507,12 +507,6 @@ packages:
     peerDependencies:
       eslint: ^6.0.0 || ^7.0.0 || >=8.0.0
 
-  '@eslint-community/eslint-utils@4.9.1':
-    resolution: {integrity: sha512-phrYmNiYppR7znFEdqgfWHXR6NCkZEK7hwWDHZUjit/2/U0r6XvkDl0SYnoM51Hq7FhCGdLDT6zxCCOY1hexsQ==}
-    engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
-    peerDependencies:
-      eslint: ^6.0.0 || ^7.0.0 || >=8.0.0
-
   '@eslint-community/regexpp@4.12.2':
     resolution: {integrity: sha512-EriSTlt5OC9/7SXkRSCAhfSxxoSUgBm33OH+IkwbdpgoqsSsUg7y3uh+IICI/Qg4BBWr3U2i39RpmycbxMq4ew==}
     engines: {node: ^12.0.0 || ^14.0.0 || >=16.0.0}
@@ -946,8 +940,8 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@noble/hashes@2.2.0':
-    resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
+  '@noble/hashes@2.3.0':
+    resolution: {integrity: sha512-oN+QwyX7VSHotibwubG3kpzbwKrfnyR6OOO+3Nk/53ADL7FmgHHz4TgrbaYKvvOw09u6QTx0oiH1cNCIOuN0CQ==}
     engines: {node: '>= 20.19.0'}
 
   '@nodable/entities@2.2.0':
@@ -3297,11 +3291,6 @@ snapshots:
       eslint: 10.8.1(supports-color@10.2.2)
       eslint-visitor-keys: 3.4.3
 
-  '@eslint-community/eslint-utils@4.9.1(eslint@10.8.1(supports-color@10.2.2))':
-    dependencies:
-      eslint: 10.8.1(supports-color@10.2.2)
-      eslint-visitor-keys: 3.4.3
-
   '@eslint-community/regexpp@4.12.2': {}
 
   '@eslint/compat@2.1.0(eslint@10.8.1(supports-color@10.2.2))':
@@ -3646,7 +3635,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.3
     optional: true
 
-  '@noble/hashes@2.2.0': {}
+  '@noble/hashes@2.3.0': {}
 
   '@nodable/entities@2.2.0':
     optional: true
@@ -4049,7 +4038,7 @@ snapshots:
 
   '@typescript-eslint/utils@8.65.0(eslint@10.8.1(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)':
     dependencies:
-      '@eslint-community/eslint-utils': 4.9.1(eslint@10.8.1(supports-color@10.2.2))
+      '@eslint-community/eslint-utils': 4.10.1(eslint@10.8.1(supports-color@10.2.2))
       '@typescript-eslint/scope-manager': 8.65.0
       '@typescript-eslint/types': 8.65.0
       '@typescript-eslint/typescript-estree': 8.65.0(supports-color@10.2.2)(typescript@6.0.3)
@@ -4725,7 +4714,7 @@ snapshots:
       fast-xml-parser: 5.9.3
       file-type: 21.3.4(supports-color@10.2.2)
       ini: 6.0.0
-      minimatch: 10.2.5
+      minimatch: 10.2.6
       modern-tar: 0.7.6
       papaparse: 5.5.4
       quickjs-emscripten: 0.32.0
