@@ -1,0 +1,74 @@
+name: Investigation
+description: Find out how something behaves, before deciding whether it is a defect
+labels: ["type:investigation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when the weight of the problem is not knowable yet — there is
+        no severity to pick here, and guessing one is worse than leaving it out.
+
+        Once the answer is in, the finding usually becomes its own bug or
+        feature issue, and this one closes with what was learned.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: The question
+      description: |
+        What is unknown, phrased so an answer can settle it. "Is X slow?" is
+        weaker than "Does X exceed 200ms on a cold start?".
+    validations:
+      required: true
+
+  - type: textarea
+    id: observations
+    attributes:
+      label: What has been observed so far
+      description: |
+        Measurements, error text, timings — evidence rather than inference.
+        Mark anything you assumed rather than checked, so a later reader does
+        not build on it as fact. Write "nothing yet" if you are starting cold.
+    validations:
+      required: true
+
+  - type: textarea
+    id: ruled-out
+    attributes:
+      label: Already ruled out
+      description: |
+        Hypotheses you tested and eliminated, with how you eliminated them.
+        This is what stops the same dead ends being walked twice.
+      placeholder: Leave empty if you have not started.
+
+  - type: textarea
+    id: how-to-settle
+    attributes:
+      label: How this gets settled
+      description: |
+        The cheapest check that would produce an answer, and what each outcome
+        would mean. An investigation with no stated way to end it tends not to.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Where the question sits. Pick "not sure" freely — narrowing it may be the investigation.
+      options:
+        - "not sure"
+        - "pulls — Pull-request domain MCP tools"
+        - "issues — Issue domain MCP tools"
+        - "repos — Repository admin MCP tools (create / fork / delete)"
+        - "actions — GitHub Actions MCP tools"
+        - "security — Security scanning MCP tools (secret / code scanning / Dependabot)"
+        - "notifications — Notification MCP tools"
+        - "releases — Release and tag MCP tools"
+        - "build — Build, compile, lint/format config, and dependencies"
+        - "ci — CI pipelines and git hooks"
+        - "test — Test suites and coverage config, at any level"
+        - "infra — Deployment target and runtime environment config"
+      default: 0
+    validations:
+      required: true

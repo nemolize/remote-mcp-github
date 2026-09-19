@@ -1,0 +1,81 @@
+name: Bug report
+description: Something behaves differently from what it promises
+labels: ["type:fix"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe what you observed, not what you concluded. A cause you did not
+        confirm reads exactly like one you did.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The observed behaviour. Paste the actual error or output rather than describing it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+      description: State the promise being broken — a documented behaviour, a type signature, a README line.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: |
+        Numbered steps someone else can follow. If you could not reproduce it a
+        second time, say so — an intermittent failure is worth reporting as
+        intermittent, not as reliable.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: |
+        Judge by impact, not by how hard the fix looks. A maintainer applies the
+        matching severity label; leave it at "not sure" rather than guessing.
+      options:
+        - "not sure"
+        - "low — affects few users, or is largely cosmetic"
+        - "medium — affects some users but core functions still work, or a workaround exists"
+        - "high — blocks core functionality, or loses/corrupts data. No workaround"
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which layer this sits in. Pick the one a fix would touch first.
+      options:
+        - "not sure"
+        - "pulls — Pull-request domain MCP tools"
+        - "issues — Issue domain MCP tools"
+        - "repos — Repository admin MCP tools (create / fork / delete)"
+        - "actions — GitHub Actions MCP tools"
+        - "security — Security scanning MCP tools (secret / code scanning / Dependabot)"
+        - "notifications — Notification MCP tools"
+        - "releases — Release and tag MCP tools"
+        - "build — Build, compile, lint/format config, and dependencies"
+        - "ci — CI pipelines and git hooks"
+        - "test — Test suites and coverage config, at any level"
+        - "infra — Deployment target and runtime environment config"
+      default: 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Version, browser, OS, deploy target — whatever is load-bearing here.
+      placeholder: Leave empty if the bug does not depend on any of it.
