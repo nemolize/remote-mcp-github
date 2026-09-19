@@ -1,0 +1,68 @@
+name: Feature request
+description: Something the project should be able to do and cannot yet
+labels: ["type:feat"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Lead with the problem, not the solution you have in mind — the shape of
+        the fix is easier to judge once the need is on the page.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: |
+        The situation that is worse without this. If it came from real use, say
+        what you were doing when you hit it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: |
+        What you want the project to do. Write "no strong opinion" if you want
+        the problem solved but have no preference on how.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which layer this lands in. Pick the one the work would start in.
+      options:
+        - "not sure"
+        - "pulls — Pull-request domain MCP tools"
+        - "issues — Issue domain MCP tools"
+        - "repos — Repository admin MCP tools (create / fork / delete)"
+        - "actions — GitHub Actions MCP tools"
+        - "security — Security scanning MCP tools (secret / code scanning / Dependabot)"
+        - "notifications — Notification MCP tools"
+        - "releases — Release and tag MCP tools"
+        - "build — Build, compile, lint/format config, and dependencies"
+        - "ci — CI pipelines and git hooks"
+        - "test — Test suites and coverage config, at any level"
+        - "infra — Deployment target and runtime environment config"
+      default: 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and what you rejected
+      description: |
+        Ways you already considered and set aside, and why. This is what stops
+        the same options being re-derived during review.
+      placeholder: Leave empty if you considered none.
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Deliberately out of scope
+      description: |
+        Adjacent work this issue is NOT asking for. Pre-empts "why not also X?".
+      placeholder: Leave empty if nothing is being excluded.

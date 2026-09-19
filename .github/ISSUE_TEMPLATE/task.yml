@@ -1,0 +1,62 @@
+name: Task
+description: Documentation, tooling, dependencies, or maintenance work
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For work that is neither a defect nor a new capability — a doc that is
+        wrong, a dependency to bump, a script to tidy.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      description: Picks the type label a maintainer applies.
+      options:
+        - "docs — documentation only"
+        - "chore — tooling, infra, dependencies, maintenance"
+      default: 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What needs doing
+      description: |
+        The work itself. For a documentation fix, quote the line that is wrong
+        and say what it should say instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why now
+      description: |
+        What is worse while this stays undone. Routine upkeep with no trigger
+        beyond itself is a fine answer — say so in one line.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which layer this sits in.
+      options:
+        - "not sure"
+        - "pulls — Pull-request domain MCP tools"
+        - "issues — Issue domain MCP tools"
+        - "repos — Repository admin MCP tools (create / fork / delete)"
+        - "actions — GitHub Actions MCP tools"
+        - "security — Security scanning MCP tools (secret / code scanning / Dependabot)"
+        - "notifications — Notification MCP tools"
+        - "releases — Release and tag MCP tools"
+        - "build — Build, compile, lint/format config, and dependencies"
+        - "ci — CI pipelines and git hooks"
+        - "test — Test suites and coverage config, at any level"
+        - "infra — Deployment target and runtime environment config"
+      default: 0
+    validations:
+      required: true
