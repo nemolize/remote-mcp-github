@@ -85,8 +85,6 @@ const truncateKeeping = (
 	return keep === "head" ? out.slice(0, maxChars) : out.slice(out.length - maxChars);
 };
 
-// Keeps the *head* of the text — the default for list / detail tools whose
-// signal sits at the top (the first rows, the heading + metadata).
 export const truncate = (text: string, maxChars = MAX_RESPONSE_CHARS): string =>
 	truncateKeeping(
 		text,

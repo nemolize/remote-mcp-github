@@ -266,7 +266,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 		"get_issue",
 		{
 			description:
-				"Fetch a single issue's details. Use when the user asks to read, view, or inspect an issue by number. Works for pull requests too (they share the issue endpoint); the output marks the entry as a PR when applicable. Returns title, state, author, labels, assignees, milestone, timestamps, URL, GraphQL node ID (usable as add_project_item's `content_id`), and a (possibly truncated) body.",
+				"Fetch a single issue's details. Use when the user asks to read, view, or inspect an issue by number. Works for pull requests too (they share the issue endpoint); the output marks the entry as a PR when applicable. Returns title, state, author, labels, assignees, milestone, timestamps, URL, GraphQL node ID (usable as add_project_item's `content_id`), and the complete, untruncated body.",
 			inputSchema: {
 				...RepoTarget,
 				issue_number: z.number().int().positive().describe("Issue or PR number to fetch."),
@@ -305,7 +305,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					"",
 					body,
 				];
-				return text(truncate(lines.join("\n")));
+				return text(lines.join("\n"));
 			}),
 	);
 

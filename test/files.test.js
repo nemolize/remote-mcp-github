@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { MAX_FILE_CONTENT_LENGTH } from "../src/tools/common.js";
+import { MAX_FILE_READ_BYTES } from "../src/tools/file-content-page.js";
 import { registerFileTools } from "../src/tools/files.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
 
@@ -127,7 +127,7 @@ describe("get_file_content", () => {
 						type: "file",
 						encoding: "none",
 						content: "",
-						size: MAX_FILE_CONTENT_LENGTH + 1,
+						size: MAX_FILE_READ_BYTES + 1,
 						sha: "huge",
 						html_url: "https://example.test/huge.bin",
 					},

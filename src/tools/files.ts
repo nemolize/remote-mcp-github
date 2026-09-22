@@ -9,7 +9,7 @@ import {
 	getBranchHeadSha,
 	resolveFileSha,
 } from "../github/helpers.js";
-import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
+import { errorResult, logRateLimit, logWrite, text, wrapTool } from "../mcp/response.js";
 import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import {
@@ -20,6 +20,7 @@ import {
 	maxCharsMessage,
 	RepoTarget,
 } from "./common.js";
+import { fileContentPage, FileRangeSchema, MAX_FILE_READ_BYTES } from "./file-content-page.js";
 
 type GitClient = ReturnType<OctokitFactory>;
 
@@ -39,28 +40,15 @@ const fetchBlobBase64 = async (
 	return data.encoding === "base64" ? data.content : encodeBase64Utf8(data.content);
 };
 
-// Decodes a base64 blob to a UTF-8 string, returning null when the bytes are not
-// valid UTF-8 (i.e. the file is binary). `atob` yields a Latin-1 byte string;
-// interpolating raw binary bytes into a text code fence would emit mojibake, so
-// the caller surfaces a "binary, not rendered" notice instead.
-const decodeBase64ToText = (base64: string): string | null => {
-	const binary = atob(base64.replace(/\n/g, ""));
-	const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-	try {
-		return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
-	} catch {
-		return null;
-	}
-};
-
 export const registerFileTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"get_file_content",
 		{
 			description:
-				"Fetch the raw content of a file from a GitHub repository at a given path and optional ref (branch, tag, or commit SHA). Use when the user asks to read, view, or inspect a specific file in a repo. Returns a fenced code block with the file's text content.",
+				"Fetch the raw content of a file from a GitHub repository at a given path and optional ref (branch, tag, or commit SHA). Use when the user asks to read, view, or inspect a specific file in a repo. Returns a fenced code block with the file's text content. File text is returned in chunks of up to 8000 Unicode code points; use `offset` and `limit` to select a range or follow the next offset. Pin `ref` to a commit SHA for consistent chunks. Files up to 20,000,000 bytes are supported.",
 			inputSchema: {
 				...RepoTarget,
+				...FileRangeSchema,
 				path: z.string().describe("File path within the repo (e.g. 'src/index.ts')."),
 				ref: z
 					.string()
@@ -68,7 +56,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					.describe("Branch, tag, or commit SHA. Defaults to the repo's default branch."),
 			},
 		},
-		async ({ owner, repo, path, ref }) =>
+		async ({ owner, repo, path, ref, offset, limit }) =>
 			wrapTool(async () => {
 				const octo = client();
 				const { data, headers } = await octo.rest.repos.getContent(
@@ -82,6 +70,9 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 				logRateLimit(headers);
 				const refSuffix = isNonEmpty(ref) ? `@${ref}` : "";
 				if (Array.isArray(data)) {
+					if (offset !== undefined || limit !== undefined) {
+						return errorResult("offset and limit apply to files, not directory listings.");
+					}
 					const entries = data.map((e) => `- ${e.type === "dir" ? "[dir]" : "[file]"} ${e.name}`);
 					return text(
 						`# Directory listing: ${owner}/${repo}/${path}${refSuffix}\n\n${entries.join("\n")}`,
@@ -91,33 +82,17 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					return errorResult(`Path is not a regular file (type=${data.type}).`);
 				}
 				const header = `# ${owner}/${repo}/${path}${refSuffix} (${data.size} bytes)`;
-				// Reject oversized files before fetching anything: decoding a
-				// multi-megabyte blob fully into the isolate (base64 response + atob
-				// binary string + interpolation) would risk OOM on the Workers runtime,
-				// the same memory concern the write-side caps guard. The 1-100 MB files
-				// the Blob-API fallback below targets are mostly binary anyway.
-				if (data.size > MAX_FILE_CONTENT_LENGTH) {
+				if (data.size > MAX_FILE_READ_BYTES) {
 					return errorResult(
-						`File is ${data.size} bytes, over the ${MAX_FILE_CONTENT_LENGTH}-byte read limit. View it on the web instead: ${data.html_url ?? "(url unavailable)"}`,
+						`File is ${data.size} bytes, over the ${MAX_FILE_READ_BYTES}-byte read limit. View it on the web instead: ${data.html_url ?? "(url unavailable)"}`,
 					);
 				}
-				// The Contents API only inlines `content` for files <= 1 MB; for files
-				// 1-100 MB it returns `content: ""` with `encoding: "none"`. Falling
-				// straight to atob("") would silently yield an empty body, so fetch the
-				// bytes via the Git Blob API using the blob SHA the Contents response
-				// already provides. Gate on `encoding` (the authoritative non-inlined
-				// signal) so an empty 0-byte file does not trigger a needless round-trip.
+				// Contents omits inline data above 1 MB; the blob SHA retrieves those bytes.
 				const base64 =
 					data.encoding === "none"
 						? await fetchBlobBase64(octo, owner, repo, data.sha)
 						: data.content;
-				const decoded = decodeBase64ToText(base64);
-				if (decoded == null) {
-					return errorResult(
-						`File appears to be binary (not valid UTF-8); not rendering its bytes as text. View it on the web instead: ${data.html_url ?? "(url unavailable)"}`,
-					);
-				}
-				return text(truncate(`${header}\n\n\`\`\`\n${decoded}\n\`\`\``));
+				return fileContentPage(header, base64, data.html_url, offset, limit);
 			}),
 	);
 
