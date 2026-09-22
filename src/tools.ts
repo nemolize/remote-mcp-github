@@ -3,6 +3,7 @@ import { Octokit } from "octokit";
 
 import { registerActionTools } from "./tools/actions.js";
 import { registerActionAdminTools } from "./tools/actions-admin.js";
+import { registerAttachmentTools } from "./tools/attachments.js";
 import { registerBranchTools } from "./tools/branches.js";
 import { registerCommitTools } from "./tools/commits.js";
 import { registerDiscussionTools } from "./tools/discussions.js";
@@ -37,4 +38,5 @@ export const registerTools = (server: McpServer, getAccessToken: () => string): 
 	registerGistTools(server, client);
 	registerProjectTools(server, client);
 	registerDiscussionTools(server, client);
+	registerAttachmentTools(server, client);
 };

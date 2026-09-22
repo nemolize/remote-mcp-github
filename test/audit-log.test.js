@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { logWrite } from "../src/mcp/response.js";
 import { registerActionTools } from "../src/tools/actions.js";
 import { registerActionAdminTools } from "../src/tools/actions-admin.js";
+import { registerAttachmentTools } from "../src/tools/attachments.js";
 import { registerBranchTools } from "../src/tools/branches.js";
 import { registerFileTools } from "../src/tools/files.js";
 import { registerGistTools } from "../src/tools/gists.js";
@@ -264,9 +265,10 @@ describe("write tools emit audit logs", () => {
 const wideOctokit = () => {
 	const ok = (data) => async () => ({ data, headers: {} });
 	return {
+		request: ok({ url: "https://github.com/user-attachments/assets/uuid" }),
 		rest: {
 			repos: {
-				get: ok({ default_branch: "main" }),
+				get: ok({ default_branch: "main", id: 1 }),
 				getContent: ok({ type: "file", sha: "abc" }),
 				createOrUpdateFileContents: ok({
 					commit: { sha: "deadbeef0000", html_url: "https://x/commit" },
@@ -748,6 +750,11 @@ const WRITE_TOOLS = [
 	[registerRepoTools, "create_repository", { name: "r" }],
 	[registerRepoTools, "fork_repository", { owner: "o", repo: "r" }],
 	[registerRepoTools, "delete_repository", { owner: "o", repo: "r" }],
+	[
+		registerAttachmentTools,
+		"upload_attachment",
+		{ owner: "o", repo: "r", filename: "a.png", content_base64: "AAAA" },
+	],
 	[registerGistTools, "create_gist", { files: { "a.txt": { content: "x" } } }, { gist_id: "g1" }],
 	[registerGistTools, "update_gist", { gist_id: "g1", description: "new" }, { gist_id: "g1" }],
 	[registerGistTools, "delete_gist", { gist_id: "g1" }, { gist_id: "g1" }],

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { MAX_BASE64_LENGTH, registerAttachmentTools } from "../src/tools/attachments.js";
 import {
 	MAX_FILE_CONTENT_LENGTH,
 	MAX_FILES_PER_COMMIT,
@@ -44,6 +45,7 @@ const fileSchemas = captureSchemas(registerFileTools);
 const issueSchemas = captureSchemas(registerIssueTools);
 const pullSchemas = captureSchemas(registerPullTools);
 const releaseSchemas = captureSchemas(registerReleaseTools);
+const attachmentSchemas = captureSchemas(registerAttachmentTools);
 
 const repo = { owner: "o", repo: "r" };
 const overLimit = (max) => "x".repeat(max + 1);
@@ -57,6 +59,17 @@ describe("input size caps", () => {
 			false,
 		);
 		expect(schema.safeParse({ ...base, content: atLimit(MAX_FILE_CONTENT_LENGTH) }).success).toBe(
+			true,
+		);
+	});
+
+	it("upload_attachment rejects oversized content but accepts content at the limit", () => {
+		const schema = attachmentSchemas.get("upload_attachment");
+		const base = { ...repo, filename: "a.png" };
+		expect(
+			schema.safeParse({ ...base, content_base64: overLimit(MAX_BASE64_LENGTH) }).success,
+		).toBe(false);
+		expect(schema.safeParse({ ...base, content_base64: atLimit(MAX_BASE64_LENGTH) }).success).toBe(
 			true,
 		);
 	});
