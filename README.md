@@ -8,7 +8,7 @@ See [Setup](#setup) for the exact commands. Best-effort service — no uptime or
 
 ## Why this server
 
-Several GitHub MCP servers exist, alongside GitHub's own `gh` CLI. This server's niche: responses are **curated and bounded for an LLM consumer** — each tool returns the fields that matter and truncates large payloads (diffs, file contents) at the boundary, so a single response can't overrun the model's context window — and every call runs under the user's own GitHub OAuth identity. (Output is serialized as Markdown rather than JSON; that is a deliberate format trade-off, not a strict win — see **Differentiators** below.)
+Several GitHub MCP servers exist, alongside GitHub's own `gh` CLI. This server's niche: responses are **curated for an LLM consumer** — tools return selected fields and truncate large payloads by default, with opt-in full responses for issue, PR, and file detail — and every call runs under the user's own GitHub OAuth identity. (Output is serialized as Markdown rather than JSON; that is a deliberate format trade-off, not a strict win — see **Differentiators** below.)
 
 The table below compares coverage by **feature area** against the two most common alternatives. It stays deliberately coarse-grained — the [tool table](#whats-included) is the source of truth for which tools exist right now, and `gh`'s coverage is documented in the [GitHub CLI manual](https://cli.github.com/manual/). Legend: ✅ first-class · 🟡 partial — some tools in the area still missing (see the linked issue or inline note) · ⚠️ only via a lower-level escape hatch (`gh api`, local `git`) · ❌ absent (linked issue = tracked; unlinked = not currently tracked or structurally out of scope).
 
@@ -41,12 +41,12 @@ The table below compares coverage by **feature area** against the two most commo
 
 **Differentiators** — where a focused server earns its place next to the official one:
 
-- **Context-bounded, curated output.** Each tool returns the fields that matter and truncates large payloads (diffs, file contents) at the boundary, so the model spends fewer tokens per call and a single response never overruns the context window. Output is serialized as Markdown — a deliberate format trade-off: denser and closer to how the model consumes the result, at the cost of the unambiguous structure raw JSON gives a programmatic caller. The official server returns JSON.
+- **Context-bounded, curated output.** Tools return curated fields and truncate large payloads by default to reduce context use. `get_issue`, `get_pull_request`, and `get_file_content` accept `full: true` to opt into an untruncated response. Output is serialized as Markdown — a deliberate format trade-off: denser and closer to how the model consumes the result, at the cost of the unambiguous structure raw JSON gives a programmatic caller. The official server returns JSON.
 - **PR review thread resolve / unresolve** ([#39](https://github.com/nemolize/remote-mcp-github/issues/39), shipped) — the built-in `resolve_review_thread` / `unresolve_review_thread` avoid the `gh api graphql` fallback. The official MCP recently added the same tools; this is no longer a coverage differentiator, but the Markdown-serialized inline flow keeps it a smoother match for the review-response loop.
 
 ## What's included
 
-All tools respond in Markdown (not raw JSON) so the model can read them efficiently, and large payloads (diff, file content) are truncated at the boundary.
+All tools respond in Markdown (not raw JSON) so the model can read them efficiently, and large payloads (diff, file content) are truncated by default. For `get_issue`, `get_pull_request`, and `get_file_content`, pass `full: true` to retrieve the complete response, including any omitted body or file text. This can produce large responses; the 5,000,000-byte file read limit and binary-file rejection still apply.
 
 | Tool                               | Kind  | Purpose                                                                                              |
 | ---------------------------------- | ----- | ---------------------------------------------------------------------------------------------------- |

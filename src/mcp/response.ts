@@ -85,15 +85,17 @@ const truncateKeeping = (
 	return keep === "head" ? out.slice(0, maxChars) : out.slice(out.length - maxChars);
 };
 
-// Keeps the *head* of the text — the default for list / detail tools whose
-// signal sits at the top (the first rows, the heading + metadata).
-export const truncate = (text: string, maxChars = MAX_RESPONSE_CHARS): string =>
+export const truncate = (
+	text: string,
+	maxChars = MAX_RESPONSE_CHARS,
+	instruction = "Refine your query or paginate to see more.",
+): string =>
 	truncateKeeping(
 		text,
 		"head",
 		maxChars,
 		(omitted) =>
-			`\n\n... (truncated; ${omitted} more characters omitted to save context. Refine your query or paginate to see more.)`,
+			`\n\n... (truncated; ${omitted} more characters omitted to save context. ${instruction})`,
 	);
 
 // Keeps the *tail* of the text — for payloads whose signal sits at the end, most

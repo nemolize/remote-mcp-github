@@ -23,6 +23,7 @@ import {
 	RepoTarget,
 	SameRepoBranchPattern,
 } from "./common.js";
+import { detailText, FullResponseSchema } from "./detail-response.js";
 
 /**
  * Render the indented one-line preview block (`\n  > <snippet>`) for a comment
@@ -329,13 +330,14 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		"get_pull_request",
 		{
 			description:
-				"Fetch a single pull request's full detail. Use when the user asks to read, inspect, or check the status of a PR — including whether it is mergeable, draft, or already merged. Returns state, mergeable state, head/base branches and SHAs, requested reviewers, commit/diff counts, timestamps, URL, GraphQL node ID (usable as add_project_item's `content_id`), and a (possibly truncated) body. Richer than the issue endpoint, which omits PR-specific fields.",
+				"Fetch a single pull request's full detail. Use when the user asks to read, inspect, or check the status of a PR — including whether it is mergeable, draft, or already merged. Returns state, mergeable state, head/base branches and SHAs, requested reviewers, commit/diff counts, timestamps, URL, GraphQL node ID (usable as add_project_item's `content_id`), and a body. Pass `full: true` to read the complete response when the default output is truncated. Richer than the issue endpoint, which omits PR-specific fields.",
 			inputSchema: {
 				...RepoTarget,
+				...FullResponseSchema,
 				pull_number: z.number().int().positive().describe("Pull request number."),
 			},
 		},
-		async ({ owner, repo, pull_number }) =>
+		async ({ owner, repo, pull_number, full }) =>
 			wrapTool(async () => {
 				const { data, headers } = await client().rest.pulls.get({
 					owner,
@@ -370,7 +372,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					"",
 					body,
 				];
-				return text(truncate(lines.join("\n")));
+				return detailText(lines.join("\n"), full);
 			}),
 	);
 

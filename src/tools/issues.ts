@@ -15,6 +15,7 @@ import {
 import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { MAX_TEXT_FIELD_LENGTH, maxCharsMessage, RepoTarget } from "./common.js";
+import { detailText, FullResponseSchema } from "./detail-response.js";
 import { searchHeader } from "./search-helpers.js";
 
 const formatNameList = (names: string[], wrap: "code" | "at"): string => {
@@ -266,13 +267,14 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 		"get_issue",
 		{
 			description:
-				"Fetch a single issue's details. Use when the user asks to read, view, or inspect an issue by number. Works for pull requests too (they share the issue endpoint); the output marks the entry as a PR when applicable. Returns title, state, author, labels, assignees, milestone, timestamps, URL, GraphQL node ID (usable as add_project_item's `content_id`), and a (possibly truncated) body.",
+				"Fetch a single issue's details. Use when the user asks to read, view, or inspect an issue by number. Works for pull requests too (they share the issue endpoint); the output marks the entry as a PR when applicable. Returns title, state, author, labels, assignees, milestone, timestamps, URL, GraphQL node ID (usable as add_project_item's `content_id`), and a body. Pass `full: true` to read the complete response when the default output is truncated.",
 			inputSchema: {
 				...RepoTarget,
+				...FullResponseSchema,
 				issue_number: z.number().int().positive().describe("Issue or PR number to fetch."),
 			},
 		},
-		async ({ owner, repo, issue_number }) =>
+		async ({ owner, repo, issue_number, full }) =>
 			wrapTool(async () => {
 				const { data, headers } = await client().rest.issues.get({
 					owner,
@@ -305,7 +307,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					"",
 					body,
 				];
-				return text(truncate(lines.join("\n")));
+				return detailText(lines.join("\n"), full);
 			}),
 	);
 

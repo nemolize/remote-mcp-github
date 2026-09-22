@@ -9,7 +9,7 @@ import {
 	getBranchHeadSha,
 	resolveFileSha,
 } from "../github/helpers.js";
-import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
+import { errorResult, logRateLimit, logWrite, text, wrapTool } from "../mcp/response.js";
 import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import {
@@ -20,6 +20,7 @@ import {
 	maxCharsMessage,
 	RepoTarget,
 } from "./common.js";
+import { detailText, FullResponseSchema } from "./detail-response.js";
 
 type GitClient = ReturnType<OctokitFactory>;
 
@@ -58,9 +59,10 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 		"get_file_content",
 		{
 			description:
-				"Fetch the raw content of a file from a GitHub repository at a given path and optional ref (branch, tag, or commit SHA). Use when the user asks to read, view, or inspect a specific file in a repo. Returns a fenced code block with the file's text content.",
+				"Fetch the raw content of a file from a GitHub repository at a given path and optional ref (branch, tag, or commit SHA). Use when the user asks to read, view, or inspect a specific file in a repo. Returns a fenced code block with the file's text content. Pass `full: true` to read the complete response when the default output is truncated; the 5,000,000-byte file read limit still applies.",
 			inputSchema: {
 				...RepoTarget,
+				...FullResponseSchema,
 				path: z.string().describe("File path within the repo (e.g. 'src/index.ts')."),
 				ref: z
 					.string()
@@ -68,7 +70,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 					.describe("Branch, tag, or commit SHA. Defaults to the repo's default branch."),
 			},
 		},
-		async ({ owner, repo, path, ref }) =>
+		async ({ owner, repo, path, ref, full }) =>
 			wrapTool(async () => {
 				const octo = client();
 				const { data, headers } = await octo.rest.repos.getContent(
@@ -117,7 +119,7 @@ export const registerFileTools = (server: McpServer, client: OctokitFactory): vo
 						`File appears to be binary (not valid UTF-8); not rendering its bytes as text. View it on the web instead: ${data.html_url ?? "(url unavailable)"}`,
 					);
 				}
-				return text(truncate(`${header}\n\n\`\`\`\n${decoded}\n\`\`\``));
+				return detailText(`${header}\n\n\`\`\`\n${decoded}\n\`\`\``, full);
 			}),
 	);
 
