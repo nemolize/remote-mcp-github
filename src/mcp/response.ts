@@ -198,6 +198,8 @@ export type WriteAuditFields = {
 	source_repo?: string; // clone_labels (the repo copied from)
 	label_count?: number; // clone_labels (labels created + updated)
 	file_count?: number;
+	filename?: string; // upload_attachment (the uploaded asset's name)
+	byte_count?: number; // upload_attachment (uploaded payload size in bytes)
 	thread_id?: string;
 	comment_id?: number; // add_pr_review_comment_reply
 	review_id?: number; // create_pr_review
