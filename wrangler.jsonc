@@ -5,6 +5,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "remote-mcp-github",
+	"account_id": "e1b70bd196c19cb376259b0c98ae7736",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
