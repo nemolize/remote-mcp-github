@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { registerActionTools } from "../src/tools/actions.js";
+import { registerTools } from "../src/tools.js";
 import {
 	MAX_ASSIGNEES,
 	MAX_FILES_PER_COMMIT,
@@ -10,30 +10,11 @@ import {
 	MAX_REVIEW_COMMENTS,
 	MAX_TOOL_INPUT_ELEMENTS,
 } from "../src/tools/common.js";
-import { registerFileTools } from "../src/tools/files.js";
-import { registerGistTools } from "../src/tools/gists.js";
-import { registerIssueTools } from "../src/tools/issues.js";
-import { registerProjectTools } from "../src/tools/projects.js";
-import { registerPullTools } from "../src/tools/pulls.js";
 
-const captureSchemas = (register) => {
-	const schemas = new Map();
-	register(
-		{ registerTool: (name, config) => schemas.set(name, z.object(config.inputSchema)) },
-		() => ({}),
-	);
-	return schemas;
-};
-
-const schemas = new Map(
-	[
-		registerActionTools,
-		registerFileTools,
-		registerGistTools,
-		registerIssueTools,
-		registerProjectTools,
-		registerPullTools,
-	].flatMap((register) => [...captureSchemas(register)]),
+const schemas = new Map();
+registerTools(
+	{ registerTool: (name, config) => schemas.set(name, z.object(config.inputSchema)) },
+	() => ({}),
 );
 
 const repo = { owner: "o", repo: "r" };
@@ -114,19 +95,23 @@ describe("collection element caps", () => {
 		},
 	);
 
-	it("covers every array and record field in the tool schemas", () => {
-		const isCollection = (s) => {
-			const def = s.def ?? s._zod?.def;
-			if (def == null) return false;
-			if (def.type === "array" || def.type === "record") return true;
+	it("covers every array and record field in the tool schemas, nested ones included", () => {
+		const collectionPaths = (schema, path) => {
+			const def = schema.def ?? schema._zod?.def;
+			if (def == null) return [];
 			const inner = def.innerType ?? def.in;
-			return inner != null && isCollection(inner);
+			if (inner != null) return collectionPaths(inner, path);
+			if (def.type === "union") return def.options.flatMap((o) => collectionPaths(o, path));
+			if (def.type === "array") return [path, ...collectionPaths(def.element, `${path}[]`)];
+			if (def.type === "record") return [path, ...collectionPaths(def.valueType, `${path}{}`)];
+			if (def.type === "object") {
+				return Object.entries(def.shape).flatMap(([key, field]) =>
+					collectionPaths(field, `${path}.${key}`),
+				);
+			}
+			return [];
 		};
-		const found = [...schemas].flatMap(([tool, schema]) =>
-			Object.entries(schema.shape)
-				.filter(([, field]) => isCollection(field))
-				.map(([field]) => `${tool}.${field}`),
-		);
+		const found = [...schemas].flatMap(([tool, schema]) => collectionPaths(schema, tool));
 		expect(found.sort()).toEqual(CASES.map(([tool, field]) => `${tool}.${field}`).sort());
 	});
 });

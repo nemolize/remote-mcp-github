@@ -21,8 +21,12 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
 			if (this.props == null) {
 				throw new Error("OAuth props are not available; agent is not authenticated.");
 			}
-			return new Octokit({ auth: this.props.accessToken });
+			return this.createOctokit(this.props.accessToken);
 		});
+	}
+
+	protected createOctokit(accessToken: string): Octokit {
+		return new Octokit({ auth: accessToken });
 	}
 }
 

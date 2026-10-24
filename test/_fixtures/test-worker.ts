@@ -1,7 +1,6 @@
 import { Octokit } from "octokit";
 
 import { buildOAuthProvider, MyMCP as ProductionMCP } from "../../src/index";
-import { registerTools } from "../../src/tools";
 import { FakeGitHubHandler } from "./fake-github-handler";
 
 const offlineOctokit = (): Octokit =>
@@ -20,14 +19,21 @@ const offlineOctokit = (): Octokit =>
 type ToolCallback = (...args: unknown[]) => unknown;
 type ToolRegistrar = (name: string, config: unknown, callback: ToolCallback) => unknown;
 
-// Production server, transport and tool registrations; only the Octokit factory
-// differs, plus a `_test_handler_calls` tool reporting how often each handler ran.
 class InstrumentedMCP extends ProductionMCP {
 	readonly handlerCalls: Record<string, number> = {};
+	readonly tokensSeen: string[] = [];
+
+	protected override createOctokit(accessToken: string): Octokit {
+		this.tokensSeen.push(accessToken);
+		return offlineOctokit();
+	}
 
 	override async init(): Promise<void> {
 		this.server.registerTool("_test_handler_calls", { inputSchema: {} }, () => ({
 			content: [{ type: "text", text: JSON.stringify(this.handlerCalls) }],
+		}));
+		this.server.registerTool("_test_octokit_tokens", { inputSchema: {} }, () => ({
+			content: [{ type: "text", text: JSON.stringify(this.tokensSeen) }],
 		}));
 		// Typed `string`, so Reflect.get yields `any` rather than the generic overload.
 		const method: string = "registerTool";
@@ -38,7 +44,7 @@ class InstrumentedMCP extends ProductionMCP {
 				return callback(...args);
 			}),
 		);
-		registerTools(this.server, offlineOctokit);
+		await super.init();
 	}
 }
 

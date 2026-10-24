@@ -257,11 +257,11 @@ describe("MCP input bounds over the transport", () => {
 
 	it("rejects a call over the element budget before the tool handler runs", async () => {
 		const { callTool, handlerCalls } = await connect();
+		const args = { owner: "o", repo: "r", title: "t" };
+		const overBudgetByOne = MAX_TOOL_INPUT_ELEMENTS + 1 - (Object.keys(args).length + 1);
 		const result = await callTool("create_issue", {
-			owner: "o",
-			repo: "r",
-			title: "t",
-			labels: Array.from({ length: MAX_TOOL_INPUT_ELEMENTS }, (_, i) => `l${i}`),
+			...args,
+			labels: Array.from({ length: overBudgetByOne }, (_, i) => `l${i}`),
 		});
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain(
@@ -297,6 +297,7 @@ describe("MCP input bounds over the transport", () => {
 	it.each([
 		["an accurate Content-Length", (body) => body, {}],
 		["no Content-Length (chunked)", streamOf, {}],
+		["an understated Content-Length", streamOf, { "content-length": "10" }],
 	])("answers 413 to an oversized /sse/message body with %s", async (_label, toBody, headers) => {
 		const { post } = await connect();
 		const tooBig = await post(
@@ -365,5 +366,7 @@ describe("MCP input bounds over the transport", () => {
 			upload_attachment: 1,
 			create_pr_review: 1,
 		});
+		const tokens = await callTool("_test_octokit_tokens", {});
+		expect(JSON.parse(tokens.content[0].text)).toContain("fake-github-token");
 	});
 });

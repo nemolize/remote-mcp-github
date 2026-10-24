@@ -33,7 +33,7 @@ The decision was: keep the manual harness but **also** add a CI-runnable transpo
 
 **Chosen option: 4 — Two-tier split via factory swap.**
 
-The CI tier (`test/mcp-e2e.test.js`) drives `/register` → `/authorize` → `/token` → `/mcp initialize` + `tools/list` end-to-end inside the Workers pool. The OAuth `defaultHandler` is the only swappable surface; all other production wiring (`MyMCP.serve`, OAuth-provider endpoints, CORS, KV bindings) runs unmodified.
+The CI tier (`test/mcp-e2e.test.js`) drives `/register` → `/authorize` → `/token` → `/mcp initialize` + `tools/list` end-to-end inside the Workers pool. The OAuth `defaultHandler` is swapped for the fake, and the test worker's tools get an offline Octokit so tool handlers run without reaching GitHub; all other production wiring (`MyMCP.serve`, the MCP server and its limits, OAuth-provider endpoints, CORS, KV bindings) runs unmodified.
 
 The manual tier (`scripts/e2e/oauth-e2e.mjs`) covers the surfaces the CI tier deliberately skips — the production `GitHubHandler` (consent UI, CSRF cookie, state binding, upstream GitHub token exchange) and real tool execution against `api.github.com`. Positioned as a pre-release acceptance check, not a routine dev step.
 
