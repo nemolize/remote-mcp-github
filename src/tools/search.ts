@@ -42,7 +42,7 @@ const ScopeParams = {
 		.string()
 		.optional()
 		.describe(
-			"Restrict the search to this user or organisation (adds `user:<owner>`). With `repo`, restricts to that repository (adds `repo:<owner>/<repo>`). Do not also put a `repo:` qualifier in `query`.",
+			"Restrict the search to this user or organisation (adds `user:<owner>`). With `repo`, restricts to that repository (adds `repo:<owner>/<repo>`). `query` must not also contain a `repo:`, `user:` or `org:` token (quoted text included); `-repo:` style exclusions are fine.",
 		),
 	repo: z.string().optional().describe("Repository name; requires `owner`."),
 } as const;
@@ -71,11 +71,11 @@ export const registerSearchTools = (server: McpServer, client: OctokitFactory): 
 					),
 			},
 		},
-		async ({ owner, repo, query: rawQuery, per_page, page }) =>
+		async ({ owner, repo, query: input, per_page, page }) =>
 			wrapTool(async () => {
-				const scoped = scopeQuery({ query: rawQuery, owner, repo });
+				const scoped = scopeQuery({ query: input, owner, repo });
 				if ("error" in scoped) return errorResult(scoped.error);
-				const { query } = scoped;
+				const query = scoped.query;
 				const { data, headers } = await client().rest.search.code({
 					q: query,
 					per_page,

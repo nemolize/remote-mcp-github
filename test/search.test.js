@@ -435,6 +435,9 @@ describe.each([
 		["a `repo:` qualifier in query with owner only", { query: "repo:x/y needle", owner: "a" }],
 		["an upper-case `REPO:` qualifier", { query: "needle REPO:x/y", owner: "a", repo: "b" }],
 		["a quoted `repo:` token", { query: '"repo:x"', owner: "a", repo: "b" }],
+		["a `user:` qualifier in query", { query: "needle user:x", owner: "a", repo: "b" }],
+		["an `org:` qualifier in query with owner only", { query: "org:x needle", owner: "a" }],
+		["an upper-case `ORG:` qualifier", { query: "needle ORG:x", owner: "a", repo: "b" }],
 	])("returns an error and makes no request for %s", async (_label, params) => {
 		const { calls, result } = await run(params);
 		expect(result.isError).toBe(true);
@@ -443,6 +446,7 @@ describe.each([
 
 	it.each([
 		["a `-repo:` exclusion", "needle -repo:x/y"],
+		["a `-user:` exclusion", "needle -user:x"],
 		["a token merely ending in `repo:`", "myrepo:x needle"],
 		["the bare word repo", "needle repo"],
 	])("allows %s alongside owner / repo", async (_label, query) => {
