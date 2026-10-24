@@ -13,7 +13,13 @@ import {
 } from "../mcp/response.js";
 import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
-import { MAX_FILE_CONTENT_LENGTH, MAX_TEXT_FIELD_LENGTH, maxCharsMessage } from "./common.js";
+import {
+	MAX_FILE_CONTENT_LENGTH,
+	MAX_GIST_FILES,
+	MAX_TEXT_FIELD_LENGTH,
+	maxCharsMessage,
+	maxItemsMessage,
+} from "./common.js";
 
 // Per-file inline excerpt cap inside `get_gist`. Gist files can be much larger
 // than the response budget, so each file's `content` is truncated against the
@@ -205,6 +211,9 @@ export const registerGistTools = (server: McpServer, client: OctokitFactory): vo
 								.describe("File contents (utf-8 text)."),
 						}),
 					)
+					.refine((files) => Object.keys(files).length <= MAX_GIST_FILES, {
+						message: maxItemsMessage("files", MAX_GIST_FILES),
+					})
 					.describe("Map of filename → { content }. At least one file required."),
 				public: z
 					.boolean()
@@ -268,6 +277,9 @@ export const registerGistTools = (server: McpServer, client: OctokitFactory): vo
 							})
 							.nullable(),
 					)
+					.refine((files) => Object.keys(files).length <= MAX_GIST_FILES, {
+						message: maxItemsMessage("files", MAX_GIST_FILES),
+					})
 					.optional()
 					.describe(
 						"Map of filename → change spec. Pass `null` as the value to delete the file; otherwise pass `{ content?, filename? }` to replace content and/or rename.",

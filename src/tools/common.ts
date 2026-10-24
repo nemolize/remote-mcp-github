@@ -110,6 +110,20 @@ export const MAX_FILES_PER_COMMIT = 100;
  */
 export const MAX_TOTAL_COMMIT_CONTENT_LENGTH = 5_000_000;
 
+// GitHub documents at most 10 assignees per issue or pull request.
+export const MAX_ASSIGNEES = 10;
+// No documented GitHub limit found for these; 100 chosen empirically.
+export const MAX_LABELS = 100;
+export const MAX_REVIEW_COMMENTS = 100;
+export const MAX_GIST_FILES = 100;
+
+// McpServer counts array elements and object keys before Zod runs; the largest count
+// the caps admit is create_pr_review's 706 (test/input-caps.test.js), rounded up.
+export const MAX_TOOL_INPUT_ELEMENTS = 1_000;
+
+export const maxItemsMessage = (label: string, max: number): string =>
+	`${label} accepts at most ${max} entries.`;
+
 /** Standard validation message for a character-count cap (`<label> exceeds the <max>-character limit.`). */
 export const maxCharsMessage = (label: string, max: number): string =>
 	`${label} exceeds the ${max}-character limit.`;

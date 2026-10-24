@@ -14,11 +14,15 @@ import { stripUndefined } from "../utils.js";
 import {
 	MAX_TEXT_FIELD_LENGTH,
 	maxCharsMessage,
+	maxItemsMessage,
 	type OctokitFactory,
 	type Page,
 	paginatedList,
 	PaginationSchema,
 } from "./common.js";
+
+// GitHub documents at most 50 options per single select field.
+const MAX_SINGLE_SELECT_OPTIONS = 50;
 
 // Projects v2 has no REST surface — every tool here is GraphQL-backed, following
 // the cursor-pagination conventions of list_pr_review_threads in pulls.ts.
@@ -1261,6 +1265,7 @@ export const registerProjectTools = (server: McpServer, client: OctokitFactory):
 							.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Option name", MAX_TEXT_FIELD_LENGTH)),
 					)
 					.min(1)
+					.max(MAX_SINGLE_SELECT_OPTIONS, maxItemsMessage("options", MAX_SINGLE_SELECT_OPTIONS))
 					.optional()
 					.describe(
 						"Option names for a SINGLE_SELECT field (required for SINGLE_SELECT, rejected otherwise).",

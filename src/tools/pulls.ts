@@ -18,11 +18,19 @@ import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import {
 	CrossRepoHeadPattern,
+	MAX_REVIEW_COMMENTS,
 	MAX_TEXT_FIELD_LENGTH,
 	maxCharsMessage,
+	maxItemsMessage,
 	RepoTarget,
 	SameRepoBranchPattern,
 } from "./common.js";
+
+// No documented GitHub limit found; chosen empirically, per list.
+const MAX_REVIEWERS = 100;
+
+const ReviewerNames = (label: string) =>
+	z.array(z.string()).max(MAX_REVIEWERS, maxItemsMessage(label, MAX_REVIEWERS));
 
 /**
  * Render the indented one-line preview block (`\n  > <snippet>`) for a comment
@@ -70,6 +78,10 @@ const ReviewInlineComment = z.object({
 			"Starting diff side for a multi-line comment. Required by GitHub when `start_line` is set.",
 		),
 });
+
+const ReviewInlineComments = z
+	.array(ReviewInlineComment)
+	.max(MAX_REVIEW_COMMENTS, maxItemsMessage("comments", MAX_REVIEW_COMMENTS));
 
 /**
  * A merged PR reports `state: "closed"`, which hides the more useful "merged"
@@ -283,14 +295,12 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 			inputSchema: {
 				...RepoTarget,
 				pull_number: z.number().int().positive().describe("Pull request number."),
-				reviewers: z
-					.array(z.string())
+				reviewers: ReviewerNames("reviewers")
 					.optional()
 					.describe(
 						"GitHub usernames to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
 					),
-				team_reviewers: z
-					.array(z.string())
+				team_reviewers: ReviewerNames("team_reviewers")
 					.optional()
 					.describe(
 						"Team slugs (within the repo's org) to request review from. At least one of `reviewers` or `team_reviewers` must be non-empty.",
@@ -808,12 +818,9 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					.describe(
 						"Summary comment for the review (Markdown supported). Required for `REQUEST_CHANGES` and `COMMENT`.",
 					),
-				comments: z
-					.array(ReviewInlineComment)
-					.optional()
-					.describe(
-						"Inline findings to anchor to specific lines, all posted as part of this one review.",
-					),
+				comments: ReviewInlineComments.optional().describe(
+					"Inline findings to anchor to specific lines, all posted as part of this one review.",
+				),
 			},
 		},
 		async ({ owner, repo, pull_number, event, body, comments }) =>
@@ -860,12 +867,9 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 					.describe(
 						"Draft summary comment (Markdown supported). Can be set / overridden at submit time via `submit_pending_pr_review`.",
 					),
-				comments: z
-					.array(ReviewInlineComment)
-					.optional()
-					.describe(
-						"Initial inline findings to seed the pending review. More can be added via `add_comment_to_pending_pr_review`.",
-					),
+				comments: ReviewInlineComments.optional().describe(
+					"Initial inline findings to seed the pending review. More can be added via `add_comment_to_pending_pr_review`.",
+				),
 			},
 		},
 		async ({ owner, repo, pull_number, body, comments }) =>

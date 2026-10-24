@@ -1,7 +1,14 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
-import { makeMcpClient } from "./_fixtures/mcp-client.mjs";
+import { MAX_MCP_MESSAGE_BYTES } from "../src/mcp/body-limit.js";
+import { MAX_BASE64_LENGTH } from "../src/tools/attachments.js";
+import {
+	MAX_FILES_PER_COMMIT,
+	MAX_REVIEW_COMMENTS,
+	MAX_TOOL_INPUT_ELEMENTS,
+} from "../src/tools/common.js";
+import { makeMcpClient, parseMcpBody } from "./_fixtures/mcp-client.mjs";
 
 const randomBytes = (len) => {
 	const a = new Uint8Array(len);
@@ -196,5 +203,167 @@ describe("MCP transport E2E", () => {
 		]) {
 			expect(names, `tools/list missing ${required}`).toContain(required);
 		}
+	});
+});
+
+describe("MCP input bounds over the transport", () => {
+	const connect = async () => {
+		const bearer = await issueBearer();
+		const mcp = makeMcpClient({ fetch: SELF.fetch.bind(SELF), baseUrl: ORIGIN, bearer });
+		await mcp.initialize({ clientInfo: { name: "mcp-e2e", version: "0" } });
+		const handlerCalls = async () =>
+			JSON.parse(
+				(await mcp.call("tools/call", { name: "_test_handler_calls", arguments: {} })).content[0]
+					.text,
+			);
+		const callTool = (name, args) => mcp.call("tools/call", { name, arguments: args });
+		const post = (path, body, headers = {}) =>
+			SELF.fetch(`${ORIGIN}${path}`, {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${bearer}`,
+					"content-type": "application/json",
+					accept: "application/json, text/event-stream",
+					"mcp-session-id": mcp.sessionId,
+					...headers,
+				},
+				body,
+			});
+		return { callTool, handlerCalls, post };
+	};
+
+	const paddedToolCall = (bytes) => {
+		const envelope = (title) =>
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 99,
+				method: "tools/call",
+				params: { name: "create_issue", arguments: { owner: "o", repo: "r", title } },
+			});
+		const body = envelope("x".repeat(bytes - envelope("").length));
+		expect(body.length).toBe(bytes);
+		return body;
+	};
+
+	const streamOf = (text) =>
+		new ReadableStream({
+			start(controller) {
+				const bytes = new TextEncoder().encode(text);
+				for (let i = 0; i < bytes.length; i += 64 * 1024)
+					controller.enqueue(bytes.slice(i, i + 64 * 1024));
+				controller.close();
+			},
+		});
+
+	it("rejects a call over the element budget before the tool handler runs", async () => {
+		const { callTool, handlerCalls } = await connect();
+		const result = await callTool("create_issue", {
+			owner: "o",
+			repo: "r",
+			title: "t",
+			labels: Array.from({ length: MAX_TOOL_INPUT_ELEMENTS }, (_, i) => `l${i}`),
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain(
+			`more than the maximum of ${MAX_TOOL_INPUT_ELEMENTS} elements`,
+		);
+		expect((await handlerCalls()).create_issue).toBeUndefined();
+	});
+
+	it("rejects a malformed collection before the tool handler runs", async () => {
+		const { callTool, handlerCalls } = await connect();
+		const result = await callTool("create_issue", {
+			owner: "o",
+			repo: "r",
+			title: "t",
+			labels: [1, 2, 3],
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Input validation error");
+		expect((await handlerCalls()).create_issue).toBeUndefined();
+	});
+
+	it.each([
+		["an accurate Content-Length", (body) => body, {}],
+		["no Content-Length (chunked)", streamOf, {}],
+		["an understated Content-Length", streamOf, { "content-length": "10" }],
+	])("answers 413 to an oversized /mcp body with %s", async (_label, toBody, headers) => {
+		const { handlerCalls, post } = await connect();
+		const r = await post("/mcp", toBody(paddedToolCall(MAX_MCP_MESSAGE_BYTES + 1)), headers);
+		expect(r.status).toBe(413);
+		expect((await handlerCalls()).create_issue).toBeUndefined();
+	});
+
+	it.each([
+		["an accurate Content-Length", (body) => body, {}],
+		["no Content-Length (chunked)", streamOf, {}],
+	])("answers 413 to an oversized /sse/message body with %s", async (_label, toBody, headers) => {
+		const { post } = await connect();
+		const tooBig = await post(
+			"/sse/message?sessionId=unknown",
+			toBody(paddedToolCall(MAX_MCP_MESSAGE_BYTES + 1)),
+			headers,
+		);
+		expect(tooBig.status).toBe(413);
+		// The same unknown session within the limit reaches agents' handler instead.
+		const withinLimit = await post(
+			"/sse/message?sessionId=unknown",
+			toBody(paddedToolCall(1024)),
+			headers,
+		);
+		expect(withinLimit.status).not.toBe(413);
+	});
+
+	it("forwards a body of exactly the limit to the MCP handler", async () => {
+		const { post } = await connect();
+		const r = await post("/mcp", streamOf(paddedToolCall(MAX_MCP_MESSAGE_BYTES)));
+		expect(r.status).toBe(200);
+		const body = await parseMcpBody(r);
+		expect(body.id).toBe(99);
+	});
+
+	it("lets the largest supported payloads reach their handlers", async () => {
+		const { callTool, handlerCalls } = await connect();
+		const commit = await callTool("commit_files", {
+			owner: "o",
+			repo: "r",
+			branch: "main",
+			message: "m",
+			files: Array.from({ length: MAX_FILES_PER_COMMIT }, (_, i) => ({
+				path: `f${i}.txt`,
+				content: "x",
+				encoding: "utf-8",
+				mode: "100644",
+			})),
+		});
+		const upload = await callTool("upload_attachment", {
+			owner: "o",
+			repo: "r",
+			filename: "a.png",
+			content_base64: "A".repeat(MAX_BASE64_LENGTH),
+		});
+		const review = await callTool("create_pr_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 1,
+			event: "COMMENT",
+			body: "b",
+			comments: Array.from({ length: MAX_REVIEW_COMMENTS }, (_, i) => ({
+				path: `f${i}.ts`,
+				body: "b",
+				line: 2,
+				side: "RIGHT",
+				start_line: 1,
+				start_side: "RIGHT",
+			})),
+		});
+		for (const result of [commit, upload, review]) {
+			expect(result.content[0].text).toContain("offline test stub");
+		}
+		expect(await handlerCalls()).toMatchObject({
+			commit_files: 1,
+			upload_attachment: 1,
+			create_pr_review: 1,
+		});
 	});
 });

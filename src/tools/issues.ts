@@ -14,7 +14,19 @@ import {
 } from "../mcp/response.js";
 import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
-import { MAX_TEXT_FIELD_LENGTH, maxCharsMessage, RepoTarget } from "./common.js";
+import {
+	MAX_ASSIGNEES,
+	MAX_LABELS,
+	MAX_TEXT_FIELD_LENGTH,
+	maxCharsMessage,
+	maxItemsMessage,
+	RepoTarget,
+} from "./common.js";
+
+const LabelNames = z.array(z.string()).max(MAX_LABELS, maxItemsMessage("labels", MAX_LABELS));
+const AssigneeLogins = z
+	.array(z.string())
+	.max(MAX_ASSIGNEES, maxItemsMessage("assignees", MAX_ASSIGNEES));
 import { searchHeader } from "./search-helpers.js";
 
 const formatNameList = (names: string[], wrap: "code" | "at"): string => {
@@ -440,11 +452,10 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					.max(MAX_TEXT_FIELD_LENGTH, maxCharsMessage("Issue body", MAX_TEXT_FIELD_LENGTH))
 					.optional()
 					.describe("Issue body (Markdown supported)."),
-				labels: z
-					.array(z.string())
-					.optional()
-					.describe("Labels to attach (must already exist in the repo)."),
-				assignees: z.array(z.string()).optional().describe("GitHub usernames to assign."),
+				labels: LabelNames.optional().describe(
+					"Labels to attach (must already exist in the repo).",
+				),
+				assignees: AssigneeLogins.optional().describe("GitHub usernames to assign."),
 			},
 		},
 		async ({ owner, repo, title, body, labels, assignees }) =>
@@ -518,18 +529,12 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					.describe(
 						"Reason for the state change (used when closing or reopening); pass null to clear an existing reason.",
 					),
-				labels: z
-					.array(z.string())
-					.optional()
-					.describe(
-						"Replaces the entire label set; omit to leave unchanged, pass `[]` to clear all labels.",
-					),
-				assignees: z
-					.array(z.string())
-					.optional()
-					.describe(
-						"Replaces the entire assignee set; omit to leave unchanged, pass `[]` to clear all assignees.",
-					),
+				labels: LabelNames.optional().describe(
+					"Replaces the entire label set; omit to leave unchanged, pass `[]` to clear all labels.",
+				),
+				assignees: AssigneeLogins.optional().describe(
+					"Replaces the entire assignee set; omit to leave unchanged, pass `[]` to clear all assignees.",
+				),
 				milestone: z
 					.number()
 					.int()
@@ -583,10 +588,9 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 			inputSchema: {
 				...RepoTarget,
 				issue_number: z.number().int().positive().describe("Issue or PR number to add labels to."),
-				labels: z
-					.array(z.string())
-					.min(1)
-					.describe("Label names to append (must already exist in the repo)."),
+				labels: LabelNames.min(1).describe(
+					"Label names to append (must already exist in the repo).",
+				),
 			},
 		},
 		async ({ owner, repo, issue_number, labels }) =>
@@ -650,7 +654,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					.int()
 					.positive()
 					.describe("Issue or PR number to add assignees to."),
-				assignees: z.array(z.string()).min(1).describe("GitHub usernames to assign."),
+				assignees: AssigneeLogins.min(1).describe("GitHub usernames to assign."),
 			},
 		},
 		async ({ owner, repo, issue_number, assignees }) =>
@@ -682,7 +686,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					.int()
 					.positive()
 					.describe("Issue or PR number to remove assignees from."),
-				assignees: z.array(z.string()).min(1).describe("GitHub usernames to remove."),
+				assignees: AssigneeLogins.min(1).describe("GitHub usernames to remove."),
 			},
 		},
 		async ({ owner, repo, issue_number, assignees }) =>

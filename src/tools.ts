@@ -1,11 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Octokit } from "octokit";
 
 import { registerActionTools } from "./tools/actions.js";
 import { registerActionAdminTools } from "./tools/actions-admin.js";
 import { registerAttachmentTools } from "./tools/attachments.js";
 import { registerBranchTools } from "./tools/branches.js";
 import { registerCommitTools } from "./tools/commits.js";
+import type { OctokitFactory } from "./tools/common.js";
 import { registerDiscussionTools } from "./tools/discussions.js";
 import { registerFileTools } from "./tools/files.js";
 import { registerGistTools } from "./tools/gists.js";
@@ -21,8 +21,7 @@ import { registerSecurityTools } from "./tools/security.js";
 // Output-shape convention: list tools render `# <Label>` + bullet-per-row;
 // detail tools render `# <Entity>` heading + bulleted metadata. See
 // docs/decisions/0003-tool-output-shape-list-vs-detail.md.
-export const registerTools = (server: McpServer, getAccessToken: () => string): void => {
-	const client = (): Octokit => new Octokit({ auth: getAccessToken() });
+export const registerTools = (server: McpServer, client: OctokitFactory): void => {
 	registerRepoTools(server, client);
 	registerCommitTools(server, client);
 	registerIssueTools(server, client);
