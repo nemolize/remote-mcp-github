@@ -3,6 +3,36 @@
 // reachable page when `items.length` is less than `totalCount`.
 const SEARCH_RESULT_CAP = 1000;
 
+const REPO_QUALIFIER = /(?:^|[\s"'(])repo:/i;
+
+const OWNER_REPO_NAME = /^[A-Za-z0-9_.-]+$/;
+
+export type ScopeInput = {
+	query: string;
+	owner?: string | undefined;
+	repo?: string | undefined;
+};
+
+export type ScopedQuery = { query: string } | { error: string };
+
+export const scopeQuery = ({ query, owner, repo }: ScopeInput): ScopedQuery => {
+	if (owner === undefined && repo === undefined) return { query };
+	if (owner === undefined) return { error: "`repo` requires `owner`." };
+	if (!OWNER_REPO_NAME.test(owner) || (repo !== undefined && !OWNER_REPO_NAME.test(repo))) {
+		return {
+			error: "`owner` and `repo` may contain only letters, digits, `_`, `.` and `-`.",
+		};
+	}
+	if (REPO_QUALIFIER.test(query)) {
+		return {
+			error:
+				"`query` already has a `repo:` qualifier; scope with `owner` / `repo` or with `repo:` in `query`, not both.",
+		};
+	}
+	const qualifier = repo === undefined ? `user:${owner}` : `repo:${owner}/${repo}`;
+	return { query: `${query} ${qualifier}` };
+};
+
 export type SearchHeaderInput = {
 	label: string;
 	query: string;

@@ -388,3 +388,66 @@ describe("registerSearchTools — search_pull_requests", () => {
 		expect(body).toContain("(page 1, showing 20 of 250; pass next `page` for more)");
 	});
 });
+
+describe.each([
+	{ tool: "search_code", method: "code", prefix: "" },
+	{ tool: "search_pull_requests", method: "issuesAndPullRequests", prefix: "is:pr " },
+])("registerSearchTools — $tool owner / repo scope", ({ tool, method, prefix }) => {
+	const run = async (params) => {
+		const calls = [];
+		const handlers = register(
+			stubOctokit({
+				[method]: async (args) => {
+					calls.push(args);
+					return { data: { total_count: 0, items: [] }, headers: {} };
+				},
+			}),
+		);
+		const result = await invoke(handlers, tool, { per_page: 20, ...params });
+		return { calls, result };
+	};
+
+	it("adds `repo:<owner>/<repo>` when both are given", async () => {
+		const { calls, result } = await run({ query: "needle", owner: "banaris", repo: "website" });
+		expect(calls).toHaveLength(1);
+		expect(calls[0].q).toBe(`${prefix}needle repo:banaris/website`);
+		expect(result.content[0].text).toContain(`${prefix}needle repo:banaris/website`);
+	});
+
+	it("adds `user:<owner>` when only `owner` is given", async () => {
+		const { calls } = await run({ query: "needle", owner: "banaris" });
+		expect(calls[0].q).toBe(`${prefix}needle user:banaris`);
+	});
+
+	it("leaves the query untouched without owner / repo, `repo:` in query included", async () => {
+		const { calls } = await run({ query: "needle repo:o/r" });
+		expect(calls[0].q).toBe(`${prefix}needle repo:o/r`);
+	});
+
+	it.each([
+		["`repo` without `owner`", { query: "needle", repo: "website" }],
+		["an owner with a space", { query: "needle", owner: "a is:closed" }],
+		["an empty owner", { query: "needle", owner: "" }],
+		["a repo with a space", { query: "needle", owner: "a", repo: "b is:closed" }],
+		["an empty repo", { query: "needle", owner: "a", repo: "" }],
+		["a repo with a slash", { query: "needle", owner: "a", repo: "b/c" }],
+		["a `repo:` qualifier in query", { query: "repo:x/y needle", owner: "a", repo: "b" }],
+		["a `repo:` qualifier in query with owner only", { query: "repo:x/y needle", owner: "a" }],
+		["an upper-case `REPO:` qualifier", { query: "needle REPO:x/y", owner: "a", repo: "b" }],
+		["a quoted `repo:` token", { query: '"repo:x"', owner: "a", repo: "b" }],
+	])("returns an error and makes no request for %s", async (_label, params) => {
+		const { calls, result } = await run(params);
+		expect(result.isError).toBe(true);
+		expect(calls).toHaveLength(0);
+	});
+
+	it.each([
+		["a `-repo:` exclusion", "needle -repo:x/y"],
+		["a token merely ending in `repo:`", "myrepo:x needle"],
+		["the bare word repo", "needle repo"],
+	])("allows %s alongside owner / repo", async (_label, query) => {
+		const { calls, result } = await run({ query, owner: "a", repo: "b" });
+		expect(result.isError).toBeUndefined();
+		expect(calls[0].q).toBe(`${prefix}${query} repo:a/b`);
+	});
+});
