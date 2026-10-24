@@ -27,7 +27,7 @@ const LabelNames = z.array(z.string()).max(MAX_LABELS, maxItemsMessage("labels",
 const AssigneeLogins = z
 	.array(z.string())
 	.max(MAX_ASSIGNEES, maxItemsMessage("assignees", MAX_ASSIGNEES));
-import { searchHeader } from "./search-helpers.js";
+import { scopeQuery, searchHeader } from "./search-helpers.js";
 
 const formatNameList = (names: string[], wrap: "code" | "at"): string => {
 	if (names.length === 0) return "(none)";
@@ -220,13 +220,13 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 		"search_issues",
 		{
 			description:
-				"Search issues and pull requests inside a specific repository. Use when the user asks to find issues/PRs matching a query, filter by state, or look up bugs/features in a repo. Returns title, number, state, author, and URL for each match.",
+				"Search issues and pull requests inside a specific repository (always scoped to `owner` / `repo`; `query` must not contain a `repo:`, `user:` or `org:` qualifier). Use when the user asks to find issues/PRs matching a query, filter by state, or look up bugs/features in a repo. Returns title, number, state, author, and URL for each match.",
 			inputSchema: {
 				...RepoTarget,
 				query: z
 					.string()
 					.describe(
-						"Search keywords (GitHub search syntax). Repo qualifier is added automatically.",
+						"Search keywords (GitHub search syntax). The repo qualifier is added automatically, so `query` must not contain a `repo:`, `user:` or `org:` token (quoted text included); `-repo:` style exclusions are fine.",
 					),
 				state: z
 					.enum(["open", "closed", "all"])
@@ -246,9 +246,9 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 		},
 		async ({ owner, repo, query, state, per_page, page }) =>
 			wrapTool(async () => {
-				const qualifier =
-					state === "all" ? `repo:${owner}/${repo}` : `repo:${owner}/${repo} state:${state}`;
-				const q = `${query} ${qualifier}`;
+				const scoped = scopeQuery({ query, owner, repo });
+				if ("error" in scoped) return errorResult(scoped.error);
+				const q = state === "all" ? scoped.query : `${scoped.query} state:${state}`;
 				const { data, headers } = await client().rest.search.issuesAndPullRequests({
 					q,
 					per_page,

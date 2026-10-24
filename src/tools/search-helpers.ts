@@ -26,7 +26,7 @@ export const scopeQuery = ({ query, owner, repo }: ScopeInput): ScopedQuery => {
 	if (SCOPE_QUALIFIER.test(query)) {
 		return {
 			error:
-				"`query` already has a `repo:`, `user:` or `org:` qualifier; scope with `owner` / `repo` or with a qualifier in `query`, not both.",
+				"`query` already has a `repo:`, `user:` or `org:` qualifier; remove it, because `owner` / `repo` already set the scope.",
 		};
 	}
 	const qualifier = repo === undefined ? `user:${owner}` : `repo:${owner}/${repo}`;

@@ -238,6 +238,59 @@ describe("registerIssueTools", () => {
 		expect(capturedQ).toBe("boom repo:o/r");
 	});
 
+	describe("search_issues scope guard", () => {
+		const run = async (params) => {
+			const { handlers, server } = captureHandlers();
+			const calls = [];
+			const octokit = stubOctokit(
+				{},
+				{
+					issuesAndPullRequests: async (args) => {
+						calls.push(args);
+						return { data: { total_count: 0, items: [] }, headers: {} };
+					},
+				},
+			);
+			registerIssueTools(server, () => octokit);
+			const result = await invoke(handlers, "search_issues", { state: "open", ...params });
+			return { calls, result };
+		};
+
+		it.each([
+			["a `repo:` qualifier", "boom repo:x/y"],
+			["a `user:` qualifier", "boom user:x"],
+			["an `org:` qualifier", "org:x boom"],
+			["an upper-case `USER:` qualifier", "boom USER:x"],
+			["a quoted `repo:` token", '"repo:x"'],
+		])("returns an error and makes no request for %s in query", async (_label, query) => {
+			const { calls, result } = await run({ owner: "o", repo: "r", query });
+			expect(result.isError).toBe(true);
+			expect(calls).toHaveLength(0);
+		});
+
+		it.each([
+			["an empty owner", { owner: "", repo: "r" }],
+			["an owner with a space", { owner: "o is:closed", repo: "r" }],
+			["an empty repo", { owner: "o", repo: "" }],
+			["a repo with a slash", { owner: "o", repo: "r/s" }],
+		])("returns an error and makes no request for %s", async (_label, target) => {
+			const { calls, result } = await run({ ...target, query: "boom" });
+			expect(result.isError).toBe(true);
+			expect(calls).toHaveLength(0);
+		});
+
+		it.each([
+			["a `-repo:` exclusion", "boom -repo:x/y"],
+			["a `-user:` exclusion", "boom -user:x"],
+			["a token merely ending in `repo:`", "myrepo:x boom"],
+			["the bare word repo", "boom repo"],
+		])("allows %s in query", async (_label, query) => {
+			const { calls, result } = await run({ owner: "o", repo: "r", query });
+			expect(result.isError).toBeUndefined();
+			expect(calls[0].q).toBe(`${query} repo:o/r state:open`);
+		});
+	});
+
 	it("search_issues distinguishes PR and Issue rows", async () => {
 		const { handlers, server } = captureHandlers();
 		const items = [
