@@ -74,14 +74,14 @@ export const CrossRepoHeadPattern = /^[A-Za-z0-9._-]+:[A-Za-z0-9._/-]+$/;
 
 /**
  * Input size caps applied to write-tool payloads as defence-in-depth. The
- * Cloudflare Workers platform already rejects request bodies over 100 MiB, but
- * a runaway model could still pass a multi-megabyte payload well under that
- * limit and burn Worker CPU/memory; these caps reject such payloads fast with a
- * clear validation error instead.
+ * transport already answers 413 above MAX_MCP_MESSAGE_BYTES (src/mcp/body-limit.ts),
+ * but a runaway model could still pass a payload just under that limit and burn
+ * Worker CPU/memory; these caps reject such payloads fast with a clear
+ * validation error instead.
  */
 // Character-count caps on individual string fields.
 // Per-file content cap. This is a logical bound, not the memory backstop — the
-// platform body limit (above) is what actually guards the isolate. Sized to
+// transport body limit (above) is what actually guards the isolate. Sized to
 // stay well within the Workers isolate memory budget once the content is
 // expanded through base64 / JSON encoding on the way to GitHub, with headroom
 // for the runtime and concurrent requests. It is not a GitHub mirror: GitHub's
@@ -106,9 +106,22 @@ export const MAX_FILES_PER_COMMIT = 100;
  * single-file write. `commit_files` accepts up to MAX_FILES_PER_COMMIT files,
  * so without this the combined payload could pass per-file validation while the
  * sum is far larger. Like the per-file cap, this is a logical bound enforced in
- * the handler — not the memory backstop, which is the platform body limit.
+ * the handler — not the memory backstop, which is the transport body limit.
  */
 export const MAX_TOTAL_COMMIT_CONTENT_LENGTH = 5_000_000;
+
+// GitHub documents at most 10 assignees per issue or pull request.
+export const MAX_ASSIGNEES = 10;
+// No documented GitHub limit found for these; 100 chosen empirically.
+export const MAX_LABELS = 100;
+export const MAX_REVIEW_COMMENTS = 100;
+export const MAX_GIST_FILES = 100;
+
+// Headroom over the largest call the caps admit, pinned in test/collection-caps.test.js.
+export const MAX_TOOL_INPUT_ELEMENTS = 1_000;
+
+export const maxItemsMessage = (label: string, max: number): string =>
+	`${label} accepts at most ${max} entries.`;
 
 /** Standard validation message for a character-count cap (`<label> exceeds the <max>-character limit.`). */
 export const maxCharsMessage = (label: string, max: number): string =>

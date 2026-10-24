@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { decodeBase64 } from "../github/helpers.js";
+import { MAX_MCP_MESSAGE_BYTES } from "../mcp/body-limit.js";
 import { errorResult, logWrite, text, wrapTool } from "../mcp/response.js";
 import { isHttpStatus } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
@@ -39,10 +40,8 @@ const inlineCode = (name: string): string => {
 const contentTypeFor = (filename: string): string | undefined =>
 	CONTENT_TYPES.get(filename.split(".").pop()?.toLowerCase() ?? "");
 
-// GitHub's own ceilings (10 MB images / 100 MB video) are unreachable here: the
-// transport 413s on a declared content-length above this before the tool runs.
-const MAX_MCP_MESSAGE_BYTES = 4 * 1024 * 1024;
-// Margin leaves room for the JSON-RPC envelope around the base64 payload.
+// The transport 413s above MAX_MCP_MESSAGE_BYTES, so GitHub's 10 MB image / 100 MB
+// video ceilings are unreachable; the margin leaves room for the JSON-RPC envelope.
 export const MAX_BASE64_LENGTH = MAX_MCP_MESSAGE_BYTES - 64 * 1024;
 // Whole base64 quanta: 4 chars carry 3 bytes, so any other rounding can state a
 // size whose padded encoding overflows the char cap above.

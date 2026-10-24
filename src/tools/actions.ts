@@ -13,7 +13,10 @@ import {
 } from "../mcp/response.js";
 import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
-import { formatBytes, RepoTarget, WorkflowId } from "./common.js";
+import { formatBytes, maxItemsMessage, RepoTarget, WorkflowId } from "./common.js";
+
+// GitHub accepts at most 25 `workflow_dispatch` inputs (changelog, 2025-12-04).
+const MAX_DISPATCH_INPUTS = 25;
 
 // A run / job carries a `status` (lifecycle) and, once finished, a
 // `conclusion` (outcome). Surfacing them together as one token is what the
@@ -518,6 +521,9 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 					// per the workflow's declared input types), so accept all three
 					// scalars rather than forcing every value to a string.
 					.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+					.refine((inputs) => Object.keys(inputs).length <= MAX_DISPATCH_INPUTS, {
+						message: maxItemsMessage("inputs", MAX_DISPATCH_INPUTS),
+					})
 					.optional()
 					.describe(
 						"`workflow_dispatch` inputs as a string-keyed map of scalar values. Must match the workflow's declared inputs.",

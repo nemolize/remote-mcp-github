@@ -8,8 +8,8 @@ import type { Props } from "../../src/utils";
 // is untouched; the test worker entry (test/_fixtures/test-worker.ts) wires
 // this handler in via the buildOAuthProvider factory.
 //
-// The injected `accessToken` is a sentinel — the current E2E only asserts on
-// transport and tool registration, so the sentinel never reaches GitHub.
+// The injected `accessToken` is a sentinel; the test worker's tools use an
+// offline Octokit, so it never reaches GitHub.
 const app = new Hono<{ Bindings: Env & { OAUTH_PROVIDER: OAuthHelpers } }>();
 
 app.get("/authorize", async (c) => {
