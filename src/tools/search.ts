@@ -1,10 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
+import { errorResult, logRateLimit, text, truncate, wrapTool } from "../mcp/response.js";
 import { isNonEmpty, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
-import { searchHeader } from "./search-helpers.js";
+import { scopeQuery, searchHeader } from "./search-helpers.js";
 
 // Strip every occurrence of `key:<v>` (and its negation `-key:<v>`) for each
 // listed conflict value, so a forced scope isn't fought by a caller-supplied
@@ -37,17 +37,28 @@ const forcePrIs = (query: string): string => {
 	return stripped === "" ? "is:pr" : `is:pr ${stripped}`;
 };
 
+const ScopeParams = {
+	owner: z
+		.string()
+		.optional()
+		.describe(
+			"Restrict the search to this user or organisation (adds `user:<owner>`). With `repo`, restricts to that repository (adds `repo:<owner>/<repo>`). `query` must not also contain a `repo:`, `user:` or `org:` token (quoted text included); `-repo:` style exclusions are fine.",
+		),
+	repo: z.string().optional().describe("Repository name; requires `owner`."),
+} as const;
+
 export const registerSearchTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"search_code",
 		{
 			description:
-				"Search source code across GitHub (or scoped to a specific repository / owner). Use when the user asks to find usages, patterns, or function definitions in code. Returns file path, repo, and a permalink for each match.",
+				"Search source code across GitHub, or scoped to a repository / owner with `owner` and `repo`. Use when the user asks to find usages, patterns, or function definitions in code. Returns file path, repo, and a permalink for each match.",
 			inputSchema: {
+				...ScopeParams,
 				query: z
 					.string()
 					.describe(
-						"GitHub code-search query. Combine with qualifiers like 'repo:owner/name', 'language:ts', 'path:src/**'.",
+						"GitHub code-search query. Combine with qualifiers like 'language:ts', 'path:src/**'; scope with `owner` / `repo` (or a 'repo:owner/name' qualifier when neither is passed).",
 					),
 				per_page: z.number().int().min(1).max(50).optional().default(20),
 				page: z
@@ -60,8 +71,11 @@ export const registerSearchTools = (server: McpServer, client: OctokitFactory): 
 					),
 			},
 		},
-		async ({ query, per_page, page }) =>
+		async ({ owner, repo, query: input, per_page, page }) =>
 			wrapTool(async () => {
+				const scoped = scopeQuery({ query: input, owner, repo });
+				if ("error" in scoped) return errorResult(scoped.error);
+				const query = scoped.query;
 				const { data, headers } = await client().rest.search.code({
 					q: query,
 					per_page,
@@ -199,13 +213,14 @@ export const registerSearchTools = (server: McpServer, client: OctokitFactory): 
 		"search_pull_requests",
 		{
 			description:
-				"Search pull requests across GitHub (or scoped to a repo/owner). Companion to `search_issues` (which returns issues + PRs mixed): `is:pr` is forced automatically and results are rendered with PR-appropriate fields (state / draft / merged). Use qualifiers like `repo:owner/name`, `author:<login>`, `review-requested:@me`, `is:open`.",
+				"Search pull requests across GitHub, or scoped to a repository / owner with `owner` and `repo`. Companion to `search_issues` (which returns issues + PRs mixed): `is:pr` is forced automatically and results are rendered with PR-appropriate fields (state / draft / merged). Use qualifiers like `author:<login>`, `review-requested:@me`, `is:open`.",
 			inputSchema: {
+				...ScopeParams,
 				query: z
 					.string()
 					.min(1)
 					.describe(
-						"GitHub PR-search query. `is:pr` is prepended automatically. Combine with qualifiers like 'repo:owner/name is:open author:<login>'.",
+						"GitHub PR-search query. `is:pr` is prepended automatically. Combine with qualifiers like 'is:open author:<login>'; scope with `owner` / `repo` (or a 'repo:owner/name' qualifier when neither is passed).",
 					),
 				sort: z
 					.enum(["comments", "reactions", "created", "updated"])
@@ -223,9 +238,11 @@ export const registerSearchTools = (server: McpServer, client: OctokitFactory): 
 					),
 			},
 		},
-		async ({ query, sort, order, per_page, page }) =>
+		async ({ owner, repo, query, sort, order, per_page, page }) =>
 			wrapTool(async () => {
-				const q = forcePrIs(query);
+				const scoped = scopeQuery({ query, owner, repo });
+				if ("error" in scoped) return errorResult(scoped.error);
+				const q = forcePrIs(scoped.query);
 				const { data, headers } = await client().rest.search.issuesAndPullRequests(
 					stripUndefined({
 						q,
