@@ -24,46 +24,34 @@ export const parseMcpBody = async (resp) => {
 	throw new Error(`unparseable /mcp response (ct=${ct}):\n${raw}`);
 };
 
-export const makeMcpClient = ({ fetch: fetchImpl, baseUrl, bearer }) => {
+export const makeMcpClient = ({ fetch: fetchImpl, baseUrl, bearer, path = "/mcp" }) => {
 	// Tolerate baseUrl values that include a trailing slash (e.g. MCP_BASE=…:8788/)
 	// so callers don't have to remember; `${base}/mcp` would otherwise emit `//mcp`,
 	// which some servers and intermediaries route distinctly.
-	const mcpUrl = `${baseUrl.replace(/\/+$/, "")}/mcp`;
-	let sessionId = null;
+	const mcpUrl = `${baseUrl.replace(/\/+$/, "")}${path}`;
 	let id = 0;
 	const call = async (method, params) => {
 		id += 1;
-		const headers = {
-			authorization: `Bearer ${bearer}`,
-			"content-type": "application/json",
-			accept: "application/json, text/event-stream",
-		};
-		if (sessionId != null) headers["mcp-session-id"] = sessionId;
 		const r = await fetchImpl(mcpUrl, {
 			method: "POST",
-			headers,
+			headers: {
+				authorization: `Bearer ${bearer}`,
+				"content-type": "application/json",
+				accept: "application/json, text/event-stream",
+			},
 			body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
 		});
-		const respSession = r.headers.get("mcp-session-id");
-		if (respSession != null && sessionId == null) sessionId = respSession;
-		if (!r.ok) throw new Error(`/mcp ${method} returned ${r.status}: ${await r.text()}`);
+		if (!r.ok) throw new Error(`${path} ${method} returned ${r.status}: ${await r.text()}`);
 		const body = await parseMcpBody(r);
-		if (body.error != null) throw new Error(`/mcp ${method} error: ${JSON.stringify(body.error)}`);
+		if (body.error != null)
+			throw new Error(`${path} ${method} error: ${JSON.stringify(body.error)}`);
 		return body.result;
 	};
-	const initialize = async ({ clientInfo }) => {
-		const result = await call("initialize", {
+	const initialize = ({ clientInfo }) =>
+		call("initialize", {
 			protocolVersion: "2024-11-05",
 			capabilities: {},
 			clientInfo,
 		});
-		return result;
-	};
-	return {
-		call,
-		initialize,
-		get sessionId() {
-			return sessionId;
-		},
-	};
+	return { call, initialize };
 };

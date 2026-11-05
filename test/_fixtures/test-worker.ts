@@ -1,8 +1,7 @@
 import { Octokit } from "octokit";
 
 import { buildOAuthProvider, MyMCP as ProductionMCP } from "../../src/index";
-import { type McpServerFactory, newMcpServer } from "../../src/mcp/stateless";
-import { registerTools } from "../../src/tools";
+import type { ServerInstrument } from "../../src/mcp/server";
 import { FakeGitHubHandler } from "./fake-github-handler";
 
 const offlineOctokit = (): Octokit =>
@@ -29,8 +28,7 @@ const createOctokit = (accessToken: string): Octokit => {
 	return offlineOctokit();
 };
 
-const createServer: McpServerFactory = (octokit) => {
-	const server = newMcpServer();
+const instrumentServer: ServerInstrument = (server) => {
 	server.registerTool("_test_handler_calls", { inputSchema: {} }, () => ({
 		content: [{ type: "text", text: JSON.stringify(Object.fromEntries(handlerCalls)) }],
 	}));
@@ -51,13 +49,11 @@ const createServer: McpServerFactory = (octokit) => {
 			return callback(...args);
 		}),
 	);
-	registerTools(server, octokit);
-	return server;
 };
 
-// Legacy SSE still runs in the Durable Object class; stub its network.
 let durableObjectsConstructed = 0;
 
+// Re-exported as `MyMCP` so the wrangler.jsonc binding (class_name: MyMCP) resolves here.
 class OfflineMCP extends ProductionMCP {
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
@@ -72,7 +68,7 @@ export { OfflineMCP as MyMCP };
 
 const provider = buildOAuthProvider(
 	{ fetch: (request, env, ctx) => FakeGitHubHandler.fetch(request, env, ctx) },
-	{ createServer, createOctokit },
+	{ instrumentServer, createOctokit },
 );
 
 export default {

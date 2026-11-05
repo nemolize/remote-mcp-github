@@ -6,12 +6,11 @@ import { GitHubHandler } from "./github-handler";
 import { limitRequestBody } from "./mcp/body-limit";
 import {
 	createGitHubOctokit,
-	createMcpServer,
-	type McpServerFactory,
 	newMcpServer,
 	type OctokitBuilder,
-	statelessMcpHandler,
-} from "./mcp/stateless";
+	type ServerInstrument,
+} from "./mcp/server";
+import { statelessMcpHandler } from "./mcp/stateless";
 import { registerTools } from "./tools";
 import type { Props } from "./utils";
 
@@ -41,16 +40,25 @@ const corsOptions = {
 	maxAge: 86400,
 };
 
-type McpHooks = { createServer?: McpServerFactory; createOctokit?: OctokitBuilder };
+// A legacy SSE client sends no `mcp-protocol-version` on its opening GET (it
+// learns the version after `initialize`); a streamable client's GET carries it.
+const isStreamableHttpOnSse = (request: Request): boolean => {
+	if (new URL(request.url).pathname !== "/sse") return false;
+	return (
+		request.method === "POST" ||
+		request.method === "DELETE" ||
+		(request.method === "GET" && request.headers.has("mcp-protocol-version"))
+	);
+};
 
-// Test seam: swap the auth handler and MCP internals. Only legacy SSE
-// (`GET /sse`, `/sse/message`) opens a MyMCP Durable Object.
+type McpHooks = { instrumentServer?: ServerInstrument; createOctokit?: OctokitBuilder };
+
 export const buildOAuthProvider = (
 	defaultHandler: ExportedHandler<Env>,
-	{ createServer = createMcpServer, createOctokit = createGitHubOctokit }: McpHooks = {},
+	{ instrumentServer, createOctokit = createGitHubOctokit }: McpHooks = {},
 ) => {
 	const stateless = (route: string) =>
-		limitRequestBody(statelessMcpHandler({ route, corsOptions, createServer, createOctokit }));
+		limitRequestBody(statelessMcpHandler({ route, corsOptions, instrumentServer, createOctokit }));
 	const streamableSse = stateless("/sse");
 	const legacySse = limitRequestBody(MyMCP.serveSSE("/sse", { corsOptions }));
 	return new OAuthProvider({
@@ -58,7 +66,7 @@ export const buildOAuthProvider = (
 			"/mcp": stateless("/mcp"),
 			"/sse": {
 				fetch: (request, env, ctx) =>
-					request.method === "POST" && new URL(request.url).pathname === "/sse"
+					isStreamableHttpOnSse(request)
 						? streamableSse.fetch(request, env, ctx)
 						: legacySse.fetch(request, env, ctx),
 			},

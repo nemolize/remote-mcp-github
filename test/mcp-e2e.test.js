@@ -224,7 +224,6 @@ describe("MCP input bounds over the transport", () => {
 					authorization: `Bearer ${bearer}`,
 					"content-type": "application/json",
 					accept: "application/json, text/event-stream",
-					"mcp-session-id": mcp.sessionId,
 					...headers,
 				},
 				body,
@@ -379,25 +378,9 @@ describe("Durable Object usage per connection", () => {
 
 	const initializeAndListTools = async (path) => {
 		const bearer = await issueBearer();
-		const call = async (id, method, params) => {
-			const r = await SELF.fetch(`${ORIGIN}${path}`, {
-				method: "POST",
-				headers: {
-					authorization: `Bearer ${bearer}`,
-					"content-type": "application/json",
-					accept: "application/json, text/event-stream",
-				},
-				body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-			});
-			expect(r.status, `${path} ${method}`).toBe(200);
-			return (await parseMcpBody(r)).result;
-		};
-		const init = await call(1, "initialize", {
-			protocolVersion: "2024-11-05",
-			capabilities: {},
-			clientInfo: { name: "mcp-e2e", version: "0" },
-		});
-		const tools = await call(2, "tools/list", {});
+		const mcp = makeMcpClient({ fetch: SELF.fetch.bind(SELF), baseUrl: ORIGIN, bearer, path });
+		const init = await mcp.initialize({ clientInfo: { name: "mcp-e2e", version: "0" } });
+		const tools = await mcp.call("tools/list", {});
 		return { init, tools };
 	};
 
@@ -406,6 +389,43 @@ describe("Durable Object usage per connection", () => {
 		const { init, tools } = await initializeAndListTools(path);
 		expect(init.serverInfo?.name).toBe("remote-mcp-github");
 		expect(tools.tools.length).toBeGreaterThanOrEqual(27);
+		expect(await constructed()).toBe(before);
+	});
+
+	// The SDK's streamable client opens a GET stream after `notifications/initialized`.
+	it("answers a streamable client's follow-up GET /sse with 405, opening no Durable Object", async () => {
+		const bearer = await issueBearer();
+		const headers = {
+			authorization: `Bearer ${bearer}`,
+			"content-type": "application/json",
+			accept: "application/json, text/event-stream",
+		};
+		const post = (body) =>
+			SELF.fetch(`${ORIGIN}/sse`, { method: "POST", headers, body: JSON.stringify(body) });
+		const before = await constructed();
+		const init = await post({
+			jsonrpc: "2.0",
+			id: 1,
+			method: "initialize",
+			params: {
+				protocolVersion: "2024-11-05",
+				capabilities: {},
+				clientInfo: { name: "mcp-e2e", version: "0" },
+			},
+		});
+		expect(init.status).toBe(200);
+		expect(init.headers.get("mcp-session-id")).toBeNull();
+		await init.text();
+		const initialized = await post({ jsonrpc: "2.0", method: "notifications/initialized" });
+		expect(initialized.status).toBe(202);
+		const stream = await SELF.fetch(`${ORIGIN}/sse`, {
+			headers: {
+				authorization: `Bearer ${bearer}`,
+				accept: "text/event-stream",
+				"mcp-protocol-version": "2024-11-05",
+			},
+		});
+		expect(stream.status).toBe(405);
 		expect(await constructed()).toBe(before);
 	});
 

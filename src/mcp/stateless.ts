@@ -1,34 +1,13 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createLegacyMcpHandler, type WorkerTransportOptions } from "agents/mcp";
-import { Octokit } from "octokit";
 
-import { registerTools } from "../tools";
-import { MAX_TOOL_INPUT_ELEMENTS, type OctokitFactory } from "../tools/common";
 import type { Props } from "../utils";
 import type { FetchHandler } from "./body-limit";
-
-export type McpServerFactory = (octokit: OctokitFactory) => McpServer;
-export type OctokitBuilder = (accessToken: string) => Octokit;
-
-export const newMcpServer = (): McpServer =>
-	new McpServer(
-		{ name: "remote-mcp-github", version: "0.1.0" },
-		{ maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS },
-	);
-
-export const createMcpServer: McpServerFactory = (octokit) => {
-	const server = newMcpServer();
-	registerTools(server, octokit);
-	return server;
-};
-
-export const createGitHubOctokit: OctokitBuilder = (accessToken) =>
-	new Octokit({ auth: accessToken });
+import { createMcpServerWithTools, type OctokitBuilder, type ServerInstrument } from "./server";
 
 type StatelessOptions = {
 	route: string;
 	corsOptions: NonNullable<WorkerTransportOptions["corsOptions"]>;
-	createServer: McpServerFactory;
+	instrumentServer: ServerInstrument | undefined;
 	createOctokit: OctokitBuilder;
 };
 
@@ -43,7 +22,7 @@ const hasAccessToken = (props: unknown): props is Pick<Props, "accessToken"> =>
 export const statelessMcpHandler = ({
 	route,
 	corsOptions,
-	createServer,
+	instrumentServer,
 	createOctokit,
 }: StatelessOptions): FetchHandler => ({
 	fetch: (request, env, ctx) => {
@@ -54,12 +33,13 @@ export const statelessMcpHandler = ({
 			});
 		}
 		const props = ctx.props;
-		const server = createServer(() => {
+		const server = createMcpServerWithTools(() => {
 			if (!hasAccessToken(props)) {
 				throw new Error("OAuth props are not available; request is not authenticated.");
 			}
 			return createOctokit(props.accessToken);
-		});
+		}, instrumentServer);
+		// The SDK v1 server only fits the "legacy" handler; its v2 factory handler needs a migration (#252).
 		return createLegacyMcpHandler(server, { route, corsOptions })(request, env, ctx);
 	},
 });
