@@ -123,7 +123,6 @@ describe("MCP transport E2E", () => {
 		});
 
 		const init = await mcp.initialize({ clientInfo: { name: "mcp-e2e", version: "0" } });
-		expect(mcp.sessionId, "server must return Mcp-Session-Id").toBeTruthy();
 		expect(init.serverInfo?.name).toBe("remote-mcp-github");
 
 		const tools = await mcp.call("tools/list", {});
@@ -211,6 +210,7 @@ describe("MCP input bounds over the transport", () => {
 		const bearer = await issueBearer();
 		const mcp = makeMcpClient({ fetch: SELF.fetch.bind(SELF), baseUrl: ORIGIN, bearer });
 		await mcp.initialize({ clientInfo: { name: "mcp-e2e", version: "0" } });
+		await mcp.call("tools/call", { name: "_test_reset", arguments: {} });
 		const handlerCalls = async () =>
 			JSON.parse(
 				(await mcp.call("tools/call", { name: "_test_handler_calls", arguments: {} })).content[0]
@@ -224,7 +224,6 @@ describe("MCP input bounds over the transport", () => {
 					authorization: `Bearer ${bearer}`,
 					"content-type": "application/json",
 					accept: "application/json, text/event-stream",
-					"mcp-session-id": mcp.sessionId,
 					...headers,
 				},
 				body,
@@ -368,5 +367,88 @@ describe("MCP input bounds over the transport", () => {
 		});
 		const tokens = await callTool("_test_octokit_tokens", {});
 		expect(JSON.parse(tokens.content[0].text)).toContain("fake-github-token");
+	});
+});
+
+// A Durable Object write counts against the free tier's daily rows_written
+// cap, so streamable HTTP must never open one.
+describe("Durable Object usage per connection", () => {
+	const constructed = async () =>
+		(await (await SELF.fetch(`${ORIGIN}/_test/durable-objects-constructed`)).json()).count;
+
+	const initializeAndListTools = async (path) => {
+		const bearer = await issueBearer();
+		const mcp = makeMcpClient({ fetch: SELF.fetch.bind(SELF), baseUrl: ORIGIN, bearer, path });
+		const init = await mcp.initialize({ clientInfo: { name: "mcp-e2e", version: "0" } });
+		const tools = await mcp.call("tools/list", {});
+		return { init, tools };
+	};
+
+	it.each(["/mcp", "/sse"])("serves POST %s without a Durable Object", async (path) => {
+		const before = await constructed();
+		const { init, tools } = await initializeAndListTools(path);
+		expect(init.serverInfo?.name).toBe("remote-mcp-github");
+		expect(tools.tools.length).toBeGreaterThanOrEqual(27);
+		expect(await constructed()).toBe(before);
+	});
+
+	// The SDK's streamable client opens a GET stream after `notifications/initialized`.
+	it("answers a streamable client's follow-up GET /sse with 405, opening no Durable Object", async () => {
+		const bearer = await issueBearer();
+		const headers = {
+			authorization: `Bearer ${bearer}`,
+			"content-type": "application/json",
+			accept: "application/json, text/event-stream",
+		};
+		const post = (body) =>
+			SELF.fetch(`${ORIGIN}/sse`, { method: "POST", headers, body: JSON.stringify(body) });
+		const before = await constructed();
+		const init = await post({
+			jsonrpc: "2.0",
+			id: 1,
+			method: "initialize",
+			params: {
+				protocolVersion: "2024-11-05",
+				capabilities: {},
+				clientInfo: { name: "mcp-e2e", version: "0" },
+			},
+		});
+		expect(init.status).toBe(200);
+		expect(init.headers.get("mcp-session-id")).toBeNull();
+		await init.text();
+		const initialized = await post({ jsonrpc: "2.0", method: "notifications/initialized" });
+		expect(initialized.status).toBe(202);
+		const stream = await SELF.fetch(`${ORIGIN}/sse`, {
+			headers: {
+				authorization: `Bearer ${bearer}`,
+				accept: "text/event-stream",
+				"mcp-protocol-version": "2024-11-05",
+			},
+		});
+		expect(stream.status).toBe(405);
+		expect(await constructed()).toBe(before);
+	});
+
+	it("answers GET /mcp with 405 instead of holding a stream open", async () => {
+		const bearer = await issueBearer();
+		const r = await SELF.fetch(`${ORIGIN}/mcp`, {
+			headers: { authorization: `Bearer ${bearer}`, accept: "text/event-stream" },
+		});
+		expect(r.status).toBe(405);
+		expect(r.headers.get("allow")).toContain("POST");
+	});
+
+	it("still opens one Durable Object for a legacy GET /sse handshake", async () => {
+		const bearer = await issueBearer();
+		const before = await constructed();
+		const r = await SELF.fetch(`${ORIGIN}/sse`, {
+			headers: { authorization: `Bearer ${bearer}`, accept: "text/event-stream" },
+		});
+		expect(r.status).toBe(200);
+		const reader = r.body.getReader();
+		const { value } = await reader.read();
+		expect(new TextDecoder().decode(value)).toContain("event: endpoint");
+		await reader.cancel();
+		expect(await constructed()).toBe(before + 1);
 	});
 });

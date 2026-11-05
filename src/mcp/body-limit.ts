@@ -2,7 +2,7 @@
 // it checks against Content-Length only, so a chunked or understated body slips past.
 export const MAX_MCP_MESSAGE_BYTES = 4 * 1024 * 1024;
 
-type FetchHandler = {
+export type FetchHandler = {
 	fetch: (request: Request, env: Env, ctx: ExecutionContext) => Response | Promise<Response>;
 };
 

@@ -1,20 +1,22 @@
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
-import { Octokit } from "octokit";
+import type { Octokit } from "octokit";
 
 import { GitHubHandler } from "./github-handler";
 import { limitRequestBody } from "./mcp/body-limit";
+import {
+	createGitHubOctokit,
+	newMcpServer,
+	type OctokitBuilder,
+	type ServerInstrument,
+} from "./mcp/server";
+import { statelessMcpHandler } from "./mcp/stateless";
 import { registerTools } from "./tools";
-import { MAX_TOOL_INPUT_ELEMENTS } from "./tools/common";
 import type { Props } from "./utils";
 
 // eslint-disable-next-line @typescript-eslint/no-deprecated -- migration tracked in #252
 export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
-	server = new McpServer(
-		{ name: "remote-mcp-github", version: "0.1.0" },
-		{ maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS },
-	);
+	server = newMcpServer();
 
 	async init(): Promise<void> {
 		registerTools(this.server, () => {
@@ -26,7 +28,7 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
 	}
 
 	protected createOctokit(accessToken: string): Octokit {
-		return new Octokit({ auth: accessToken });
+		return createGitHubOctokit(accessToken);
 	}
 }
 
@@ -38,19 +40,43 @@ const corsOptions = {
 	maxAge: 86400,
 };
 
-// Factory so tests can swap in a fake auth handler while keeping the rest of
-// the OAuth/MCP wiring identical to production.
-export const buildOAuthProvider = (defaultHandler: ExportedHandler<Env>) =>
-	new OAuthProvider({
+// A legacy SSE client sends no `mcp-protocol-version` on its opening GET (it
+// learns the version after `initialize`); a streamable client's GET carries it.
+const isStreamableHttpOnSse = (request: Request): boolean => {
+	if (new URL(request.url).pathname !== "/sse") return false;
+	return (
+		request.method === "POST" ||
+		request.method === "DELETE" ||
+		(request.method === "GET" && request.headers.has("mcp-protocol-version"))
+	);
+};
+
+type McpHooks = { instrumentServer?: ServerInstrument; createOctokit?: OctokitBuilder };
+
+export const buildOAuthProvider = (
+	defaultHandler: ExportedHandler<Env>,
+	{ instrumentServer, createOctokit = createGitHubOctokit }: McpHooks = {},
+) => {
+	const stateless = (route: string) =>
+		limitRequestBody(statelessMcpHandler({ route, corsOptions, instrumentServer, createOctokit }));
+	const streamableSse = stateless("/sse");
+	const legacySse = limitRequestBody(MyMCP.serveSSE("/sse", { corsOptions }));
+	return new OAuthProvider({
 		apiHandlers: {
-			"/mcp": limitRequestBody(MyMCP.serve("/mcp", { corsOptions })),
-			"/sse": limitRequestBody(MyMCP.serveSSE("/sse", { corsOptions })),
+			"/mcp": stateless("/mcp"),
+			"/sse": {
+				fetch: (request, env, ctx) =>
+					isStreamableHttpOnSse(request)
+						? streamableSse.fetch(request, env, ctx)
+						: legacySse.fetch(request, env, ctx),
+			},
 		},
 		authorizeEndpoint: "/authorize",
 		clientRegistrationEndpoint: "/register",
 		defaultHandler,
 		tokenEndpoint: "/token",
 	});
+};
 
 export default buildOAuthProvider({
 	fetch: (request, env, ctx) => GitHubHandler.fetch(request, env, ctx),
