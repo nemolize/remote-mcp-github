@@ -57,9 +57,6 @@ export const makeMcpClient = ({ fetch: fetchImpl, baseUrl, bearer }) => {
 			capabilities: {},
 			clientInfo,
 		});
-		if (sessionId == null) {
-			throw new Error("server did not return Mcp-Session-Id on initialize");
-		}
 		return result;
 	};
 	return {

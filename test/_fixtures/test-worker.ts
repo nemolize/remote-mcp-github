@@ -1,6 +1,8 @@
 import { Octokit } from "octokit";
 
 import { buildOAuthProvider, MyMCP as ProductionMCP } from "../../src/index";
+import { type McpServerFactory, newMcpServer } from "../../src/mcp/stateless";
+import { registerTools } from "../../src/tools";
 import { FakeGitHubHandler } from "./fake-github-handler";
 
 const offlineOctokit = (): Octokit =>
@@ -19,39 +21,63 @@ const offlineOctokit = (): Octokit =>
 type ToolCallback = (...args: unknown[]) => unknown;
 type ToolRegistrar = (name: string, config: unknown, callback: ToolCallback) => unknown;
 
-class InstrumentedMCP extends ProductionMCP {
-	readonly handlerCalls: Record<string, number> = {};
-	readonly tokensSeen: string[] = [];
+const handlerCalls = new Map<string, number>();
+const tokensSeen: string[] = [];
+
+const createOctokit = (accessToken: string): Octokit => {
+	tokensSeen.push(accessToken);
+	return offlineOctokit();
+};
+
+const createServer: McpServerFactory = (octokit) => {
+	const server = newMcpServer();
+	server.registerTool("_test_handler_calls", { inputSchema: {} }, () => ({
+		content: [{ type: "text", text: JSON.stringify(Object.fromEntries(handlerCalls)) }],
+	}));
+	server.registerTool("_test_octokit_tokens", { inputSchema: {} }, () => ({
+		content: [{ type: "text", text: JSON.stringify(tokensSeen) }],
+	}));
+	server.registerTool("_test_reset", { inputSchema: {} }, () => {
+		handlerCalls.clear();
+		tokensSeen.length = 0;
+		return { content: [{ type: "text", text: "reset" }] };
+	});
+	// Typed `string`, so Reflect.get yields `any` rather than the generic overload.
+	const method: string = "registerTool";
+	const register: ToolRegistrar = Reflect.get(server, method).bind(server);
+	Reflect.set(server, method, (name: string, config: unknown, callback: ToolCallback) =>
+		register(name, config, (...args) => {
+			handlerCalls.set(name, (handlerCalls.get(name) ?? 0) + 1);
+			return callback(...args);
+		}),
+	);
+	registerTools(server, octokit);
+	return server;
+};
+
+// Legacy SSE still runs in the Durable Object class; stub its network.
+let durableObjectsConstructed = 0;
+
+class OfflineMCP extends ProductionMCP {
+	constructor(ctx: DurableObjectState, env: Env) {
+		super(ctx, env);
+		durableObjectsConstructed++;
+	}
 
 	protected override createOctokit(accessToken: string): Octokit {
-		this.tokensSeen.push(accessToken);
-		return offlineOctokit();
-	}
-
-	override async init(): Promise<void> {
-		this.server.registerTool("_test_handler_calls", { inputSchema: {} }, () => ({
-			content: [{ type: "text", text: JSON.stringify(this.handlerCalls) }],
-		}));
-		this.server.registerTool("_test_octokit_tokens", { inputSchema: {} }, () => ({
-			content: [{ type: "text", text: JSON.stringify(this.tokensSeen) }],
-		}));
-		// Typed `string`, so Reflect.get yields `any` rather than the generic overload.
-		const method: string = "registerTool";
-		const register: ToolRegistrar = Reflect.get(this.server, method).bind(this.server);
-		Reflect.set(this.server, method, (name: string, config: unknown, callback: ToolCallback) =>
-			register(name, config, (...args) => {
-				this.handlerCalls[name] = (this.handlerCalls[name] ?? 0) + 1;
-				return callback(...args);
-			}),
-		);
-		await super.init();
+		return createOctokit(accessToken);
 	}
 }
+export { OfflineMCP as MyMCP };
 
-// Re-exported under the production name so the wrangler.jsonc Durable Object
-// binding (class_name: MyMCP) resolves against this entry when vitest overrides `main`.
-export { InstrumentedMCP as MyMCP };
+const provider = buildOAuthProvider(
+	{ fetch: (request, env, ctx) => FakeGitHubHandler.fetch(request, env, ctx) },
+	{ createServer, createOctokit },
+);
 
-export default buildOAuthProvider({
-	fetch: (request, env, ctx) => FakeGitHubHandler.fetch(request, env, ctx),
-});
+export default {
+	fetch: (request: Request, env: Env, ctx: ExecutionContext) =>
+		new URL(request.url).pathname === "/_test/durable-objects-constructed"
+			? Response.json({ count: durableObjectsConstructed })
+			: provider.fetch(request, env, ctx),
+} satisfies ExportedHandler<Env>;
