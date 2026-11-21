@@ -646,7 +646,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 		"add_assignees",
 		{
 			description:
-				"Append assignees to an issue or PR without restating the existing set. Use when the user asks to add or assign people — and existing assignees should be preserved. For requesting PR reviewers, use `request_pr_review` instead. Returns the full updated assignee list.",
+				"Append assignees to an issue or PR without restating the existing set. Use when the user asks to add or assign people — and existing assignees should be preserved. For requesting PR reviewers, use `request_pr_review` instead; for assigning Copilot, use `assign_copilot_to_issue` instead. Returns the full updated assignee list.",
 			inputSchema: {
 				...RepoTarget,
 				issue_number: z

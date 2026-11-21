@@ -5,6 +5,7 @@ import { registerActionTools } from "../src/tools/actions.js";
 import { registerActionAdminTools } from "../src/tools/actions-admin.js";
 import { registerAttachmentTools } from "../src/tools/attachments.js";
 import { registerBranchTools } from "../src/tools/branches.js";
+import { registerCopilotTools } from "../src/tools/copilot.js";
 import { registerFileTools } from "../src/tools/files.js";
 import { registerGistTools } from "../src/tools/gists.js";
 import { registerIssueTools } from "../src/tools/issues.js";
@@ -316,7 +317,7 @@ const wideOctokit = () => {
 				update: ok({ number: 5, title: "t", state: "open", html_url: "https://x" }),
 				addLabels: ok([{ name: "bug" }]),
 				removeLabel: ok([]),
-				addAssignees: ok({ assignees: [{ login: "a" }] }),
+				addAssignees: ok({ assignees: [{ login: "a" }, { login: "copilot-swe-agent[bot]" }] }),
 				removeAssignees: ok({ assignees: [] }),
 				lock: ok(undefined),
 				unlock: ok(undefined),
@@ -329,7 +330,10 @@ const wideOctokit = () => {
 			},
 			pulls: {
 				create: ok({ number: 7, title: "t", draft: false, html_url: "https://x" }),
-				requestReviewers: ok({ requested_reviewers: [{ login: "a" }], requested_teams: [] }),
+				requestReviewers: ok({
+					requested_reviewers: [{ login: "a" }, { login: "copilot-pull-request-reviewer[bot]" }],
+					requested_teams: [],
+				}),
 				updateBranch: ok({ message: "Updating branch." }),
 				get: ok({ head: { sha: "deadbeef" }, draft: true, state: "open", node_id: "PR_node_1" }),
 				getReview: ok({ node_id: "PRR_node_42", state: "PENDING" }),
@@ -652,6 +656,8 @@ const WRITE_TOOLS = [
 		{ owner: "o", repo: "r", pull_number: 1, reviewers: ["a"] },
 	],
 	[registerPullTools, "update_pull_request_branch", { owner: "o", repo: "r", pull_number: 1 }],
+	[registerCopilotTools, "request_copilot_review", { owner: "o", repo: "r", pull_number: 1 }],
+	[registerCopilotTools, "assign_copilot_to_issue", { owner: "o", repo: "r", issue_number: 1 }],
 	[
 		registerPullTools,
 		"mark_pull_request_ready_for_review",

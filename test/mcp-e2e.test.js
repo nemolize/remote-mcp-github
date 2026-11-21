@@ -149,6 +149,8 @@ describe("MCP transport E2E", () => {
 			"commit_file", // files
 			"create_pull_request", // pulls
 			"mark_pull_request_ready_for_review", // pulls write (draft -> ready)
+			"request_copilot_review", // copilot write
+			"assign_copilot_to_issue", // copilot write
 			"create_pending_pr_review", // pulls write (pending review lifecycle)
 			"add_comment_to_pending_pr_review", // pulls write (pending review lifecycle)
 			"submit_pending_pr_review", // pulls write (pending review lifecycle)
