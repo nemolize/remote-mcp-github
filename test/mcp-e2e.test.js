@@ -212,6 +212,9 @@ describe("MCP transport E2E", () => {
 			"list_release_assets", // release assets read
 			"upload_release_asset", // release assets write
 			"download_release_asset", // release assets read
+			"list_repo_rulesets", // rulesets read
+			"get_repo_ruleset", // rulesets read
+			"check_branch_rules", // rulesets read
 		]) {
 			expect(names, `tools/list missing ${required}`).toContain(required);
 		}
