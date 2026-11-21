@@ -49,7 +49,7 @@ const renderReleaseDetail = (owner: string, repo: string, data: ReleaseDetail): 
 		`- published: ${data.published_at ?? "(unpublished)"}`,
 		`- created: ${data.created_at}`,
 		`- author: ${data.author?.login ?? "(unknown)"}`,
-		`- assets: ${data.assets.length}`,
+		`- assets: ${data.assets.length}${data.assets.length > 0 ? " (see `list_release_assets`)" : ""}`,
 		`- ${data.html_url}`,
 	];
 	const body = data.body;
@@ -103,7 +103,7 @@ export const registerReleaseTools = (server: McpServer, client: OctokitFactory):
 		"get_release",
 		{
 			description:
-				"Fetch a single release's detail — name, tag, draft / prerelease / published state, target commitish, timestamps, author, asset count, URL, and the release notes body (truncated at the response cap). Look up by `release_id`, by `tag`, or pass neither for the latest release. Note: the latest-release lookup follows GitHub semantics and never returns drafts or prereleases — use `release_id` or `tag` for those.",
+				"Fetch a single release's detail — name, tag, draft / prerelease / published state, target commitish, timestamps, author, asset count (list them with `list_release_assets`), URL, and the release notes body (truncated at the response cap). Look up by `release_id`, by `tag`, or pass neither for the latest release. Note: the latest-release lookup follows GitHub semantics and never returns drafts or prereleases — use `release_id` or `tag` for those.",
 			inputSchema: {
 				...RepoTarget,
 				release_id: z

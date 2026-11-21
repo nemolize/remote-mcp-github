@@ -191,7 +191,8 @@ export type WriteAuditFields = {
 	variable_name?: string; // set_actions_variable / delete_actions_variable
 	cache_id?: number; // delete_actions_cache (by ID)
 	cache_key?: string; // delete_actions_cache (by key)
-	release_id?: number; // create_release / update_release / delete_release
+	release_id?: number; // create_release / update_release / delete_release / upload_release_asset
+	asset_id?: number; // upload_release_asset (the created asset)
 	tag_name?: string; // create_release
 	gist_id?: string; // create_gist / update_gist / delete_gist
 	label_name?: string; // create_label / update_label / delete_label (the label acted on)
@@ -199,8 +200,8 @@ export type WriteAuditFields = {
 	source_repo?: string; // clone_labels (the repo copied from)
 	label_count?: number; // clone_labels (labels created + updated)
 	file_count?: number;
-	filename?: string; // upload_attachment (the uploaded asset's name)
-	byte_count?: number; // upload_attachment (uploaded payload size in bytes)
+	filename?: string; // upload_attachment / upload_release_asset (the uploaded asset's name)
+	byte_count?: number; // upload_attachment / upload_release_asset (uploaded payload size in bytes)
 	thread_id?: string;
 	comment_id?: number; // add_pr_review_comment_reply
 	review_id?: number; // create_pr_review

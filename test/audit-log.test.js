@@ -12,6 +12,7 @@ import { registerIssueTools } from "../src/tools/issues.js";
 import { registerLabelTools } from "../src/tools/labels.js";
 import { registerProjectTools } from "../src/tools/projects.js";
 import { registerPullTools } from "../src/tools/pulls.js";
+import { registerReleaseAssetTools } from "../src/tools/release-assets.js";
 import { registerRepoTools } from "../src/tools/repos.js";
 import { registerSubIssueTools } from "../src/tools/sub-issues.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
@@ -320,6 +321,14 @@ const wideOctokit = () => {
 		rest: {
 			repos: {
 				get: ok({ default_branch: "main", id: 1 }),
+				uploadReleaseAsset: ok({
+					id: 77,
+					name: "a.zip",
+					size: 3,
+					content_type: "application/zip",
+					state: "uploaded",
+					browser_download_url: "https://x/a.zip",
+				}),
 				getContent: ok({ type: "file", sha: "abc" }),
 				createOrUpdateFileContents: ok({
 					commit: { sha: "deadbeef0000", html_url: "https://x/commit" },
@@ -849,6 +858,12 @@ const WRITE_TOOLS = [
 		registerAttachmentTools,
 		"upload_attachment",
 		{ owner: "o", repo: "r", filename: "a.png", content_base64: "AAAA" },
+	],
+	[
+		registerReleaseAssetTools,
+		"upload_release_asset",
+		{ owner: "o", repo: "r", release_id: 5, name: "a.zip", content_base64: "AAAA" },
+		{ owner: "o", repo: "r", release_id: 5, asset_id: 77, filename: "a.zip", byte_count: 3 },
 	],
 	[registerGistTools, "create_gist", { files: { "a.txt": { content: "x" } } }, { gist_id: "g1" }],
 	[registerGistTools, "update_gist", { gist_id: "g1", description: "new" }, { gist_id: "g1" }],
