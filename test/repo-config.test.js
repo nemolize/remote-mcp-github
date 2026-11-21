@@ -267,7 +267,7 @@ describe("sync_fork", () => {
 					data: {
 						message: "Successfully fetched and fast-forwarded",
 						merge_type: "fast-forward",
-						base_branch: "dev",
+						base_branch: "upstream-owner:dev",
 					},
 					headers: {},
 				};
@@ -277,7 +277,8 @@ describe("sync_fork", () => {
 		expect(captured).toEqual({ owner: "o", repo: "r", branch: "dev" });
 		const body = result.content[0].text;
 		expect(body).toContain("# Fork synced");
-		expect(body).toContain("branch `dev`");
+		expect(body).toContain("**o/r** branch `dev`");
+		expect(body).toContain("- Upstream: `upstream-owner:dev`");
 		expect(body).toContain("Merge type: fast-forward");
 		expect(body).toContain("Successfully fetched and fast-forwarded");
 		expect(JSON.parse(auditLines(spy)[0].slice("[github-audit] ".length))).toEqual({

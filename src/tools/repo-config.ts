@@ -164,7 +164,8 @@ export const registerRepoConfigTools = (server: McpServer, client: OctokitFactor
 				const lines = [
 					"# Fork synced",
 					"",
-					`- **${owner}/${repo}** branch \`${data.base_branch ?? target}\``,
+					`- **${owner}/${repo}** branch \`${target}\``,
+					isNonEmpty(data.base_branch) ? `- Upstream: \`${data.base_branch}\`` : null,
 					isNonEmpty(data.merge_type) ? `- Merge type: ${data.merge_type}` : null,
 					isNonEmpty(data.message) ? `- ${data.message}` : null,
 				].filter((l): l is string => l != null);
