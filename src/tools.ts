@@ -18,6 +18,7 @@ import { registerReleaseTools } from "./tools/releases.js";
 import { registerRepoTools } from "./tools/repos.js";
 import { registerSearchTools } from "./tools/search.js";
 import { registerSecurityTools } from "./tools/security.js";
+import { registerSubIssueTools } from "./tools/sub-issues.js";
 
 // Output-shape convention: list tools render `# <Label>` + bullet-per-row;
 // detail tools render `# <Entity>` heading + bulleted metadata. See
@@ -40,4 +41,5 @@ export const registerTools = (server: McpServer, client: OctokitFactory): void =
 	registerDiscussionTools(server, client);
 	registerAttachmentTools(server, client);
 	registerCopilotTools(server, client);
+	registerSubIssueTools(server, client);
 };

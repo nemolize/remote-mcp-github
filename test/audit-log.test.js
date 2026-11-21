@@ -13,6 +13,7 @@ import { registerLabelTools } from "../src/tools/labels.js";
 import { registerProjectTools } from "../src/tools/projects.js";
 import { registerPullTools } from "../src/tools/pulls.js";
 import { registerRepoTools } from "../src/tools/repos.js";
+import { registerSubIssueTools } from "../src/tools/sub-issues.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
 
 // Returns every `[github-audit]` JSON payload logged during the spy's lifetime,
@@ -327,6 +328,13 @@ const wideOctokit = () => {
 				updateLabel: ok({ name: "bug", color: "f29513", description: "d" }),
 				deleteLabel: ok(undefined),
 				listLabelsForRepo: ok([]),
+				get: async ({ issue_number }) => ({
+					data: { id: 1000 + issue_number, repository_url: "https://api.github.com/repos/o/r" },
+					headers: {},
+				}),
+				addSubIssue: ok({}),
+				removeSubIssue: ok({}),
+				reprioritizeSubIssue: ok({}),
 			},
 			pulls: {
 				create: ok({ number: 7, title: "t", draft: false, html_url: "https://x" }),
@@ -658,6 +666,24 @@ const WRITE_TOOLS = [
 	[registerPullTools, "update_pull_request_branch", { owner: "o", repo: "r", pull_number: 1 }],
 	[registerCopilotTools, "request_copilot_review", { owner: "o", repo: "r", pull_number: 1 }],
 	[registerCopilotTools, "assign_copilot_to_issue", { owner: "o", repo: "r", issue_number: 1 }],
+	[
+		registerSubIssueTools,
+		"add_sub_issue",
+		{ owner: "o", repo: "r", issue_number: 1, sub_issue_number: 2 },
+		{ owner: "o", repo: "r", issue_number: 1, sub_issue_number: 2 },
+	],
+	[
+		registerSubIssueTools,
+		"remove_sub_issue",
+		{ owner: "o", repo: "r", issue_number: 1, sub_issue_number: 2 },
+		{ owner: "o", repo: "r", issue_number: 1, sub_issue_number: 2 },
+	],
+	[
+		registerSubIssueTools,
+		"reprioritize_sub_issue",
+		{ owner: "o", repo: "r", issue_number: 1, sub_issue_number: 2, after_sub_issue_number: 3 },
+		{ owner: "o", repo: "r", issue_number: 1, sub_issue_number: 2 },
+	],
 	[
 		registerPullTools,
 		"mark_pull_request_ready_for_review",
