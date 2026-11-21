@@ -13,6 +13,7 @@ import { registerLabelTools } from "../src/tools/labels.js";
 import { registerProjectTools } from "../src/tools/projects.js";
 import { registerPullTools } from "../src/tools/pulls.js";
 import { registerReleaseAssetTools } from "../src/tools/release-assets.js";
+import { registerRepoSecretTools } from "../src/tools/repo-secrets.js";
 import { registerRepoTools } from "../src/tools/repos.js";
 import { registerSubIssueTools } from "../src/tools/sub-issues.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
@@ -436,6 +437,22 @@ const wideOctokit = () => {
 				enableWorkflow: ok({}),
 				disableWorkflow: ok({}),
 			},
+			codespaces: {
+				getRepoPublicKey: ok({
+					key_id: "key-1",
+					key: btoa(String.fromCharCode(...new Uint8Array(32).fill(1))),
+				}),
+				createOrUpdateRepoSecret: async () => ({ data: {}, headers: {}, status: 201 }),
+				deleteRepoSecret: ok({}),
+			},
+			dependabot: {
+				getRepoPublicKey: ok({
+					key_id: "key-1",
+					key: btoa(String.fromCharCode(...new Uint8Array(32).fill(1))),
+				}),
+				createOrUpdateRepoSecret: async () => ({ data: {}, headers: {}, status: 201 }),
+				deleteRepoSecret: ok({}),
+			},
 			gists: {
 				create: ok({
 					id: "g1",
@@ -813,6 +830,20 @@ const WRITE_TOOLS = [
 		{ owner: "o", repo: "r", secret_name: "MY_SECRET" },
 		{ owner: "o", repo: "r", secret_name: "MY_SECRET" },
 	],
+	...["codespaces", "dependabot"].flatMap((family) => [
+		[
+			registerRepoSecretTools,
+			`set_${family}_secret`,
+			{ owner: "o", repo: "r", secret_name: "MY_SECRET", value: "v" },
+			{ owner: "o", repo: "r", secret_name: "MY_SECRET" },
+		],
+		[
+			registerRepoSecretTools,
+			`delete_${family}_secret`,
+			{ owner: "o", repo: "r", secret_name: "MY_SECRET" },
+			{ owner: "o", repo: "r", secret_name: "MY_SECRET" },
+		],
+	]),
 	[
 		registerActionAdminTools,
 		"set_actions_variable",

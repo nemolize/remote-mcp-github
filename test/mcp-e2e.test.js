@@ -167,6 +167,12 @@ describe("MCP transport E2E", () => {
 			"list_actions_secrets", // actions admin read
 			"set_actions_secret", // actions admin write
 			"delete_actions_secret", // actions admin write
+			"list_codespaces_secrets", // repo secrets read
+			"set_codespaces_secret", // repo secrets write
+			"delete_codespaces_secret", // repo secrets write
+			"list_dependabot_secrets", // repo secrets read
+			"set_dependabot_secret", // repo secrets write
+			"delete_dependabot_secret", // repo secrets write
 			"list_actions_variables", // actions admin read
 			"get_actions_variable", // actions admin read
 			"set_actions_variable", // actions admin write

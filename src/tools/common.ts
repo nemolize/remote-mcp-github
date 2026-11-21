@@ -146,3 +146,26 @@ export const formatBytes = (bytes: number): string => {
 	}
 	return `${value.toFixed(1)} ${units[unit]}`;
 };
+
+// GitHub's 48 KB cap on a secret / variable value, counted in UTF-8 bytes;
+// rejected at the schema to skip a pointless key fetch + encryption.
+export const MAX_VALUE_BYTES = 48 * 1024;
+
+export const withinByteCap = <T extends z.ZodType<string>>(schema: T) =>
+	schema.refine((v) => new TextEncoder().encode(v).length <= MAX_VALUE_BYTES, {
+		message: `value exceeds GitHub's 48 KB (${MAX_VALUE_BYTES}-byte UTF-8) limit.`,
+	});
+
+// GitHub's naming rule for secrets and variables (reserved `GITHUB_` prefix),
+// checked here so a typo fails fast instead of as a remote 422.
+export const ActionsName = z
+	.string()
+	.regex(
+		/^(?!GITHUB_)[A-Z_][A-Z0-9_]*$/i,
+		"Name must contain only alphanumeric characters or underscores, must not start with a digit, and must not use the reserved GITHUB_ prefix.",
+	);
+
+export const REST_PAGINATION = {
+	per_page: z.number().int().min(1).max(100).optional().default(30),
+	page: z.number().int().min(1).optional().describe("Page number (1-indexed). Defaults to 1."),
+} as const;

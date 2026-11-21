@@ -13,36 +13,14 @@ import {
 import { sealSecret } from "../sealed-box.js";
 import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
-import { formatBytes, RepoTarget, WorkflowId } from "./common.js";
-
-// GitHub caps a single Actions secret and a single Actions variable value at
-// 48 KB. Mirror that as the app-level input cap so an oversized payload is
-// rejected by schema validation with a clear message instead of an opaque 422
-// after the (pointless) public-key fetch + encryption work. The limit is in
-// bytes, so measure the UTF-8 encoding, not the character count (a multibyte
-// value can exceed 48 KB well under 48k characters).
-export const MAX_VALUE_BYTES = 48 * 1024;
-
-const withinByteCap = <T extends z.ZodType<string>>(schema: T) =>
-	schema.refine((v) => new TextEncoder().encode(v).length <= MAX_VALUE_BYTES, {
-		message: `value exceeds GitHub's 48 KB (${MAX_VALUE_BYTES}-byte UTF-8) limit.`,
-	});
-
-// Secret and variable names share GitHub's naming rule (alphanumeric + `_`,
-// not starting with a digit, and the `GITHUB_` prefix is reserved). Validated
-// here so a typo like `MY-SECRET` fails fast with the rule spelled out rather
-// than as a remote 422.
-const ActionsName = z
-	.string()
-	.regex(
-		/^(?!GITHUB_)[A-Z_][A-Z0-9_]*$/i,
-		"Name must contain only alphanumeric characters or underscores, must not start with a digit, and must not use the reserved GITHUB_ prefix.",
-	);
-
-const REST_PAGINATION = {
-	per_page: z.number().int().min(1).max(100).optional().default(30),
-	page: z.number().int().min(1).optional().describe("Page number (1-indexed). Defaults to 1."),
-} as const;
+import {
+	ActionsName,
+	formatBytes,
+	RepoTarget,
+	REST_PAGINATION,
+	withinByteCap,
+	WorkflowId,
+} from "./common.js";
 
 export const registerActionAdminTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
