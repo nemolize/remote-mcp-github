@@ -62,7 +62,8 @@ describe("update_repository", () => {
 		expect(captured).toEqual({ owner: "o", repo: "r", description: "new", has_wiki: false });
 		const body = result.content[0].text;
 		expect(body).toContain("# Repository updated");
-		expect(body).toContain("- Updated: description, has_wiki");
+		expect(body).toContain("- Applied: description");
+		expect(body).toContain("Not applied by GitHub: has_wiki (sent false, GitHub returned null)");
 		const lines = auditLines(spy);
 		expect(lines).toHaveLength(1);
 		expect(JSON.parse(lines[0].slice("[github-audit] ".length))).toEqual({
@@ -71,6 +72,38 @@ describe("update_repository", () => {
 			repo: "r",
 			updated_fields: "description,has_wiki",
 		});
+	});
+
+	it("separates fields GitHub applied from ones it ignored, reading the response", async () => {
+		const handlers = setup({
+			update: async () => ({
+				data: repoData({ description: "new", has_wiki: true, allow_auto_merge: false }),
+				headers: {},
+			}),
+		});
+		const result = await invoke(handlers, "update_repository", {
+			owner: "o",
+			repo: "r",
+			description: "new",
+			has_wiki: false,
+			allow_auto_merge: false,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("- Applied: description, allow_auto_merge");
+		expect(body).toContain("Not applied by GitHub: has_wiki (sent false, GitHub returned true)");
+	});
+
+	it("treats an empty string as applied when GitHub returns null", async () => {
+		const handlers = setup({
+			update: async () => ({ data: repoData({ description: null }), headers: {} }),
+		});
+		const result = await invoke(handlers, "update_repository", {
+			owner: "o",
+			repo: "r",
+			description: "",
+		});
+		expect(result.content[0].text).toContain("- Applied: description");
+		expect(result.content[0].text).not.toContain("Not applied");
 	});
 
 	it("forwards a false flag instead of dropping it", async () => {
@@ -129,7 +162,7 @@ describe("rename_repository", () => {
 		const handlers = setup({
 			update: async (params) => {
 				captured = params;
-				return { data: repoData({ full_name: "o/new" }), headers: {} };
+				return { data: repoData({ full_name: "o/new", name: "new" }), headers: {} };
 			},
 		});
 		const result = await invoke(handlers, "rename_repository", {
@@ -148,6 +181,17 @@ describe("rename_repository", () => {
 			repo: "r",
 			new_name: "new",
 		});
+	});
+
+	it("audits the name GitHub returned, not the one requested", async () => {
+		const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const handlers = setup({
+			update: async () => ({ data: repoData({ name: "normalised" }), headers: {} }),
+		});
+		await invoke(handlers, "rename_repository", { owner: "o", repo: "r", new_name: "raw name" });
+		expect(JSON.parse(auditLines(spy)[0].slice("[github-audit] ".length)).new_name).toBe(
+			"normalised",
+		);
 	});
 
 	it("surfaces a name-taken validation error", async () => {

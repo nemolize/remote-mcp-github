@@ -9,8 +9,12 @@ import { RepoTarget } from "./common.js";
 import { renderRepoSummary } from "./repos.js";
 
 const UpdateFields = {
-	description: z.string().max(350).optional().describe("Short repo description."),
-	homepage: z.string().optional().describe("Repo homepage URL."),
+	description: z
+		.string()
+		.max(350)
+		.optional()
+		.describe("Short repo description. Pass an empty string to clear it."),
+	homepage: z.string().optional().describe("Repo homepage URL. Pass an empty string to clear it."),
 	visibility: z
 		.enum(["public", "private"])
 		.optional()
@@ -35,6 +39,23 @@ const UpdateFields = {
 		.describe("Always suggest updating a pull request's branch."),
 };
 
+const splitApplied = (
+	sent: Record<string, unknown>,
+	got: Record<string, unknown>,
+): { applied: string[]; notApplied: string[] } => {
+	const applied: string[] = [];
+	const notApplied: string[] = [];
+	for (const [key, value] of Object.entries(sent)) {
+		const returned = got[key];
+		if (returned === value || (value === "" && returned == null)) applied.push(key);
+		else
+			notApplied.push(
+				`${key} (sent ${JSON.stringify(value)}, GitHub returned ${JSON.stringify(returned ?? null)})`,
+			);
+	}
+	return { applied, notApplied };
+};
+
 export const registerRepoConfigTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"update_repository",
@@ -53,11 +74,12 @@ export const registerRepoConfigTools = (server: McpServer, client: OctokitFactor
 				const { data, headers } = await client().rest.repos.update({ owner, repo, ...changes });
 				logRateLimit(headers);
 				logWrite({ tool: "update_repository", owner, repo, updated_fields: names.join(",") });
-				return text(
-					truncate(
-						renderRepoSummary("Repository updated", data, [`- Updated: ${names.join(", ")}`]),
-					),
-				);
+				const { applied, notApplied } = splitApplied(changes, data);
+				const extra = [
+					applied.length > 0 ? `- Applied: ${applied.join(", ")}` : null,
+					notApplied.length > 0 ? `- Not applied by GitHub: ${notApplied.join("; ")}` : null,
+				].filter((l): l is string => l != null);
+				return text(truncate(renderRepoSummary("Repository updated", data, extra)));
 			}),
 	);
 
@@ -65,7 +87,7 @@ export const registerRepoConfigTools = (server: McpServer, client: OctokitFactor
 		"rename_repository",
 		{
 			description:
-				"Rename `owner/repo` to `new_name`. Disruptive — GitHub redirects the old web and git URLs, but references to the old name elsewhere (for example GitHub Pages sites) are not redirected. Requires admin rights on the repo and the `repo` OAuth scope.",
+				"Rename `owner/repo` to `new_name`. Disruptive — GitHub redirects the old web and git URLs, but references to the old name elsewhere (for example GitHub Pages sites or external integrations that store the name) are not redirected. Requires admin rights on the repo and the `repo` OAuth scope.",
 			inputSchema: {
 				...RepoTarget,
 				new_name: z.string().min(1).max(100).describe("New repository name (without the owner)."),
@@ -75,7 +97,7 @@ export const registerRepoConfigTools = (server: McpServer, client: OctokitFactor
 			wrapTool(async () => {
 				const { data, headers } = await client().rest.repos.update({ owner, repo, name: new_name });
 				logRateLimit(headers);
-				logWrite({ tool: "rename_repository", owner, repo, new_name });
+				logWrite({ tool: "rename_repository", owner, repo, new_name: data.name });
 				return text(
 					truncate(
 						renderRepoSummary("Repository renamed", data, [`- Previous name: ${owner}/${repo}`]),
