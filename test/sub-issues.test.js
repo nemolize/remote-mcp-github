@@ -77,6 +77,25 @@ describe("list_sub_issues", () => {
 		expect(auditLines(logSpy)).toHaveLength(0);
 	});
 
+	it("marks a row whose repository cannot be read as read-only, and trusts canonical repos over the caller's spelling", async () => {
+		const renamed = "https://api.github.com/repos/o/renamed";
+		const listSubIssues = vi.fn(async () => ({
+			data: [sub(2, renamed), sub(3, undefined)],
+			headers: {},
+		}));
+		const result = await run(
+			makeOctokit({
+				listSubIssues,
+				get: vi.fn(async () => ({ data: { id: 1, repository_url: renamed }, headers: {} })),
+			}),
+			"list_sub_issues",
+			{ owner: "o", repo: "old-name", issue_number: 1, per_page: 30 },
+		);
+		const lines = textOf(result).split("\n");
+		expect(lines.find((l) => l.includes("#2]"))).not.toContain("read-only");
+		expect(lines.find((l) => l.includes("#3]"))).toContain("read-only");
+	});
+
 	it("keeps GitHub's order, flags more pages, and forwards page", async () => {
 		const listSubIssues = vi.fn(async () => ({
 			data: [sub(5), sub(3)],
@@ -176,8 +195,9 @@ describe("add_sub_issue", () => {
 
 	it("maps a missing child (404) to a not-found error without writing", async () => {
 		const octokit = makeOctokit({
-			get: vi.fn(async () => {
-				throw Object.assign(new Error("Not Found"), { status: 404 });
+			get: vi.fn(async ({ issue_number }) => {
+				if (issue_number === 2) throw Object.assign(new Error("Not Found"), { status: 404 });
+				return { data: { id: 1, repository_url: REPO_URL }, headers: {} };
 			}),
 		});
 		const result = await run(octokit, "add_sub_issue", {
@@ -206,12 +226,15 @@ describe("add_sub_issue", () => {
 		expect(textOf(result)).toContain("(HTTP 502)");
 	});
 
-	it("rejects a child that resolves to another repository (transferred issue)", async () => {
+	const getByRepoUrl = (urls) =>
+		vi.fn(async ({ issue_number }) => ({
+			data: { id: 9000 + issue_number, repository_url: urls[issue_number] },
+			headers: {},
+		}));
+
+	it("rejects a child whose canonical repository differs from the parent's (transferred child)", async () => {
 		const octokit = makeOctokit({
-			get: vi.fn(async () => ({
-				data: { id: 1, repository_url: "https://api.github.com/repos/o/elsewhere" },
-				headers: {},
-			})),
+			get: getByRepoUrl({ 1: REPO_URL, 2: "https://api.github.com/repos/o/elsewhere" }),
 		});
 		const result = await run(octokit, "add_sub_issue", {
 			owner: "o",
@@ -220,8 +243,71 @@ describe("add_sub_issue", () => {
 			sub_issue_number: 2,
 		});
 		expect(result.isError).toBe(true);
-		expect(textOf(result)).toContain("another repository");
+		expect(textOf(result)).toContain("not in the same repository");
 		expect(octokit.rest.issues.addSubIssue).not.toHaveBeenCalled();
+	});
+
+	it("accepts a repository addressed by its old name when parent and child share the canonical repo", async () => {
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const renamed = "https://api.github.com/repos/o/renamed";
+		const octokit = makeOctokit({ get: getByRepoUrl({ 1: renamed, 2: renamed }) });
+		const result = await run(octokit, "add_sub_issue", {
+			owner: "o",
+			repo: "old-name",
+			issue_number: 1,
+			sub_issue_number: 2,
+		});
+		expect(result.isError).toBeUndefined();
+		expect(octokit.rest.issues.addSubIssue).toHaveBeenCalledTimes(1);
+		expect(auditLines(logSpy)).toHaveLength(1);
+	});
+
+	it("rejects a parent that moved away from its child's repository", async () => {
+		const octokit = makeOctokit({
+			get: getByRepoUrl({ 1: "https://api.github.com/repos/o/moved", 2: REPO_URL }),
+		});
+		const result = await run(octokit, "add_sub_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			sub_issue_number: 2,
+		});
+		expect(result.isError).toBe(true);
+		expect(octokit.rest.issues.addSubIssue).not.toHaveBeenCalled();
+	});
+
+	it("rejects a child whose repository cannot be read", async () => {
+		const octokit = makeOctokit({ get: getByRepoUrl({ 1: REPO_URL, 2: undefined }) });
+		const result = await run(octokit, "add_sub_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			sub_issue_number: 2,
+		});
+		expect(result.isError).toBe(true);
+		expect(octokit.rest.issues.addSubIssue).not.toHaveBeenCalled();
+	});
+
+	it("rejects a pull request parent (child is an issue) without writing", async () => {
+		const octokit = makeOctokit({
+			get: vi.fn(async ({ issue_number }) => ({
+				data: {
+					id: 9000 + issue_number,
+					...(issue_number === 1 ? { pull_request: { url: "x" } } : {}),
+					repository_url: REPO_URL,
+				},
+				headers: {},
+			})),
+		});
+		const result = await run(octokit, "remove_sub_issue", {
+			owner: "o",
+			repo: "r",
+			issue_number: 1,
+			sub_issue_number: 2,
+		});
+		expect(result.isError).toBe(true);
+		expect(textOf(result)).toContain("o/r#1 is a pull request");
+		expect(octokit.rest.issues.removeSubIssue).not.toHaveBeenCalled();
 	});
 
 	it("surfaces a GitHub write failure with its status and no audit line", async () => {
@@ -327,6 +413,36 @@ describe("reprioritize_sub_issue", () => {
 		});
 	});
 
+	it("rejects an anchor from another repository or a missing anchor without writing or auditing", async () => {
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const base = { owner: "o", repo: "r", issue_number: 1, sub_issue_number: 2 };
+		const foreign = makeOctokit({
+			get: vi.fn(async ({ issue_number }) => ({
+				data: {
+					id: 9000 + issue_number,
+					repository_url:
+						issue_number === 3 ? "https://api.github.com/repos/o/elsewhere" : REPO_URL,
+				},
+				headers: {},
+			})),
+		});
+		const missing = makeOctokit({
+			get: vi.fn(async ({ issue_number }) => {
+				if (issue_number === 3) throw Object.assign(new Error("Not Found"), { status: 404 });
+				return { data: { id: 9000 + issue_number, repository_url: REPO_URL }, headers: {} };
+			}),
+		});
+		for (const octokit of [foreign, missing]) {
+			const result = await run(octokit, "reprioritize_sub_issue", {
+				...base,
+				after_sub_issue_number: 3,
+			});
+			expect(result.isError).toBe(true);
+			expect(octokit.rest.issues.reprioritizeSubIssue).not.toHaveBeenCalled();
+		}
+		expect(auditLines(logSpy)).toHaveLength(0);
+	});
+
 	it("rejects an anchor equal to the moved sub-issue without any request", async () => {
 		const octokit = makeOctokit();
 		const result = await run(octokit, "reprioritize_sub_issue", {
@@ -368,11 +484,9 @@ describe("reprioritize_sub_issue", () => {
 			client.callTool({ name: "reprioritize_sub_issue", arguments: { ...base, ...args } });
 
 		for (const args of [{}, { after_sub_issue_number: 3, before_sub_issue_number: 4 }]) {
-			const rejected = await call(args).then(
-				(r) => r.isError === true,
-				() => true,
-			);
-			expect(rejected).toBe(true);
+			const rejected = await call(args);
+			expect(rejected.isError).toBe(true);
+			expect(rejected.content[0].text).toContain("Input validation error");
 		}
 		expect(octokit.rest.issues.reprioritizeSubIssue).not.toHaveBeenCalled();
 

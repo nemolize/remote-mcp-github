@@ -20,16 +20,17 @@ const IssueNumber = z.number().int().positive();
 const repoSlug = (repositoryUrl: string | undefined): string | null =>
 	repositoryUrl?.match(/\/repos\/([^/]+\/[^/]+)$/)?.[1] ?? null;
 
-type ResolvedIssue = { id: number } | { error: ToolResult };
+type FetchedIssue = { id: number; slug: string | null } | { error: ToolResult };
 
-// Sub-issue endpoints take the child's numeric database id, not its number.
-// Resolving here keeps every id the caller needs reachable from issue numbers.
-const resolveIssueId = async (
+const sameRepo = (a: string | null, b: string | null): boolean =>
+	a !== null && b !== null && a.toLowerCase() === b.toLowerCase();
+
+const fetchIssue = async (
 	octo: ReturnType<OctokitFactory>,
 	owner: string,
 	repo: string,
 	issue_number: number,
-): Promise<ResolvedIssue> => {
+): Promise<FetchedIssue> => {
 	const where = `${owner}/${repo}#${issue_number}`;
 	let data;
 	try {
@@ -45,16 +46,32 @@ const resolveIssueId = async (
 		throw e;
 	}
 	if (data.pull_request != null) {
-		return { error: errorResult(`${where} is a pull request; only issues can be sub-issues.`) };
+		return { error: errorResult(`${where} is a pull request; sub-issues apply to issues only.`) };
 	}
-	if (repoSlug(data.repository_url)?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
+	return { id: data.id, slug: repoSlug(data.repository_url) };
+};
+
+// The endpoints take database ids, not numbers. Comparing the canonical repositories of
+// parent and child (not the caller's spelling) keeps renamed or transferred repos correct.
+const resolveSubIssueId = async (
+	octo: ReturnType<OctokitFactory>,
+	owner: string,
+	repo: string,
+	parent: number,
+	child: number,
+): Promise<{ id: number } | { error: ToolResult }> => {
+	const p = await fetchIssue(octo, owner, repo, parent);
+	if ("error" in p) return p;
+	const c = await fetchIssue(octo, owner, repo, child);
+	if ("error" in c) return c;
+	if (!sameRepo(c.slug, p.slug)) {
 		return {
 			error: errorResult(
-				`${where} now lives in another repository (it was transferred); sub-issue changes are limited to issues in ${owner}/${repo}.`,
+				`${owner}/${repo}#${child} is not in the same repository as #${parent}; sub-issue changes are limited to issues in the parent's repository.`,
 			),
 		};
 	}
-	return { id: data.id };
+	return { id: c.id };
 };
 
 export const registerSubIssueTools = (server: McpServer, client: OctokitFactory): void => {
@@ -84,7 +101,10 @@ export const registerSubIssueTools = (server: McpServer, client: OctokitFactory)
 		},
 		async ({ owner, repo, issue_number, per_page, page }) =>
 			wrapTool(async () => {
-				const { data, headers } = await client().rest.issues.listSubIssues({
+				const octo = client();
+				const parent = await fetchIssue(octo, owner, repo, issue_number);
+				if ("error" in parent) return parent.error;
+				const { data, headers } = await octo.rest.issues.listSubIssues({
 					owner,
 					repo,
 					issue_number,
@@ -98,12 +118,10 @@ export const registerSubIssueTools = (server: McpServer, client: OctokitFactory)
 						`# ${title}\n\n(no sub-issues on ${page === undefined || page === 1 ? "this issue" : "this page"})`,
 					);
 				}
-				const parentSlug = `${owner}/${repo}`.toLowerCase();
 				const lines = data.map((s) => {
-					const slug = repoSlug(s.repository_url) ?? `${owner}/${repo}`;
-					const foreign =
-						slug.toLowerCase() === parentSlug ? "" : " — other repository, read-only here";
-					return `- [${slug}#${s.number}](${s.html_url}) **${s.title}** (${s.state})${foreign}`;
+					const slug = repoSlug(s.repository_url);
+					const foreign = sameRepo(slug, parent.slug) ? "" : " — other repository, read-only here";
+					return `- [${slug ?? "?"}#${s.number}](${s.html_url}) **${s.title}** (${s.state})${foreign}`;
 				});
 				const header = restListHeader({
 					title,
@@ -137,7 +155,7 @@ export const registerSubIssueTools = (server: McpServer, client: OctokitFactory)
 		async ({ owner, repo, issue_number, sub_issue_number, replace_parent }) =>
 			wrapTool(async () => {
 				const octo = client();
-				const child = await resolveIssueId(octo, owner, repo, sub_issue_number);
+				const child = await resolveSubIssueId(octo, owner, repo, issue_number, sub_issue_number);
 				if ("error" in child) return child.error;
 				const { headers } = await octo.rest.issues.addSubIssue({
 					owner,
@@ -170,7 +188,7 @@ export const registerSubIssueTools = (server: McpServer, client: OctokitFactory)
 		async ({ owner, repo, issue_number, sub_issue_number }) =>
 			wrapTool(async () => {
 				const octo = client();
-				const child = await resolveIssueId(octo, owner, repo, sub_issue_number);
+				const child = await resolveSubIssueId(octo, owner, repo, issue_number, sub_issue_number);
 				if ("error" in child) return child.error;
 				const { headers } = await octo.rest.issues.removeSubIssue({
 					owner,
@@ -233,9 +251,9 @@ export const registerSubIssueTools = (server: McpServer, client: OctokitFactory)
 					return errorResult("A sub-issue cannot be positioned relative to itself.");
 				}
 				const octo = client();
-				const child = await resolveIssueId(octo, owner, repo, sub_issue_number);
+				const child = await resolveSubIssueId(octo, owner, repo, issue_number, sub_issue_number);
 				if ("error" in child) return child.error;
-				const anchor = await resolveIssueId(octo, owner, repo, anchorNumber);
+				const anchor = await resolveSubIssueId(octo, owner, repo, issue_number, anchorNumber);
 				if ("error" in anchor) return anchor.error;
 				const { headers } = await octo.rest.issues.reprioritizeSubIssue({
 					owner,
