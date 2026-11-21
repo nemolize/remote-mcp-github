@@ -20,7 +20,7 @@ The table below compares coverage by **feature area** against the two most commo
 | File content read + remote commit (single & multi-file)                       | ✅                                                                                                                                                                                                             | ✅                        | ⚠️ `gh api` only                                               |
 | Branch list / create / delete                                                 | ✅                                                                                                                                                                                                             | ✅                        | ⚠️ `gh api` / local `git`                                      |
 | PR open / diff / request reviewers                                            | ✅                                                                                                                                                                                                             | ✅                        | ✅                                                             |
-| PR read detail / merge / update lifecycle                                     | 🟡 no draft → ready-for-review (GraphQL `markPullRequestReadyForReview`), no lock / unlock ([#191](https://github.com/nemolize/remote-mcp-github/issues/191))                                                  | ✅                        | ✅                                                             |
+| PR read detail / merge / update lifecycle                                     | ✅ draft → ready (`mark_pull_request_ready_for_review`), lock / unlock (`lock_conversation` / `unlock_conversation`)                                                                                           | ✅                        | ✅                                                             |
 | PR reviews & review comments (read + reply + submit + pending)                | ✅ one-shot + pending lifecycle (`create_pr_review`, `create_pending_pr_review` / `add_comment_to_pending_pr_review` / `submit_pending_pr_review` / `delete_pending_pr_review`, `add_pr_review_comment_reply`) | ✅                        | ⚠️ partial (`gh api` for inline)                               |
 | PR review thread resolve / unresolve                                          | ✅                                                                                                                                                                                                             | ✅                        | ⚠️ `gh api graphql` only                                       |
 | Commit history (list / show / compare)                                        | ✅                                                                                                                                                                                                             | ✅                        | ⚠️ `gh api` only                                               |
@@ -49,139 +49,140 @@ The table below compares coverage by **feature area** against the two most commo
 
 All tools respond in Markdown (not raw JSON). `get_issue` and `get_pull_request` always return the complete body, without an expansion flag. `get_file_content` returns up to 8,000 Unicode code points of file text by default; use `offset` (zero-based) and `limit` (1–8,000) to select a range. Follow the next offset in the response to read the remainder, and pin `ref` to a commit SHA when reading multiple chunks of a changing file. These parameters apply only to files, not directory listings. File reads support up to 20,000,000 bytes (20 MB); decoding validates UTF-8 in small chunks and retains only the requested range. Each range request still fetches and validates the entire file. Binary files are rejected; write limits are unchanged.
 
-| Tool                               | Kind  | Purpose                                                                                              |
-| ---------------------------------- | ----- | ---------------------------------------------------------------------------------------------------- |
-| `list_my_repos`                    | read  | Authenticated user's repositories, with visibility / sort options                                    |
-| `get_repo`                         | read  | Repo metadata (default branch, visibility, flags, stars, language, timestamps)                       |
-| `get_authenticated_user`           | read  | Identity bound to the current OAuth token (login, profile, repo counts)                              |
-| `search_repositories`              | read  | Cross-GitHub repo search (uses GitHub search qualifiers like `org:`, `user:<login>`, `stars:>N`)     |
-| `create_repository`                | write | Create a repo for the authenticated user (or an `org`) — visibility, auto-init, gitignore/license    |
-| `fork_repository`                  | write | Fork `owner/repo` to the authenticated user (or an `organization`); optional default-branch-only     |
-| `delete_repository`                | write | Permanently delete `owner/repo` (destructive; GitHub keeps a 90-day restoration window for orgs)     |
-| `search_issues`                    | read  | Issue / PR search inside a specific repo                                                             |
-| `get_issue`                        | read  | Single issue / PR detail (title, body, state, labels, assignees, milestone)                          |
-| `list_issue_comments`              | read  | Conversation comments on an issue or PR (renders the `comment_id` for edit / delete)                 |
-| `list_linked_branches`             | read  | Branches linked to an issue via the development sidebar (companion read for `develop_issue`)         |
-| `list_labels`                      | read  | Labels defined in the repo (companion read for `add_labels` / `update_issue`)                        |
-| `get_file_content`                 | read  | Raw file contents at a path + ref (directory listings supported)                                     |
-| `list_commits`                     | read  | Commit history (git log) filtered by branch / path / author / date window                            |
-| `get_commit`                       | read  | Single commit detail — message, author, parents, per-file stats, diff                                |
-| `compare_commits`                  | read  | Diff between two refs (ahead / behind counts, merge base, per-file stats, diff)                      |
-| `get_pr_diff`                      | read  | Unified diff for a pull request                                                                      |
-| `get_pull_request`                 | read  | Full PR detail — state, mergeable state, head/base SHAs, reviewers, commit/diff counts               |
-| `get_pull_request_files`           | read  | Files changed in a PR — status, additions/deletions, truncated patch snippet per file                |
-| `get_pull_request_status`          | read  | Combined merge-readiness — Actions check-runs + legacy commit statuses, in one call                  |
-| `list_pr_reviews`                  | read  | Submitted reviews — state (APPROVED / CHANGES_REQUESTED / …), reviewer, summary body, submitted_at   |
-| `list_pr_review_threads`           | read  | PR review threads with node IDs (`PRRT_…`) + resolved state (companion read for resolve/unresolve)   |
-| `list_pr_review_thread_comments`   | read  | All comments (root + replies) in one review thread — surfaces reply `databaseId` for update/delete   |
-| `search_code`                      | read  | Code search across GitHub                                                                            |
-| `search_users`                     | read  | Cross-GitHub user search (`type:user` forced automatically; login + profile URL)                     |
-| `search_orgs`                      | read  | Cross-GitHub organization search (`type:org` forced automatically)                                   |
-| `search_pull_requests`             | read  | Cross-GitHub PR search (`is:pr` forced; renders state / draft / merged)                              |
-| `list_workflow_runs`               | read  | Recent Actions workflow runs filtered by workflow / branch / event / status                          |
-| `get_workflow_run`                 | read  | Single run detail — status / conclusion, event, actor, head branch / SHA, attempt, timestamps        |
-| `list_workflow_run_jobs`           | read  | Jobs of a run with per-step status — the "what failed?" lookup                                       |
-| `list_workflows`                   | read  | Workflows defined in the repo (ID, name, state, path) — discover pipelines / find a `workflow_id`    |
-| `get_job_logs`                     | read  | Plain-text logs of a single job, tail-truncated — the "why did it fail?" lookup after the job list   |
-| `get_workflow_run_logs`            | read  | Full run log archive download URL (zip of all jobs; short-lived URL, metadata only, no download)     |
-| `list_workflow_run_artifacts`      | read  | Artifacts produced by a run (ID, name, size, expiry) — the "what did the build produce?" lookup      |
-| `get_artifact`                     | read  | Single artifact metadata + archive download URL (zip; metadata only, no download / unzip)            |
-| `rerun_workflow_run`               | write | Re-run an entire workflow run (all jobs) — new attempt; poll `get_workflow_run` for status           |
-| `rerun_failed_jobs`                | write | Re-run only the failed jobs of a run — new attempt; poll `get_workflow_run` for status               |
-| `cancel_workflow_run`              | write | Cancel an in-progress run (async); poll `get_workflow_run` until conclusion is `cancelled`           |
-| `trigger_workflow_dispatch`        | write | Manually dispatch a `workflow_dispatch` workflow on a ref with optional inputs                       |
-| `list_actions_secrets`             | read  | Actions secrets by name + timestamps (values are never returned by GitHub)                           |
-| `set_actions_secret`               | write | Create / update an Actions secret — encrypted client-side (sealed box); value never echoed back      |
-| `delete_actions_secret`            | write | Delete an Actions secret by name                                                                     |
-| `list_actions_variables`           | read  | Actions variables (name, plaintext value, timestamps) — the `vars` context workflows read            |
-| `get_actions_variable`             | read  | Single Actions variable by name (value + timestamps)                                                 |
-| `set_actions_variable`             | write | Create / update an Actions variable (create-first, falls back to update on 409)                      |
-| `delete_actions_variable`          | write | Delete an Actions variable by name                                                                   |
-| `list_actions_caches`              | read  | Actions caches (ID, key, ref, size, last accessed) — find a cache to evict                           |
-| `delete_actions_cache`             | write | Delete caches by `cache_id` or by full `key` (optionally scoped to a ref)                            |
-| `enable_workflow`                  | write | Re-enable a disabled workflow so its triggers fire again                                             |
-| `disable_workflow`                 | write | Disable a workflow — its triggers stop firing until re-enabled                                       |
-| `list_releases`                    | read  | Releases newest first (ID, name, tag, draft / prerelease / published state, date, author)            |
-| `get_release`                      | read  | Single release detail + notes body — by `release_id`, by `tag`, or the latest when neither given     |
-| `list_tags`                        | read  | Git tags (name, commit SHA) — for release metadata on a tag, use `get_release` with the tag          |
-| `create_release`                   | write | Create a release (and its tag) from `tag_name` (+ name, body, draft, prerelease, generated notes)    |
-| `update_release`                   | write | Edit a release by `release_id` (rename, edit notes, publish a draft, toggle prerelease)              |
-| `delete_release`                   | write | Delete a release by `release_id` (leaves the git tag in place)                                       |
-| `list_gists`                       | read  | Authenticated user's gists newest first (ID, description, public flag, file count, updated_at)       |
-| `get_gist`                         | read  | Single gist detail — description, owner, public flag, per-file metadata + length-capped content      |
-| `list_gist_comments`               | read  | Comments on a gist (companion read for a future comment-write tool)                                  |
-| `create_gist`                      | write | Create a gist with one or more files (description, files, public flag)                               |
-| `update_gist`                      | write | Edit a gist's description and/or add / replace / rename / delete files                               |
-| `delete_gist`                      | write | Delete a gist by `gist_id` (irreversible)                                                            |
-| `list_secret_scanning_alerts`      | read  | Secret-scanning alerts (number, state, secret type, resolution, date) — never the raw secret value   |
-| `list_code_scanning_alerts`        | read  | Code-scanning alerts (number, state, rule + severity, tool, most-recent location path:line)          |
-| `list_dependabot_alerts`           | read  | Dependabot alerts (number, state, package, severity, advisory GHSA + summary)                        |
-| `get_secret_scanning_alert`        | read  | One secret-scanning alert (type, state, resolution, timestamps) — never the raw secret value         |
-| `get_code_scanning_alert`          | read  | One code-scanning alert (rule, severity, tool, most-recent location)                                 |
-| `get_dependabot_alert`             | read  | One Dependabot alert (package, severity, GHSA, advisory summary)                                     |
-| `list_projects`                    | read  | Projects (v2) of a user / org — or the authenticated user — number, title, state, node ID (`PVT_…`)  |
-| `get_project`                      | read  | Single Project (v2) detail — visibility, state, item count, field definitions + options              |
-| `list_project_items`               | read  | Project (v2) board items — type, title, `owner/repo#N`, Status, assignees; `include_archived` opt-in |
-| `list_project_fields`              | read  | Project (v2) field definitions — name, data type, single-select option names + IDs                   |
-| `add_project_item`                 | write | Add an existing issue / PR to a Project (v2) by its content node ID                                  |
-| `remove_project_item`              | write | Remove an item from a Project (v2) by its item node ID (`PVTI_…`)                                    |
-| `update_project_item_field`        | write | Set a Project (v2) item's field value — text / number / date / single-select option                  |
-| `create_project_draft_item`        | write | Add a draft item (title + optional body) to a Project (v2) without an underlying issue               |
-| `create_project`                   | write | Create a Project (v2) under a user / org — or the authenticated user — returns number + node ID      |
-| `update_project`                   | write | Edit a Project (v2) — title, short description, visibility, open/closed state (close / reopen)       |
-| `delete_project`                   | write | Delete a Project (v2) permanently, including draft items and field configuration (irreversible)      |
-| `copy_project`                     | write | Copy a Project (v2) — fields, views, workflows — to a new project (optionally with draft items)      |
-| `link_project_to_repository`       | write | Link a Project (v2) to a repository (shows in the repo's Projects tab)                               |
-| `unlink_project_from_repository`   | write | Unlink a Project (v2) from a repository                                                              |
-| `create_project_field`             | write | Create a custom Project (v2) field — TEXT / NUMBER / DATE / SINGLE_SELECT (with option names)        |
-| `delete_project_field`             | write | Delete a custom Project (v2) field by its field node ID (irreversible)                               |
-| `archive_project_item`             | write | Archive — or with `undo: true` restore — a Project (v2) item by its item node ID                     |
-| `list_discussions`                 | read  | Discussions in a repo, most recently updated first — optional category filter, answered state        |
-| `list_discussion_categories`       | read  | Discussion categories (name, slug, answerable flag, node ID — the `category_id` for filtering)       |
-| `get_discussion`                   | read  | Single discussion detail — title, body, author, category, answered state, counts, timestamps         |
-| `get_discussion_comments`          | read  | Top-level comments on a discussion — author, accepted-answer marker, reply count, body preview       |
-| `list_branches`                    | read  | List branches in a repo (name, head SHA, protected flag)                                             |
-| `create_branch`                    | write | Branch from a base (or the repo's default)                                                           |
-| `delete_branch`                    | write | Delete a branch (default branch refused)                                                             |
-| `commit_file`                      | write | Create or update a single file on a branch in one commit                                             |
-| `commit_files`                     | write | Create or update multiple files on a branch in one commit (Tree API, per-file mode / encoding)       |
-| `delete_file`                      | write | Delete a single file on a branch in one commit (auto-SHA lookup like `commit_file`)                  |
-| `create_pull_request`              | write | Open a PR (same-repo `head` by default; `cross_repo_head` for fork PRs)                              |
-| `update_pull_request`              | write | Edit a PR's title / body / state (close / reopen) / base branch                                      |
-| `update_pull_request_branch`       | write | Update a PR's branch with its base's latest changes (mirrors the "Update branch" button)             |
-| `merge_pull_request`               | write | Merge a PR (merge / squash / rebase; optional commit message and `sha` concurrency guard)            |
-| `request_pr_review`                | write | Request reviewers (users and/or teams) on a PR                                                       |
-| `create_pr_review`                 | write | Submit a review (APPROVE / REQUEST_CHANGES / COMMENT) with optional body + batched inline comments   |
-| `create_pending_pr_review`         | write | Open a pending (draft) review — no event, no notification; seed optional inline comments             |
-| `add_comment_to_pending_pr_review` | write | Append one inline thread to a pending review (GraphQL `addPullRequestReviewThread`)                  |
-| `submit_pending_pr_review`         | write | Submit a pending review with a verdict (APPROVE / REQUEST_CHANGES / COMMENT) — one notification      |
-| `delete_pending_pr_review`         | write | Discard a pending review without submitting                                                          |
-| `add_pr_review_comment_reply`      | write | Reply to an existing PR review comment thread (by `comment_id`)                                      |
-| `update_pr_review_comment`         | write | Edit a submitted inline review comment's body (by `comment_id`)                                      |
-| `delete_pr_review_comment`         | write | Delete a submitted inline review comment (destructive; replies in the same thread are not affected)  |
-| `resolve_review_thread`            | write | Mark a PR review thread resolved (GraphQL; thread node ID)                                           |
-| `unresolve_review_thread`          | write | Re-open a resolved PR review thread (GraphQL; thread node ID)                                        |
-| `create_issue`                     | write | Title + body + labels + assignees                                                                    |
-| `update_issue`                     | write | Edit title / body / state / labels / assignees / milestone (labels and assignees replace)            |
-| `add_labels`                       | write | Append labels to an issue or PR without restating the existing set                                   |
-| `remove_label`                     | write | Remove a single label from an issue or PR                                                            |
-| `create_label`                     | write | Create a label definition in the repo (name + optional colour / description)                         |
-| `update_label`                     | write | Rename a label definition and / or change its colour / description                                   |
-| `delete_label`                     | write | Delete a label definition from the repo (removes it everywhere it is applied; destructive)           |
-| `clone_labels`                     | write | Copy label definitions from another repo (skips existing names, or `overwrite` to update them)       |
-| `add_assignees`                    | write | Append assignees to an issue or PR without restating the existing set                                |
-| `remove_assignees`                 | write | Remove specific assignees from an issue or PR                                                        |
-| `add_comment`                      | write | Comment on an issue or PR                                                                            |
-| `upload_attachment`                | write | Upload an image / video and return a `user-attachments` URL to embed (no archives; cannot be undone) |
-| `update_issue_comment`             | write | Edit a conversation comment's body on an issue or PR (by `comment_id`)                               |
-| `delete_issue_comment`             | write | Delete a conversation comment from an issue or PR (destructive)                                      |
-| `pin_issue`                        | write | Pin an issue to the top of the repo's issue list (GraphQL; max three pinned per repo)                |
-| `unpin_issue`                      | write | Unpin a pinned issue (GraphQL)                                                                       |
-| `lock_issue`                       | write | Lock an issue / PR conversation (optional reason: off-topic / too heated / resolved / spam)          |
-| `unlock_issue`                     | write | Unlock a previously locked issue / PR conversation                                                   |
-| `transfer_issue`                   | write | Transfer an issue to another repo of the same owner (permanent move; GraphQL)                        |
-| `delete_issue`                     | write | Permanently delete an issue (destructive, no restoration window; requires admin; GraphQL)            |
-| `develop_issue`                    | write | Create a branch linked to an issue (GraphQL `createLinkedBranch`; optional name / base ref)          |
+| Tool                                 | Kind  | Purpose                                                                                              |
+| ------------------------------------ | ----- | ---------------------------------------------------------------------------------------------------- |
+| `list_my_repos`                      | read  | Authenticated user's repositories, with visibility / sort options                                    |
+| `get_repo`                           | read  | Repo metadata (default branch, visibility, flags, stars, language, timestamps)                       |
+| `get_authenticated_user`             | read  | Identity bound to the current OAuth token (login, profile, repo counts)                              |
+| `search_repositories`                | read  | Cross-GitHub repo search (uses GitHub search qualifiers like `org:`, `user:<login>`, `stars:>N`)     |
+| `create_repository`                  | write | Create a repo for the authenticated user (or an `org`) — visibility, auto-init, gitignore/license    |
+| `fork_repository`                    | write | Fork `owner/repo` to the authenticated user (or an `organization`); optional default-branch-only     |
+| `delete_repository`                  | write | Permanently delete `owner/repo` (destructive; GitHub keeps a 90-day restoration window for orgs)     |
+| `search_issues`                      | read  | Issue / PR search inside a specific repo                                                             |
+| `get_issue`                          | read  | Single issue / PR detail (title, body, state, labels, assignees, milestone)                          |
+| `list_issue_comments`                | read  | Conversation comments on an issue or PR (renders the `comment_id` for edit / delete)                 |
+| `list_linked_branches`               | read  | Branches linked to an issue via the development sidebar (companion read for `develop_issue`)         |
+| `list_labels`                        | read  | Labels defined in the repo (companion read for `add_labels` / `update_issue`)                        |
+| `get_file_content`                   | read  | Raw file contents at a path + ref (directory listings supported)                                     |
+| `list_commits`                       | read  | Commit history (git log) filtered by branch / path / author / date window                            |
+| `get_commit`                         | read  | Single commit detail — message, author, parents, per-file stats, diff                                |
+| `compare_commits`                    | read  | Diff between two refs (ahead / behind counts, merge base, per-file stats, diff)                      |
+| `get_pr_diff`                        | read  | Unified diff for a pull request                                                                      |
+| `get_pull_request`                   | read  | Full PR detail — state, mergeable state, head/base SHAs, reviewers, commit/diff counts               |
+| `get_pull_request_files`             | read  | Files changed in a PR — status, additions/deletions, truncated patch snippet per file                |
+| `get_pull_request_status`            | read  | Combined merge-readiness — Actions check-runs + legacy commit statuses, in one call                  |
+| `list_pr_reviews`                    | read  | Submitted reviews — state (APPROVED / CHANGES_REQUESTED / …), reviewer, summary body, submitted_at   |
+| `list_pr_review_threads`             | read  | PR review threads with node IDs (`PRRT_…`) + resolved state (companion read for resolve/unresolve)   |
+| `list_pr_review_thread_comments`     | read  | All comments (root + replies) in one review thread — surfaces reply `databaseId` for update/delete   |
+| `search_code`                        | read  | Code search across GitHub                                                                            |
+| `search_users`                       | read  | Cross-GitHub user search (`type:user` forced automatically; login + profile URL)                     |
+| `search_orgs`                        | read  | Cross-GitHub organization search (`type:org` forced automatically)                                   |
+| `search_pull_requests`               | read  | Cross-GitHub PR search (`is:pr` forced; renders state / draft / merged)                              |
+| `list_workflow_runs`                 | read  | Recent Actions workflow runs filtered by workflow / branch / event / status                          |
+| `get_workflow_run`                   | read  | Single run detail — status / conclusion, event, actor, head branch / SHA, attempt, timestamps        |
+| `list_workflow_run_jobs`             | read  | Jobs of a run with per-step status — the "what failed?" lookup                                       |
+| `list_workflows`                     | read  | Workflows defined in the repo (ID, name, state, path) — discover pipelines / find a `workflow_id`    |
+| `get_job_logs`                       | read  | Plain-text logs of a single job, tail-truncated — the "why did it fail?" lookup after the job list   |
+| `get_workflow_run_logs`              | read  | Full run log archive download URL (zip of all jobs; short-lived URL, metadata only, no download)     |
+| `list_workflow_run_artifacts`        | read  | Artifacts produced by a run (ID, name, size, expiry) — the "what did the build produce?" lookup      |
+| `get_artifact`                       | read  | Single artifact metadata + archive download URL (zip; metadata only, no download / unzip)            |
+| `rerun_workflow_run`                 | write | Re-run an entire workflow run (all jobs) — new attempt; poll `get_workflow_run` for status           |
+| `rerun_failed_jobs`                  | write | Re-run only the failed jobs of a run — new attempt; poll `get_workflow_run` for status               |
+| `cancel_workflow_run`                | write | Cancel an in-progress run (async); poll `get_workflow_run` until conclusion is `cancelled`           |
+| `trigger_workflow_dispatch`          | write | Manually dispatch a `workflow_dispatch` workflow on a ref with optional inputs                       |
+| `list_actions_secrets`               | read  | Actions secrets by name + timestamps (values are never returned by GitHub)                           |
+| `set_actions_secret`                 | write | Create / update an Actions secret — encrypted client-side (sealed box); value never echoed back      |
+| `delete_actions_secret`              | write | Delete an Actions secret by name                                                                     |
+| `list_actions_variables`             | read  | Actions variables (name, plaintext value, timestamps) — the `vars` context workflows read            |
+| `get_actions_variable`               | read  | Single Actions variable by name (value + timestamps)                                                 |
+| `set_actions_variable`               | write | Create / update an Actions variable (create-first, falls back to update on 409)                      |
+| `delete_actions_variable`            | write | Delete an Actions variable by name                                                                   |
+| `list_actions_caches`                | read  | Actions caches (ID, key, ref, size, last accessed) — find a cache to evict                           |
+| `delete_actions_cache`               | write | Delete caches by `cache_id` or by full `key` (optionally scoped to a ref)                            |
+| `enable_workflow`                    | write | Re-enable a disabled workflow so its triggers fire again                                             |
+| `disable_workflow`                   | write | Disable a workflow — its triggers stop firing until re-enabled                                       |
+| `list_releases`                      | read  | Releases newest first (ID, name, tag, draft / prerelease / published state, date, author)            |
+| `get_release`                        | read  | Single release detail + notes body — by `release_id`, by `tag`, or the latest when neither given     |
+| `list_tags`                          | read  | Git tags (name, commit SHA) — for release metadata on a tag, use `get_release` with the tag          |
+| `create_release`                     | write | Create a release (and its tag) from `tag_name` (+ name, body, draft, prerelease, generated notes)    |
+| `update_release`                     | write | Edit a release by `release_id` (rename, edit notes, publish a draft, toggle prerelease)              |
+| `delete_release`                     | write | Delete a release by `release_id` (leaves the git tag in place)                                       |
+| `list_gists`                         | read  | Authenticated user's gists newest first (ID, description, public flag, file count, updated_at)       |
+| `get_gist`                           | read  | Single gist detail — description, owner, public flag, per-file metadata + length-capped content      |
+| `list_gist_comments`                 | read  | Comments on a gist (companion read for a future comment-write tool)                                  |
+| `create_gist`                        | write | Create a gist with one or more files (description, files, public flag)                               |
+| `update_gist`                        | write | Edit a gist's description and/or add / replace / rename / delete files                               |
+| `delete_gist`                        | write | Delete a gist by `gist_id` (irreversible)                                                            |
+| `list_secret_scanning_alerts`        | read  | Secret-scanning alerts (number, state, secret type, resolution, date) — never the raw secret value   |
+| `list_code_scanning_alerts`          | read  | Code-scanning alerts (number, state, rule + severity, tool, most-recent location path:line)          |
+| `list_dependabot_alerts`             | read  | Dependabot alerts (number, state, package, severity, advisory GHSA + summary)                        |
+| `get_secret_scanning_alert`          | read  | One secret-scanning alert (type, state, resolution, timestamps) — never the raw secret value         |
+| `get_code_scanning_alert`            | read  | One code-scanning alert (rule, severity, tool, most-recent location)                                 |
+| `get_dependabot_alert`               | read  | One Dependabot alert (package, severity, GHSA, advisory summary)                                     |
+| `list_projects`                      | read  | Projects (v2) of a user / org — or the authenticated user — number, title, state, node ID (`PVT_…`)  |
+| `get_project`                        | read  | Single Project (v2) detail — visibility, state, item count, field definitions + options              |
+| `list_project_items`                 | read  | Project (v2) board items — type, title, `owner/repo#N`, Status, assignees; `include_archived` opt-in |
+| `list_project_fields`                | read  | Project (v2) field definitions — name, data type, single-select option names + IDs                   |
+| `add_project_item`                   | write | Add an existing issue / PR to a Project (v2) by its content node ID                                  |
+| `remove_project_item`                | write | Remove an item from a Project (v2) by its item node ID (`PVTI_…`)                                    |
+| `update_project_item_field`          | write | Set a Project (v2) item's field value — text / number / date / single-select option                  |
+| `create_project_draft_item`          | write | Add a draft item (title + optional body) to a Project (v2) without an underlying issue               |
+| `create_project`                     | write | Create a Project (v2) under a user / org — or the authenticated user — returns number + node ID      |
+| `update_project`                     | write | Edit a Project (v2) — title, short description, visibility, open/closed state (close / reopen)       |
+| `delete_project`                     | write | Delete a Project (v2) permanently, including draft items and field configuration (irreversible)      |
+| `copy_project`                       | write | Copy a Project (v2) — fields, views, workflows — to a new project (optionally with draft items)      |
+| `link_project_to_repository`         | write | Link a Project (v2) to a repository (shows in the repo's Projects tab)                               |
+| `unlink_project_from_repository`     | write | Unlink a Project (v2) from a repository                                                              |
+| `create_project_field`               | write | Create a custom Project (v2) field — TEXT / NUMBER / DATE / SINGLE_SELECT (with option names)        |
+| `delete_project_field`               | write | Delete a custom Project (v2) field by its field node ID (irreversible)                               |
+| `archive_project_item`               | write | Archive — or with `undo: true` restore — a Project (v2) item by its item node ID                     |
+| `list_discussions`                   | read  | Discussions in a repo, most recently updated first — optional category filter, answered state        |
+| `list_discussion_categories`         | read  | Discussion categories (name, slug, answerable flag, node ID — the `category_id` for filtering)       |
+| `get_discussion`                     | read  | Single discussion detail — title, body, author, category, answered state, counts, timestamps         |
+| `get_discussion_comments`            | read  | Top-level comments on a discussion — author, accepted-answer marker, reply count, body preview       |
+| `list_branches`                      | read  | List branches in a repo (name, head SHA, protected flag)                                             |
+| `create_branch`                      | write | Branch from a base (or the repo's default)                                                           |
+| `delete_branch`                      | write | Delete a branch (default branch refused)                                                             |
+| `commit_file`                        | write | Create or update a single file on a branch in one commit                                             |
+| `commit_files`                       | write | Create or update multiple files on a branch in one commit (Tree API, per-file mode / encoding)       |
+| `delete_file`                        | write | Delete a single file on a branch in one commit (auto-SHA lookup like `commit_file`)                  |
+| `create_pull_request`                | write | Open a PR (same-repo `head` by default; `cross_repo_head` for fork PRs)                              |
+| `update_pull_request`                | write | Edit a PR's title / body / state (close / reopen) / base branch                                      |
+| `mark_pull_request_ready_for_review` | write | Mark a draft PR as ready for review (GraphQL; errors if the PR is not a draft)                       |
+| `update_pull_request_branch`         | write | Update a PR's branch with its base's latest changes (mirrors the "Update branch" button)             |
+| `merge_pull_request`                 | write | Merge a PR (merge / squash / rebase; optional commit message and `sha` concurrency guard)            |
+| `request_pr_review`                  | write | Request reviewers (users and/or teams) on a PR                                                       |
+| `create_pr_review`                   | write | Submit a review (APPROVE / REQUEST_CHANGES / COMMENT) with optional body + batched inline comments   |
+| `create_pending_pr_review`           | write | Open a pending (draft) review — no event, no notification; seed optional inline comments             |
+| `add_comment_to_pending_pr_review`   | write | Append one inline thread to a pending review (GraphQL `addPullRequestReviewThread`)                  |
+| `submit_pending_pr_review`           | write | Submit a pending review with a verdict (APPROVE / REQUEST_CHANGES / COMMENT) — one notification      |
+| `delete_pending_pr_review`           | write | Discard a pending review without submitting                                                          |
+| `add_pr_review_comment_reply`        | write | Reply to an existing PR review comment thread (by `comment_id`)                                      |
+| `update_pr_review_comment`           | write | Edit a submitted inline review comment's body (by `comment_id`)                                      |
+| `delete_pr_review_comment`           | write | Delete a submitted inline review comment (destructive; replies in the same thread are not affected)  |
+| `resolve_review_thread`              | write | Mark a PR review thread resolved (GraphQL; thread node ID)                                           |
+| `unresolve_review_thread`            | write | Re-open a resolved PR review thread (GraphQL; thread node ID)                                        |
+| `create_issue`                       | write | Title + body + labels + assignees                                                                    |
+| `update_issue`                       | write | Edit title / body / state / labels / assignees / milestone (labels and assignees replace)            |
+| `add_labels`                         | write | Append labels to an issue or PR without restating the existing set                                   |
+| `remove_label`                       | write | Remove a single label from an issue or PR                                                            |
+| `create_label`                       | write | Create a label definition in the repo (name + optional colour / description)                         |
+| `update_label`                       | write | Rename a label definition and / or change its colour / description                                   |
+| `delete_label`                       | write | Delete a label definition from the repo (removes it everywhere it is applied; destructive)           |
+| `clone_labels`                       | write | Copy label definitions from another repo (skips existing names, or `overwrite` to update them)       |
+| `add_assignees`                      | write | Append assignees to an issue or PR without restating the existing set                                |
+| `remove_assignees`                   | write | Remove specific assignees from an issue or PR                                                        |
+| `add_comment`                        | write | Comment on an issue or PR                                                                            |
+| `upload_attachment`                  | write | Upload an image / video and return a `user-attachments` URL to embed (no archives; cannot be undone) |
+| `update_issue_comment`               | write | Edit a conversation comment's body on an issue or PR (by `comment_id`)                               |
+| `delete_issue_comment`               | write | Delete a conversation comment from an issue or PR (destructive)                                      |
+| `pin_issue`                          | write | Pin an issue to the top of the repo's issue list (GraphQL; max three pinned per repo)                |
+| `unpin_issue`                        | write | Unpin a pinned issue (GraphQL)                                                                       |
+| `lock_conversation`                  | write | Lock an issue / PR conversation (optional reason: off-topic / too heated / resolved / spam)          |
+| `unlock_conversation`                | write | Unlock a previously locked issue / PR conversation                                                   |
+| `transfer_issue`                     | write | Transfer an issue to another repo of the same owner (permanent move; GraphQL)                        |
+| `delete_issue`                       | write | Permanently delete an issue (destructive, no restoration window; requires admin; GraphQL)            |
+| `develop_issue`                      | write | Create a branch linked to an issue (GraphQL `createLinkedBranch`; optional name / base ref)          |
 
 Both `/mcp` (Streamable HTTP) and `/sse` endpoints are exposed; Claude.ai currently uses `/sse`; which of the two transports it lands on depends on whether it tries `POST /sse` first.
 

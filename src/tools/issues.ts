@@ -761,10 +761,10 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 	);
 
 	server.registerTool(
-		"lock_issue",
+		"lock_conversation",
 		{
 			description:
-				"Lock an issue or pull request's conversation so only collaborators can comment (PRs share the same endpoint). Use when the user asks to lock, freeze, or restrict a discussion — optionally with a reason shown on the timeline. Returns a confirmation.",
+				"Lock an issue or pull request conversation so only collaborators can comment (works on both; pass the PR number for a PR). Use when the user asks to lock, freeze, or restrict a discussion — optionally with a reason shown on the timeline. Returns a confirmation.",
 			inputSchema: {
 				...RepoTarget,
 				issue_number: z.number().int().positive().describe("Issue or PR number to lock."),
@@ -780,7 +780,9 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 					stripUndefined({ owner, repo, issue_number, lock_reason }),
 				);
 				logRateLimit(headers);
-				logWrite(stripUndefined({ tool: "lock_issue", owner, repo, issue_number, lock_reason }));
+				logWrite(
+					stripUndefined({ tool: "lock_conversation", owner, repo, issue_number, lock_reason }),
+				);
 				return text(
 					`# Conversation locked\n\n- ${owner}/${repo}#${issue_number} locked${lock_reason != null ? ` (${lock_reason})` : ""}`,
 				);
@@ -788,10 +790,10 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 	);
 
 	server.registerTool(
-		"unlock_issue",
+		"unlock_conversation",
 		{
 			description:
-				"Unlock a previously locked issue or pull request conversation so anyone can comment again (PRs share the same endpoint). Use when the user asks to unlock or reopen a discussion. Returns a confirmation.",
+				"Unlock a previously locked issue or pull request conversation so anyone can comment again (works on both; pass the PR number for a PR). Use when the user asks to unlock or reopen a discussion. Returns a confirmation.",
 			inputSchema: {
 				...RepoTarget,
 				issue_number: z.number().int().positive().describe("Issue or PR number to unlock."),
@@ -801,7 +803,7 @@ export const registerIssueTools = (server: McpServer, client: OctokitFactory): v
 			wrapTool(async () => {
 				const { headers } = await client().rest.issues.unlock({ owner, repo, issue_number });
 				logRateLimit(headers);
-				logWrite({ tool: "unlock_issue", owner, repo, issue_number });
+				logWrite({ tool: "unlock_conversation", owner, repo, issue_number });
 				return text(`# Conversation unlocked\n\n- ${owner}/${repo}#${issue_number} unlocked`);
 			}),
 	);

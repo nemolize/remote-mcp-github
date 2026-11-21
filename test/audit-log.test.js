@@ -331,7 +331,7 @@ const wideOctokit = () => {
 				create: ok({ number: 7, title: "t", draft: false, html_url: "https://x" }),
 				requestReviewers: ok({ requested_reviewers: [{ login: "a" }], requested_teams: [] }),
 				updateBranch: ok({ message: "Updating branch." }),
-				get: ok({ head: { sha: "deadbeef" } }),
+				get: ok({ head: { sha: "deadbeef" }, draft: true, state: "open", node_id: "PR_node_1" }),
 				getReview: ok({ node_id: "PRR_node_42", state: "PENDING" }),
 				createReview: ok({
 					id: 42,
@@ -392,6 +392,13 @@ const wideOctokit = () => {
 		// The GraphQL-backed tools share one function, so dispatch on the query
 		// text: project writes resolve the project first, then mutate.
 		graphql: async (query) => {
+			if (query.includes("markPullRequestReadyForReview(")) {
+				return {
+					markPullRequestReadyForReview: {
+						pullRequest: { number: 1, isDraft: false, url: "https://x" },
+					},
+				};
+			}
 			if (query.includes("createProjectV2(")) {
 				return {
 					createProjectV2: {
@@ -593,11 +600,11 @@ const WRITE_TOOLS = [
 	[registerIssueTools, "unpin_issue", { owner: "o", repo: "r", issue_number: 1 }],
 	[
 		registerIssueTools,
-		"lock_issue",
+		"lock_conversation",
 		{ owner: "o", repo: "r", issue_number: 1, lock_reason: "resolved" },
 		{ owner: "o", repo: "r", issue_number: 1, lock_reason: "resolved" },
 	],
-	[registerIssueTools, "unlock_issue", { owner: "o", repo: "r", issue_number: 1 }],
+	[registerIssueTools, "unlock_conversation", { owner: "o", repo: "r", issue_number: 1 }],
 	[
 		registerIssueTools,
 		"transfer_issue",
@@ -645,6 +652,11 @@ const WRITE_TOOLS = [
 		{ owner: "o", repo: "r", pull_number: 1, reviewers: ["a"] },
 	],
 	[registerPullTools, "update_pull_request_branch", { owner: "o", repo: "r", pull_number: 1 }],
+	[
+		registerPullTools,
+		"mark_pull_request_ready_for_review",
+		{ owner: "o", repo: "r", pull_number: 1 },
+	],
 	[
 		registerPullTools,
 		"create_pending_pr_review",

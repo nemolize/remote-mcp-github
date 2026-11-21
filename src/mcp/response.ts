@@ -178,7 +178,7 @@ export type WriteAuditFields = {
 	branch?: string;
 	path?: string;
 	issue_number?: number;
-	lock_reason?: string; // lock_issue
+	lock_reason?: string; // lock_conversation
 	new_repository_owner?: string; // transfer_issue (destination)
 	new_repository_name?: string; // transfer_issue (destination)
 	branch_name?: string; // develop_issue (the created linked branch)
