@@ -12,6 +12,7 @@ import { registerFileTools } from "./tools/files.js";
 import { registerGistTools } from "./tools/gists.js";
 import { registerIssueTools } from "./tools/issues.js";
 import { registerLabelTools } from "./tools/labels.js";
+import { registerNotificationTools } from "./tools/notifications.js";
 import { registerProjectTools } from "./tools/projects.js";
 import { registerPullTools } from "./tools/pulls.js";
 import { registerReleaseAssetTools } from "./tools/release-assets.js";
@@ -54,4 +55,5 @@ export const registerTools = (server: McpServer, client: OctokitFactory): void =
 	registerAttachmentTools(server, client);
 	registerCopilotTools(server, client);
 	registerSubIssueTools(server, client);
+	registerNotificationTools(server, client);
 };

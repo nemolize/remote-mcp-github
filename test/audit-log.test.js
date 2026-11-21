@@ -10,6 +10,7 @@ import { registerFileTools } from "../src/tools/files.js";
 import { registerGistTools } from "../src/tools/gists.js";
 import { registerIssueTools } from "../src/tools/issues.js";
 import { registerLabelTools } from "../src/tools/labels.js";
+import { registerNotificationTools } from "../src/tools/notifications.js";
 import { registerProjectTools } from "../src/tools/projects.js";
 import { registerPullTools } from "../src/tools/pulls.js";
 import { registerReleaseAssetTools } from "../src/tools/release-assets.js";
@@ -479,6 +480,13 @@ const wideOctokit = () => {
 				createOrUpdateRepoSecret: async () => ({ data: {}, headers: {}, status: 201 }),
 				deleteRepoSecret: ok({}),
 			},
+			activity: {
+				markNotificationsAsRead: ok(undefined),
+				markRepoNotificationsAsRead: ok(undefined),
+				markThreadAsRead: ok(undefined),
+				setThreadSubscription: ok({ subscribed: true, ignored: false }),
+				deleteThreadSubscription: ok(undefined),
+			},
 			gists: {
 				create: ok({
 					id: "g1",
@@ -927,6 +935,31 @@ const WRITE_TOOLS = [
 		"delete_deploy_key",
 		{ owner: "o", repo: "r", key_id: 5 },
 		{ owner: "o", repo: "r", deploy_key_id: 5 },
+	],
+	[registerNotificationTools, "mark_notifications_read", {}, {}],
+	[
+		registerNotificationTools,
+		"mark_notifications_read",
+		{ owner: "o", repo: "r", last_read_at: "2026-01-01T00:00:00Z" },
+		{ owner: "o", repo: "r", last_read_at: "2026-01-01T00:00:00Z" },
+	],
+	[
+		registerNotificationTools,
+		"mark_thread_read",
+		{ thread_id: "7" },
+		{ notification_thread_id: "7" },
+	],
+	[
+		registerNotificationTools,
+		"set_thread_subscription",
+		{ thread_id: "7", action: "ignore" },
+		{ notification_thread_id: "7", action: "ignore" },
+	],
+	[
+		registerNotificationTools,
+		"set_thread_subscription",
+		{ thread_id: "7", action: "unsubscribe" },
+		{ notification_thread_id: "7", action: "unsubscribe" },
 	],
 	[
 		registerRepoAutolinkTools,
