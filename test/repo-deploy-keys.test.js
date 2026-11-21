@@ -51,8 +51,34 @@ describe("list_deploy_keys", () => {
 		expect(body).toContain("# Deploy keys of o/r (2)");
 		expect(body).toContain("`1` **ci** — read-only, verified");
 		expect(body).toContain("`2` **rw** — read/write, unverified");
-		expect(body).toContain("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExa…");
-		expect(body).not.toContain("ExampleExampleExampleExample");
+		expect(body).toContain("`ssh-ed25519 …leExampleExample`");
+		expect(body).not.toContain("AAAAC3NzaC1lZDI1NTE5");
+	});
+
+	it("tells same-type keys apart by the end of the key, and marks a disabled one", async () => {
+		const header = "AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBB";
+		const handlers = setup({
+			listDeployKeys: async () => ({
+				data: [
+					key({ id: 1, key: `ecdsa-sha2-nistp256 ${header}FirstKeyTailAAAA1111 me@host` }),
+					key({
+						id: 2,
+						key: `ecdsa-sha2-nistp256 ${header}SecondKeyTailBBBB2222`,
+						enabled: false,
+					}),
+				],
+				headers: {},
+			}),
+		});
+		const body = (
+			await invoke(handlers, "list_deploy_keys", { owner: "o", repo: "r", per_page: 30 })
+		).content[0].text;
+		expect(body).toContain("`ecdsa-sha2-nistp256 …tKeyTailAAAA1111`");
+		expect(body).toContain("`ecdsa-sha2-nistp256 …dKeyTailBBBB2222`");
+		expect(body).not.toContain("me@host");
+		const [first, second] = body.split("\n").filter((l) => l.startsWith("- "));
+		expect(first).not.toContain("disabled");
+		expect(second).toContain("verified, disabled, added");
 	});
 
 	it("says so when there are no keys, on the first and a later page", async () => {

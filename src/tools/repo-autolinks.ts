@@ -1,9 +1,16 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
+import {
+	logRateLimit,
+	logWrite,
+	restListHeader,
+	text,
+	truncate,
+	wrapTool,
+} from "../mcp/response.js";
 import type { OctokitFactory } from "./common.js";
-import { RepoTarget } from "./common.js";
+import { RepoTarget, REST_PAGINATION } from "./common.js";
 
 type Autolink = {
 	id: number;
@@ -22,25 +29,29 @@ const AutolinkId = z
 	.describe("Autolink ID (the `id` from `list_autolinks`).");
 
 export const registerRepoAutolinkTools = (server: McpServer, client: OctokitFactory): void => {
-	// GitHub documents no `page` / `per_page` for this endpoint, so the list is one
-	// response; `truncate` bounds it and keeps the count line first.
+	// GitHub documents no `page` / `per_page` for this endpoint, so paging is done here.
 	server.registerTool(
 		"list_autolinks",
 		{
 			description:
-				"List a repository's custom autolink references (`gh repo autolink list`): one line per autolink with its ID, key prefix, URL template and whether it matches alphanumeric or numeric references. Requires admin rights on the repo and the `repo` OAuth scope.",
-			inputSchema: { ...RepoTarget },
+				"List a repository's custom autolink references (`gh repo autolink list`): one line per autolink with its ID, key prefix, URL template and whether it matches alphanumeric or numeric references. Pages through the list with `per_page` / `page`. Requires admin rights on the repo and the `repo` OAuth scope.",
+			inputSchema: { ...RepoTarget, ...REST_PAGINATION },
 		},
-		async ({ owner, repo }) =>
+		async ({ owner, repo, per_page, page }) =>
 			wrapTool(async () => {
 				const { data, headers } = await client().rest.repos.listAutolinks({ owner, repo });
 				logRateLimit(headers);
 				if (data.length === 0) return text("(no autolinks found)");
-				return text(
-					truncate(
-						`# Autolinks of ${owner}/${repo} (${data.length})\n\n${data.map(autolinkLine).join("\n")}`,
-					),
-				);
+				const start = ((page ?? 1) - 1) * per_page;
+				const shown = data.slice(start, start + per_page);
+				if (shown.length === 0) return text("(no autolinks on this page)");
+				const header = restListHeader({
+					title: `Autolinks of ${owner}/${repo}`,
+					count: shown.length,
+					page,
+					hasMore: start + per_page < data.length,
+				});
+				return text(truncate(`${header}\n\n${shown.map(autolinkLine).join("\n")}`));
 			}),
 	);
 

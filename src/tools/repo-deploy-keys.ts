@@ -11,9 +11,9 @@ import {
 } from "../mcp/response.js";
 import { stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
-import { RepoTarget } from "./common.js";
+import { RepoTarget, REST_PAGINATION } from "./common.js";
 
-const KEY_PREVIEW_CHARS = 40;
+const KEY_TAIL_CHARS = 16;
 
 type DeployKey = {
 	id: number;
@@ -22,29 +22,27 @@ type DeployKey = {
 	read_only: boolean;
 	verified: boolean;
 	created_at: string;
+	enabled?: boolean | undefined;
 };
 
-const keyPreview = (key: string): string =>
-	key.length > KEY_PREVIEW_CHARS ? `${key.slice(0, KEY_PREVIEW_CHARS)}…` : key;
+const keyPreview = (key: string): string => {
+	const [type, blob] = key.trim().split(/\s+/);
+	if (type == null || blob == null) return key;
+	return `${type} …${blob.slice(-KEY_TAIL_CHARS)}`;
+};
 
 const keyLine = (k: DeployKey): string =>
-	`- \`${k.id}\` **${k.title}** — ${k.read_only ? "read-only" : "read/write"}, ${k.verified ? "verified" : "unverified"}, added ${k.created_at}, \`${keyPreview(k.key)}\``;
+	`- \`${k.id}\` **${k.title}** — ${k.read_only ? "read-only" : "read/write"}, ${k.verified ? "verified" : "unverified"}${k.enabled === false ? ", disabled" : ""}, added ${k.created_at}, \`${keyPreview(k.key)}\``;
 
 export const registerRepoDeployKeyTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
 		"list_deploy_keys",
 		{
 			description:
-				"List a repository's deploy keys (`gh repo deploy-key list`): one line per key with its ID, title, access level, verified state, creation date and the start of the public key. Use the `id` with `delete_deploy_key`. Requires admin rights on the repo and the `repo` OAuth scope.",
+				"List a repository's deploy keys (`gh repo deploy-key list`): one line per key with its ID, title, access level, verified state, creation date (plus `disabled` when GitHub has disabled the key) and the end of the public key. Use the `id` with `delete_deploy_key`. Requires admin rights on the repo and the `repo` OAuth scope.",
 			inputSchema: {
 				...RepoTarget,
-				per_page: z.number().int().min(1).max(100).optional().default(30),
-				page: z
-					.number()
-					.int()
-					.min(1)
-					.optional()
-					.describe("Page number (1-indexed). Defaults to 1."),
+				...REST_PAGINATION,
 			},
 		},
 		async ({ owner, repo, per_page, page }) =>

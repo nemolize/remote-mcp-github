@@ -42,8 +42,8 @@ describe("list_autolinks", () => {
 				headers: {},
 			}),
 		});
-		const body = (await invoke(handlers, "list_autolinks", { owner: "o", repo: "r" })).content[0]
-			.text;
+		const body = (await invoke(handlers, "list_autolinks", { owner: "o", repo: "r", per_page: 30 }))
+			.content[0].text;
 		expect(body).toContain("# Autolinks of o/r (2)");
 		expect(body).toContain("`1` `TICKET-` → https://example.test/t/<num> (alphanumeric)");
 		expect(body).toContain("`2` `N-` → https://example.test/t/<num> (numeric)");
@@ -51,24 +51,39 @@ describe("list_autolinks", () => {
 
 	it("says so when there are none", async () => {
 		const handlers = setup({ listAutolinks: async () => ({ data: [], headers: {} }) });
-		const result = await invoke(handlers, "list_autolinks", { owner: "o", repo: "r" });
+		const result = await invoke(handlers, "list_autolinks", {
+			owner: "o",
+			repo: "r",
+			per_page: 30,
+		});
 		expect(result.content[0].text).toBe("(no autolinks found)");
 	});
 
-	it("keeps the count line first when the list exceeds the response cap", async () => {
-		const many = Array.from({ length: 300 }, (_, i) =>
-			autolink({
-				id: i + 1,
-				key_prefix: `P${i}-`,
-				url_template: `https://example.test/${i}/<num>`,
-			}),
-		);
+	it("pages through the list locally, so every id is reachable", async () => {
+		const many = Array.from({ length: 250 }, (_, i) => autolink({ id: i + 1 }));
 		const handlers = setup({ listAutolinks: async () => ({ data: many, headers: {} }) });
-		const body = (await invoke(handlers, "list_autolinks", { owner: "o", repo: "r" })).content[0]
-			.text;
-		expect(body.length).toBeLessThanOrEqual(MAX_RESPONSE_CHARS);
-		expect(body.startsWith("# Autolinks of o/r (300)")).toBe(true);
-		expect(body).toContain("truncated");
+		const ids = [];
+		for (let page = 1; page <= 3; page++) {
+			const body = (
+				await invoke(handlers, "list_autolinks", { owner: "o", repo: "r", per_page: 100, page })
+			).content[0].text;
+			expect(body.length).toBeLessThanOrEqual(MAX_RESPONSE_CHARS);
+			expect(body).not.toContain("truncated");
+			expect(body.includes("more available")).toBe(page < 3);
+			for (const [, id] of body.matchAll(/^- `(\d+)`/gm)) ids.push(Number(id));
+		}
+		expect(ids).toEqual(many.map((a) => a.id));
+	});
+
+	it("says so for a page past the end", async () => {
+		const handlers = setup({ listAutolinks: async () => ({ data: [autolink()], headers: {} }) });
+		const result = await invoke(handlers, "list_autolinks", {
+			owner: "o",
+			repo: "r",
+			per_page: 30,
+			page: 2,
+		});
+		expect(result.content[0].text).toBe("(no autolinks on this page)");
 	});
 
 	it("surfaces a GitHub error", async () => {
@@ -77,7 +92,11 @@ describe("list_autolinks", () => {
 				throw httpError("Forbidden", 403);
 			},
 		});
-		const result = await invoke(handlers, "list_autolinks", { owner: "o", repo: "r" });
+		const result = await invoke(handlers, "list_autolinks", {
+			owner: "o",
+			repo: "r",
+			per_page: 30,
+		});
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("HTTP 403");
 	});
