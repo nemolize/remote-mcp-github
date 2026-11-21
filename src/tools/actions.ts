@@ -328,6 +328,108 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 	);
 
 	server.registerTool(
+		"get_workflow_run_usage",
+		{
+			description:
+				"Get the billable usage of a workflow run: total run duration plus, per runner OS (Ubuntu / macOS / Windows), the billable milliseconds and job count. Use for CI cost investigation ('how much did this run cost?'). Read-only. Self-hosted runners are not billed and do not appear; GitHub may report no billable usage for a run on a public repository.",
+			inputSchema: {
+				...RepoTarget,
+				run_id: z.number().int().positive().describe("Workflow run ID."),
+			},
+		},
+		async ({ owner, repo, run_id }) =>
+			wrapTool(async () => {
+				const { data, headers } = await client().rest.actions.getWorkflowRunUsage({
+					owner,
+					repo,
+					run_id,
+				});
+				logRateLimit(headers);
+				const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
+				const lines = [`# Usage for run ${run_id} in ${owner}/${repo}`, ""];
+				if (data.run_duration_ms != null) {
+					lines.push(
+						`- run duration: ${seconds(data.run_duration_ms)} (${data.run_duration_ms} ms)`,
+					);
+				}
+				const perOs = Object.entries(data.billable ?? {}).filter(([, usage]) => usage != null);
+				if (perOs.length === 0) {
+					lines.push("- (no billable usage)");
+				} else {
+					for (const [os, usage] of perOs) {
+						lines.push(
+							`- **${os}**: ${seconds(usage.total_ms)} billable (${usage.total_ms} ms) across ${usage.jobs} job${usage.jobs === 1 ? "" : "s"}`,
+						);
+					}
+				}
+				return text(truncate(lines.join("\n")));
+			}),
+	);
+
+	server.registerTool(
+		"delete_workflow_run_logs",
+		{
+			description:
+				"Delete the log archive of a completed workflow run (retention hygiene — the logs cannot be recovered afterwards). Use when the user asks to purge a run's logs. Mutates CI state and is irreversible. A run still in progress returns 403 / 409; logs already deleted return 404 / 410.",
+			inputSchema: {
+				...RepoTarget,
+				run_id: z.number().int().positive().describe("Workflow run ID whose logs to delete."),
+			},
+		},
+		async ({ owner, repo, run_id }) =>
+			wrapTool(async () => {
+				const { headers } = await client().rest.actions.deleteWorkflowRunLogs({
+					owner,
+					repo,
+					run_id,
+				});
+				logRateLimit(headers);
+				logWrite({ tool: "delete_workflow_run_logs", owner, repo, run_id });
+				return text(
+					`# Logs deleted\n\n- the log archive of run \`${run_id}\` in ${owner}/${repo} was deleted\n- \`get_job_logs\` and \`get_workflow_run_logs\` will no longer return its logs`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"download_workflow_run_artifact",
+		{
+			description:
+				"Resolve the direct download URL of a workflow-run artifact by ID (a zip archive). Use when the user wants the artifact as a file; get the ID from `list_workflow_run_artifacts`. The URL is a pre-signed storage link, so it is short-lived (expires within minutes) and fetching it needs no authentication (unlike `get_artifact`'s `archive_download_url`, which is an authenticated API endpoint). Returns the URL only and never downloads or unpacks the zip. An expired artifact returns 410 Gone.",
+			inputSchema: {
+				...RepoTarget,
+				artifact_id: z
+					.number()
+					.int()
+					.positive()
+					.describe("Artifact ID (from `list_workflow_run_artifacts`)."),
+			},
+		},
+		async ({ owner, repo, artifact_id }) =>
+			wrapTool(async () => {
+				const { headers } = await client().request(
+					"GET /repos/{owner}/{repo}/actions/artifacts/{artifact_id}/{archive_format}",
+					{ owner, repo, artifact_id, archive_format: "zip", request: { redirect: "manual" } },
+				);
+				logRateLimit(headers);
+				const url = headers.location;
+				if (url == null || url.length === 0) {
+					return text(`(no download URL returned for artifact ${artifact_id})`);
+				}
+				const lines = [
+					`# Download for artifact ${artifact_id} in ${owner}/${repo}`,
+					"",
+					"> Artifact archive (zip).",
+					"",
+					"- the download URL below is short-lived (expires within minutes) and needs no authentication",
+					"- for the artifact's metadata (name, size, expiry), use `get_artifact`",
+					`- download (zip): ${url}`,
+				];
+				return text(truncate(lines.join("\n")));
+			}),
+	);
+
+	server.registerTool(
 		"list_workflow_run_artifacts",
 		{
 			description:
