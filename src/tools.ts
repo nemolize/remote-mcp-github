@@ -16,6 +16,7 @@ import { registerProjectTools } from "./tools/projects.js";
 import { registerPullTools } from "./tools/pulls.js";
 import { registerReleaseAssetTools } from "./tools/release-assets.js";
 import { registerReleaseTools } from "./tools/releases.js";
+import { registerRepoConfigTools } from "./tools/repo-config.js";
 import { registerRepoSecretTools } from "./tools/repo-secrets.js";
 import { registerRepoTools } from "./tools/repos.js";
 import { registerRulesetTools } from "./tools/rulesets.js";
@@ -28,6 +29,7 @@ import { registerSubIssueTools } from "./tools/sub-issues.js";
 // docs/decisions/0003-tool-output-shape-list-vs-detail.md.
 export const registerTools = (server: McpServer, client: OctokitFactory): void => {
 	registerRepoTools(server, client);
+	registerRepoConfigTools(server, client);
 	registerCommitTools(server, client);
 	registerIssueTools(server, client);
 	registerLabelTools(server, client);

@@ -19,7 +19,7 @@ import { searchHeader } from "./search-helpers.js";
  * the field selection of `get_repo` but keyed off a heading rather than the full
  * `# full_name` block, since these are confirmation outputs for a write.
  */
-const renderRepoSummary = (
+export const renderRepoSummary = (
 	heading: string,
 	data: {
 		full_name: string;

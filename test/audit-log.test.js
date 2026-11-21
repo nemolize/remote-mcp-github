@@ -13,6 +13,7 @@ import { registerLabelTools } from "../src/tools/labels.js";
 import { registerProjectTools } from "../src/tools/projects.js";
 import { registerPullTools } from "../src/tools/pulls.js";
 import { registerReleaseAssetTools } from "../src/tools/release-assets.js";
+import { registerRepoConfigTools } from "../src/tools/repo-config.js";
 import { registerRepoSecretTools } from "../src/tools/repo-secrets.js";
 import { registerRepoTools } from "../src/tools/repos.js";
 import { registerSubIssueTools } from "../src/tools/sub-issues.js";
@@ -322,6 +323,13 @@ const wideOctokit = () => {
 		rest: {
 			repos: {
 				get: ok({ default_branch: "main", id: 1 }),
+				update: ok({
+					full_name: "o/r",
+					private: false,
+					html_url: "https://x/o/r",
+					archived: false,
+				}),
+				mergeUpstream: ok({ base_branch: "main", merge_type: "fast-forward", message: "ok" }),
 				uploadReleaseAsset: ok({
 					id: 77,
 					name: "a.zip",
@@ -885,6 +893,11 @@ const WRITE_TOOLS = [
 	[registerRepoTools, "create_repository", { name: "r" }],
 	[registerRepoTools, "fork_repository", { owner: "o", repo: "r" }],
 	[registerRepoTools, "delete_repository", { owner: "o", repo: "r" }],
+	[registerRepoConfigTools, "update_repository", { owner: "o", repo: "r", description: "d" }],
+	[registerRepoConfigTools, "rename_repository", { owner: "o", repo: "r", new_name: "n" }],
+	[registerRepoConfigTools, "archive_repository", { owner: "o", repo: "r" }],
+	[registerRepoConfigTools, "unarchive_repository", { owner: "o", repo: "r" }],
+	[registerRepoConfigTools, "sync_fork", { owner: "o", repo: "r", branch: "main" }],
 	[
 		registerAttachmentTools,
 		"upload_attachment",
