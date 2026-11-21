@@ -11,8 +11,8 @@ import {
 	truncate,
 	wrapTool,
 } from "../mcp/response.js";
-import { isHttpStatus, stripUndefined } from "../utils.js";
-import { MAX_ATTACHMENT_BYTES, MAX_BASE64_LENGTH } from "./attachments.js";
+import { isAlreadyExistsError, stripUndefined } from "../utils.js";
+import { inlineCode, MAX_ATTACHMENT_BYTES, MAX_BASE64_LENGTH } from "./attachments.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
@@ -42,16 +42,15 @@ const CONTENT_TYPES = new Map([
 const contentTypeFor = (name: string): string =>
 	CONTENT_TYPES.get(name.split(".").pop()?.toLowerCase() ?? "") ?? FALLBACK_CONTENT_TYPE;
 
-const isObject = (value: unknown): value is object => typeof value === "object" && value != null;
+const isServerError = (error: unknown): boolean =>
+	error != null &&
+	typeof error === "object" &&
+	"status" in error &&
+	typeof error.status === "number" &&
+	error.status >= 500;
 
-const prop = (value: unknown, key: string): unknown =>
-	isObject(value) && key in value ? Object.getOwnPropertyDescriptor(value, key)?.value : undefined;
-
-const hasAlreadyExistsError = (error: unknown): boolean => {
-	if (!isHttpStatus(error, 422)) return false;
-	const errors = prop(prop(error, "response"), "data");
-	const list = prop(errors, "errors");
-	return Array.isArray(list) && list.some((e: unknown) => prop(e, "code") === "already_exists");
+const discardUnreadBody = async (body: unknown): Promise<void> => {
+	if (body instanceof ReadableStream) await body.cancel();
 };
 
 export const registerReleaseAssetTools = (server: McpServer, client: OctokitFactory): void => {
@@ -103,7 +102,7 @@ export const registerReleaseAssetTools = (server: McpServer, client: OctokitFact
 	server.registerTool(
 		"upload_release_asset",
 		{
-			description: `Attach a file to an existing release (\`gh release upload\`). Use when the user asks to publish a build artifact, archive or checksum on a release; create the release first with \`create_release\` (a draft works) and pass its \`release_id\`. The file is passed as base64, up to ${MAX_ATTACHMENT_BYTES} bytes of file data — this server's transport limit, far below GitHub's own per-asset limit. A name that already exists on the release is rejected (422); this tool never overwrites or deletes. Requires repository write access. On a 502 an incomplete \`starter\` asset may remain — check \`list_release_assets\`.`,
+			description: `Attach a file to an existing release (\`gh release upload\`). Use when the user asks to publish a build artifact, archive or checksum on a release; create the release first with \`create_release\` (a draft works) and pass its \`release_id\`. The file is passed as base64, up to ${MAX_ATTACHMENT_BYTES} bytes of file data — this server's transport limit, far below GitHub's own per-asset limit. A name that already exists on the release is rejected (422); this tool never overwrites or deletes. Requires repository write access. After a server error an incomplete \`starter\` asset may remain and blocks re-uploading that name — check \`list_release_assets\` and ask the user to delete it on GitHub; do not rename the file.`,
 			inputSchema: {
 				...RepoTarget,
 				release_id: z
@@ -176,14 +175,14 @@ export const registerReleaseAssetTools = (server: McpServer, client: OctokitFact
 						request: { retries: 0 },
 					});
 				} catch (error) {
-					if (hasAlreadyExistsError(error)) {
+					if (isAlreadyExistsError(error)) {
 						return errorResult(
-							`Release ${release_id} in ${owner}/${repo} already has an asset named \`${name}\`. This tool never overwrites or deletes; pick another name.`,
+							`Release ${release_id} in ${owner}/${repo} already has an asset named ${inlineCode(name)}. This tool never overwrites or deletes. Check \`list_release_assets\`: if that asset is an incomplete \`starter\` left by an earlier failed upload, ask the user to delete it on GitHub before retrying — do not rename the file.`,
 						);
 					}
-					if (isHttpStatus(error, 502)) {
+					if (isServerError(error)) {
 						return errorResult(
-							`GitHub answered 502 while uploading \`${name}\`. The upload was not retried; an incomplete \`starter\` asset may remain — check \`list_release_assets\` for release ${release_id}.`,
+							`GitHub failed while uploading ${inlineCode(name)} (server error). The upload was not retried; an incomplete \`starter\` asset may remain — check \`list_release_assets\` for release ${release_id}, and ask the user to delete it on GitHub before retrying under the same name.`,
 						);
 					}
 					throw error;
@@ -237,9 +236,7 @@ export const registerReleaseAssetTools = (server: McpServer, client: OctokitFact
 					request: { redirect: "manual", parseSuccessResponseBody: false },
 				});
 				logRateLimit(response.headers);
-				const body: unknown = response.data;
-				const cancel = prop(body, "cancel");
-				if (typeof cancel === "function") await Reflect.apply(cancel, body, []);
+				await discardUnreadBody(response.data);
 				const url = response.headers.location;
 				if (url == null || url.length === 0) {
 					return errorResult(

@@ -181,6 +181,7 @@ describe("upload_release_asset", () => {
 		const result = await upload(handlers);
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("already has an asset named `app.zip`");
+		expect(result.content[0].text).toContain("starter");
 		expect(calls).toHaveBeenCalledTimes(1);
 		expect(auditLines(logSpy)).toHaveLength(0);
 	});
@@ -196,6 +197,27 @@ describe("upload_release_asset", () => {
 		expect(result.content[0].text).toContain("list_release_assets");
 		expect(calls).toHaveBeenCalledTimes(1);
 		expect(auditLines(logSpy)).toHaveLength(0);
+	});
+
+	it("points at list_release_assets on any 5xx, not only 502", async () => {
+		const handlers = setup({
+			uploadReleaseAsset: async () => {
+				throw httpError(503, {});
+			},
+		});
+		const result = await upload(handlers);
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("starter");
+	});
+
+	it("keeps a backtick-bearing name inside its code span in the messages", async () => {
+		const handlers = setup({
+			uploadReleaseAsset: async () => {
+				throw httpError(422, { errors: [{ code: "already_exists" }] });
+			},
+		});
+		const result = await upload(handlers, { name: "a`b.zip" });
+		expect(result.content[0].text).toContain("``a`b.zip``");
 	});
 
 	it("does not treat other 422s as a duplicate", async () => {
@@ -252,10 +274,11 @@ describe("download_release_asset", () => {
 		expect(result.isError).toBeUndefined();
 	});
 
-	it("cancels a direct 200 body without reading it and reports no URL", async () => {
-		const cancel = vi.fn(async () => {});
+	it("cancels a direct 200 body stream without reading it and reports no URL", async () => {
+		const stream = new Response("file bytes").body;
+		const cancel = vi.spyOn(stream, "cancel");
 		const handlers = setup({
-			getReleaseAsset: async () => ({ status: 200, data: { cancel }, headers: {} }),
+			getReleaseAsset: async () => ({ status: 200, data: stream, headers: {} }),
 		});
 		const result = await invoke(handlers, "download_release_asset", {
 			owner: "o",
@@ -263,6 +286,7 @@ describe("download_release_asset", () => {
 			asset_id: 77,
 		});
 		expect(cancel).toHaveBeenCalledTimes(1);
+		expect(stream.locked).toBe(false);
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("HTTP 200");
 	});

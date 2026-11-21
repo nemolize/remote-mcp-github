@@ -30,7 +30,7 @@ const escapeAltText = (name: string): string => name.replace(/[[\]\\]/g, "\\$&")
 
 // A filename containing a backtick would close a single-backtick span early;
 // CommonMark lets a longer fence carry it, as long as the body has no run that long.
-const inlineCode = (name: string): string => {
+export const inlineCode = (name: string): string => {
 	const longestRun = [...name.matchAll(/`+/g)].reduce((m, [run]) => Math.max(m, run.length), 0);
 	const fence = "`".repeat(longestRun + 1);
 	const pad = name.startsWith("`") || name.endsWith("`") ? " " : "";
