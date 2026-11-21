@@ -3,8 +3,7 @@ import { describe, expect, it } from "vitest";
 import { registerActionTools } from "../src/tools/actions.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
 
-const stubOctokit = (overrides, { request } = {}) => ({
-	request: request ?? (async () => ({ data: "", headers: {} })),
+const stubOctokit = (overrides) => ({
 	rest: {
 		actions: {
 			listWorkflowRuns: async () => ({ data: { workflow_runs: [] }, headers: {} }),
@@ -13,6 +12,8 @@ const stubOctokit = (overrides, { request } = {}) => ({
 			listJobsForWorkflowRun: async () => ({ data: { jobs: [] }, headers: {} }),
 			listRepoWorkflows: async () => ({ data: { workflows: [] }, headers: {} }),
 			downloadJobLogsForWorkflowRun: async () => ({ data: "", headers: {} }),
+			downloadWorkflowRunLogs: async () => ({ status: 302, data: "", headers: {} }),
+			downloadArtifact: async () => ({ status: 302, data: "", headers: {} }),
 			listWorkflowRunArtifacts: async () => ({ data: { artifacts: [] }, headers: {} }),
 			getArtifact: async () => ({ data: {}, headers: {} }),
 			reRunWorkflow: async () => ({ data: {}, headers: {} }),
@@ -372,19 +373,16 @@ describe("registerActionTools", () => {
 	it("get_workflow_run_logs returns the short-lived archive URL without following the redirect", async () => {
 		const { handlers, server } = captureHandlers();
 		let captured;
-		const octokit = stubOctokit(
-			{},
-			{
-				request: async (route, params) => {
-					captured = { route, params };
-					return {
-						status: 302,
-						data: "",
-						headers: { location: "https://logs.example/archive.zip?sig=abc" },
-					};
-				},
+		const octokit = stubOctokit({
+			downloadWorkflowRunLogs: async (params) => {
+				captured = params;
+				return {
+					status: 302,
+					data: "",
+					headers: { location: "https://logs.example/archive.zip?sig=abc" },
+				};
 			},
-		);
+		});
 		registerActionTools(server, () => octokit);
 
 		const result = await invoke(handlers, "get_workflow_run_logs", {
@@ -393,8 +391,7 @@ describe("registerActionTools", () => {
 			run_id: 555,
 		});
 		const body = result.content[0].text;
-		expect(captured.route).toContain("/actions/runs/{run_id}/logs");
-		expect(captured.params).toMatchObject({
+		expect(captured).toMatchObject({
 			owner: "o",
 			repo: "r",
 			run_id: 555,
@@ -408,10 +405,9 @@ describe("registerActionTools", () => {
 
 	it("get_workflow_run_logs reports when no archive URL is returned", async () => {
 		const { handlers, server } = captureHandlers();
-		const octokit = stubOctokit(
-			{},
-			{ request: async () => ({ status: 302, data: "", headers: {} }) },
-		);
+		const octokit = stubOctokit({
+			downloadWorkflowRunLogs: async () => ({ status: 302, data: "", headers: {} }),
+		});
 		registerActionTools(server, () => octokit);
 
 		const result = await invoke(handlers, "get_workflow_run_logs", {
@@ -543,19 +539,16 @@ describe("registerActionTools", () => {
 	it("download_workflow_run_artifact returns the short-lived URL without following the redirect", async () => {
 		const { handlers, server } = captureHandlers();
 		let captured;
-		const octokit = stubOctokit(
-			{},
-			{
-				request: async (route, params) => {
-					captured = { route, params };
-					return {
-						status: 302,
-						data: "",
-						headers: { location: "https://artifacts.example/a.zip?sig=xyz" },
-					};
-				},
+		const octokit = stubOctokit({
+			downloadArtifact: async (params) => {
+				captured = params;
+				return {
+					status: 302,
+					data: "",
+					headers: { location: "https://artifacts.example/a.zip?sig=xyz" },
+				};
 			},
-		);
+		});
 		registerActionTools(server, () => octokit);
 
 		const result = await invoke(handlers, "download_workflow_run_artifact", {
@@ -564,8 +557,7 @@ describe("registerActionTools", () => {
 			artifact_id: 4242,
 		});
 		const body = result.content[0].text;
-		expect(captured.route).toContain("/actions/artifacts/{artifact_id}/{archive_format}");
-		expect(captured.params).toMatchObject({
+		expect(captured).toMatchObject({
 			owner: "o",
 			repo: "r",
 			artifact_id: 4242,
@@ -580,10 +572,9 @@ describe("registerActionTools", () => {
 
 	it("download_workflow_run_artifact reports when no URL is returned", async () => {
 		const { handlers, server } = captureHandlers();
-		const octokit = stubOctokit(
-			{},
-			{ request: async () => ({ status: 302, data: "", headers: {} }) },
-		);
+		const octokit = stubOctokit({
+			downloadArtifact: async () => ({ status: 302, data: "", headers: {} }),
+		});
 		registerActionTools(server, () => octokit);
 
 		const result = await invoke(handlers, "download_workflow_run_artifact", {
@@ -596,16 +587,13 @@ describe("registerActionTools", () => {
 
 	it("download_workflow_run_artifact surfaces an expired artifact (410) via wrapTool", async () => {
 		const { handlers, server } = captureHandlers();
-		const octokit = stubOctokit(
-			{},
-			{
-				request: async () => {
-					const err = new Error("Gone");
-					err.status = 410;
-					throw err;
-				},
+		const octokit = stubOctokit({
+			downloadArtifact: async () => {
+				const err = new Error("Gone");
+				err.status = 410;
+				throw err;
 			},
-		);
+		});
 		registerActionTools(server, () => octokit);
 
 		const result = await invoke(handlers, "download_workflow_run_artifact", {
