@@ -10,7 +10,7 @@ import {
 	truncate,
 	wrapTool,
 } from "../mcp/response.js";
-import { stripUndefined } from "../utils.js";
+import { isHttpStatus, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
@@ -21,7 +21,9 @@ const ThreadId = z
 	.string()
 	.regex(/^[1-9][0-9]*$/, "thread_id must be the numeric id from a notification list.")
 	.refine((v) => Number.isSafeInteger(Number(v)), "thread_id is out of range.")
-	.describe("Notification thread id (the backticked `id` from `list_notifications`).");
+	.describe(
+		"Notification thread id (the backticked `id` from `list_notifications` or `list_repo_notifications`).",
+	);
 
 const Timestamp = (label: string) =>
 	z.iso
@@ -120,18 +122,13 @@ const subscriptionLine = (
 };
 
 const bodyHint = (thread: NotificationThread, link: SubjectLink | null): string => {
-	if (link == null) return "Open the subject on GitHub for details.";
+	if (link == null)
+		return `No issue / PR link is available; find it on github.com in ${thread.repository.full_name} by its title.`;
 	const [owner, repo] = thread.repository.full_name.split("/");
 	const target = `owner \`${owner}\`, repo \`${repo}\`, number ${link.number}`;
-	return thread.subject.type === "PullRequest"
-		? `Read the body with \`get_pull_request\` (${target}).`
-		: `Read the body with \`get_issue\` and the conversation with \`list_issue_comments\` (${target}).`;
+	const bodyTool = thread.subject.type === "PullRequest" ? "get_pull_request" : "get_issue";
+	return `Read the body with \`${bodyTool}\` and the conversation with \`list_issue_comments\` (${target}).`;
 };
-
-const statusOf = (e: unknown): number | undefined =>
-	e != null && typeof e === "object" && "status" in e && typeof e.status === "number"
-		? e.status
-		: undefined;
 
 export const registerNotificationTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(
@@ -165,7 +162,9 @@ export const registerNotificationTools = (server: McpServer, client: OctokitFact
 						page,
 						hasMore: hasNextPage(headers),
 						maxPerPage: NOTIFICATIONS_MAX_PER_PAGE,
-						emptyMessage: "(no notifications found)",
+						emptyMessage: all
+							? "(no notifications found)"
+							: "(no unread notifications found — read ones are hidden; pass `all: true` to include them)",
 					}),
 				);
 			}),
@@ -203,7 +202,9 @@ export const registerNotificationTools = (server: McpServer, client: OctokitFact
 						page,
 						hasMore: hasNextPage(headers),
 						maxPerPage: REPO_NOTIFICATIONS_MAX_PER_PAGE,
-						emptyMessage: `(no notifications found for ${owner}/${repo})`,
+						emptyMessage: all
+							? `(no notifications found for ${owner}/${repo})`
+							: `(no unread notifications found for ${owner}/${repo} — read ones are hidden; pass \`all: true\` to include them)`,
 					}),
 				);
 			}),
@@ -213,7 +214,7 @@ export const registerNotificationTools = (server: McpServer, client: OctokitFact
 		"get_notification_thread",
 		{
 			description:
-				"Get one notification thread by id: its subject (title, type, number and GitHub link), the reason, unread / last-read times and your subscription state for the thread. It does not fetch the issue / PR body or comments — it says which tool reads them (`get_issue`, `get_pull_request`, `list_issue_comments`). Get the `thread_id` from `list_notifications`. Requires the `notifications` (or `repo`) OAuth scope.",
+				"Get one notification thread by id: its subject (title, type, number and GitHub link), the reason, unread / last-read times and your subscription state for the thread. It does not fetch the issue / PR body or comments — it says which tool reads them (`get_issue`, `get_pull_request`, `list_issue_comments`). Get the `thread_id` from `list_notifications` or `list_repo_notifications`. Requires the `notifications` (or `repo`) OAuth scope.",
 			inputSchema: { thread_id: ThreadId },
 		},
 		async ({ thread_id }) =>
@@ -227,7 +228,7 @@ export const registerNotificationTools = (server: McpServer, client: OctokitFact
 					.then(
 						(r) => r.data,
 						(e: unknown) => {
-							if (statusOf(e) === 404) return null;
+							if (isHttpStatus(e, 404)) return null;
 							throw e;
 						},
 					);
@@ -299,7 +300,7 @@ export const registerNotificationTools = (server: McpServer, client: OctokitFact
 		"mark_thread_read",
 		{
 			description:
-				"Mark a single notification thread as read. Get the `thread_id` from `list_notifications`. For many threads at once use `mark_notifications_read`. Requires the `notifications` (or `repo`) OAuth scope.",
+				"Mark a single notification thread as read. Get the `thread_id` from `list_notifications` or `list_repo_notifications`. For many threads at once use `mark_notifications_read`. Requires the `notifications` (or `repo`) OAuth scope.",
 			inputSchema: { thread_id: ThreadId },
 		},
 		async ({ thread_id }) =>
@@ -308,7 +309,7 @@ export const registerNotificationTools = (server: McpServer, client: OctokitFact
 					thread_id: Number(thread_id),
 				});
 				logRateLimit(headers);
-				logWrite({ tool: "mark_thread_read", thread_id });
+				logWrite({ tool: "mark_thread_read", notification_thread_id: thread_id });
 				return text(`# Thread marked as read\n\n- \`${thread_id}\` is now read.`);
 			}),
 	);
@@ -317,7 +318,7 @@ export const registerNotificationTools = (server: McpServer, client: OctokitFact
 		"set_thread_subscription",
 		{
 			description:
-				"Change how a notification thread notifies the user. `action` is `subscribe` (get notified about the thread), `ignore` (block all notifications from it — use to silence a noisy thread) or `unsubscribe` (remove the thread subscription; repo-level watching still applies). Get the `thread_id` from `list_notifications`. Requires the `notifications` (or `repo`) OAuth scope.",
+				"Change how a notification thread notifies the user. `action` is `subscribe` (get notified about the thread), `ignore` (block all notifications from it — use to silence a noisy thread) or `unsubscribe` (remove the thread subscription; repo-level watching still applies). Get the `thread_id` from `list_notifications` or `list_repo_notifications`. Requires the `notifications` (or `repo`) OAuth scope.",
 			inputSchema: {
 				thread_id: ThreadId,
 				action: z
@@ -337,7 +338,7 @@ export const registerNotificationTools = (server: McpServer, client: OctokitFact
 								ignored: action === "ignore",
 							});
 				logRateLimit(res.headers);
-				logWrite({ tool: "set_thread_subscription", thread_id, action });
+				logWrite({ tool: "set_thread_subscription", notification_thread_id: thread_id, action });
 				const done = {
 					subscribe: "subscribed",
 					ignore: "ignored — no further notifications from it",

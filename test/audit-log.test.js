@@ -943,18 +943,23 @@ const WRITE_TOOLS = [
 		{ owner: "o", repo: "r", last_read_at: "2026-01-01T00:00:00Z" },
 		{ owner: "o", repo: "r", last_read_at: "2026-01-01T00:00:00Z" },
 	],
-	[registerNotificationTools, "mark_thread_read", { thread_id: "7" }, { thread_id: "7" }],
+	[
+		registerNotificationTools,
+		"mark_thread_read",
+		{ thread_id: "7" },
+		{ notification_thread_id: "7" },
+	],
 	[
 		registerNotificationTools,
 		"set_thread_subscription",
 		{ thread_id: "7", action: "ignore" },
-		{ thread_id: "7", action: "ignore" },
+		{ notification_thread_id: "7", action: "ignore" },
 	],
 	[
 		registerNotificationTools,
 		"set_thread_subscription",
 		{ thread_id: "7", action: "unsubscribe" },
-		{ thread_id: "7", action: "unsubscribe" },
+		{ notification_thread_id: "7", action: "unsubscribe" },
 	],
 	[
 		registerRepoAutolinkTools,

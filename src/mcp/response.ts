@@ -207,6 +207,7 @@ export type WriteAuditFields = {
 	filename?: string; // upload_attachment / upload_release_asset (the uploaded asset's name)
 	byte_count?: number; // upload_attachment / upload_release_asset (uploaded payload size in bytes)
 	thread_id?: string;
+	notification_thread_id?: string; // mark_thread_read / set_thread_subscription (REST notification thread id, numeric string)
 	comment_id?: number; // add_pr_review_comment_reply
 	review_id?: number; // create_pr_review
 	project_id?: string; // Projects v2 mutations (`PVT_...`; no repo at the call boundary)

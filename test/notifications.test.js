@@ -90,8 +90,11 @@ describe("list_notifications", () => {
 		const handlers = setup({
 			listNotificationsForAuthenticatedUser: async () => ({ data: [], headers: {} }),
 		});
-		expect((await invoke(handlers, "list_notifications", {})).content[0].text).toBe(
+		expect((await invoke(handlers, "list_notifications", { all: true })).content[0].text).toBe(
 			"(no notifications found)",
+		);
+		expect((await invoke(handlers, "list_notifications", {})).content[0].text).toContain(
+			"pass `all: true`",
 		);
 		expect((await invoke(handlers, "list_notifications", { page: 3 })).content[0].text).toBe(
 			"(no notifications on this page)",
@@ -163,10 +166,12 @@ describe("list_repo_notifications", () => {
 		const handlers = setup({
 			listRepoNotificationsForAuthenticatedUser: async () => ({ data: [], headers: {} }),
 		});
-		expect(
-			(await invoke(handlers, "list_repo_notifications", { owner: "o", repo: "r" })).content[0]
-				.text,
-		).toBe("(no notifications found for o/r)");
+		const empty = (all) =>
+			invoke(handlers, "list_repo_notifications", { owner: "o", repo: "r", all }).then(
+				(r) => r.content[0].text,
+			);
+		expect(await empty(true)).toBe("(no notifications found for o/r)");
+		expect(await empty(false)).toContain("no unread notifications found for o/r");
 	});
 });
 
@@ -188,7 +193,7 @@ describe("get_notification_thread", () => {
 		expect(body).toContain("- subject: #12 — https://github.com/o/r/pull/12");
 		expect(body).toContain("- last read: (never)");
 		expect(body).toContain("- subscription: subscribed (manual)");
-		expect(body).toContain("`get_pull_request`");
+		expect(body).toContain("`get_pull_request` and the conversation with `list_issue_comments`");
 	});
 
 	it("shows ignored and not-subscribed states", async () => {
@@ -259,6 +264,7 @@ describe("get_notification_thread", () => {
 		const body = (await invoke(handlers, "get_notification_thread", { thread_id: "1001" }))
 			.content[0].text;
 		expect(body).toContain("- subject: (no issue / PR link available)");
+		expect(body).toContain("find it on github.com in o/r by its title");
 	});
 
 	it("surfaces a thread 404", async () => {
@@ -342,7 +348,9 @@ describe("mark_thread_read", () => {
 			.text;
 		expect(spy).toHaveBeenCalledWith({ thread_id: 1001 });
 		expect(body).toContain("`1001` is now read");
-		expect(auditLines(logSpy)).toEqual([{ tool: "mark_thread_read", thread_id: "1001" }]);
+		expect(auditLines(logSpy)).toEqual([
+			{ tool: "mark_thread_read", notification_thread_id: "1001" },
+		]);
 	});
 
 	it("surfaces a 404 for an unknown thread", async () => {
@@ -367,8 +375,8 @@ describe("set_thread_subscription", () => {
 		expect(set).toHaveBeenNthCalledWith(1, { thread_id: 5, ignored: false });
 		expect(set).toHaveBeenNthCalledWith(2, { thread_id: 5, ignored: true });
 		expect(auditLines(logSpy)).toEqual([
-			{ tool: "set_thread_subscription", thread_id: "5", action: "subscribe" },
-			{ tool: "set_thread_subscription", thread_id: "5", action: "ignore" },
+			{ tool: "set_thread_subscription", notification_thread_id: "5", action: "subscribe" },
+			{ tool: "set_thread_subscription", notification_thread_id: "5", action: "ignore" },
 		]);
 	});
 
