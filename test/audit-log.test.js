@@ -13,7 +13,9 @@ import { registerLabelTools } from "../src/tools/labels.js";
 import { registerProjectTools } from "../src/tools/projects.js";
 import { registerPullTools } from "../src/tools/pulls.js";
 import { registerReleaseAssetTools } from "../src/tools/release-assets.js";
+import { registerRepoAutolinkTools } from "../src/tools/repo-autolinks.js";
 import { registerRepoConfigTools } from "../src/tools/repo-config.js";
+import { registerRepoDeployKeyTools } from "../src/tools/repo-deploy-keys.js";
 import { registerRepoSecretTools } from "../src/tools/repo-secrets.js";
 import { registerRepoTools } from "../src/tools/repos.js";
 import { registerSubIssueTools } from "../src/tools/sub-issues.js";
@@ -330,6 +332,22 @@ const wideOctokit = () => {
 					archived: false,
 				}),
 				mergeUpstream: ok({ base_branch: "main", merge_type: "fast-forward", message: "ok" }),
+				createDeployKey: ok({
+					id: 5,
+					title: "t",
+					key: "ssh-ed25519 AAAA",
+					read_only: true,
+					verified: true,
+					created_at: "2026-01-01T00:00:00Z",
+				}),
+				deleteDeployKey: ok(undefined),
+				createAutolink: ok({
+					id: 9,
+					key_prefix: "T-",
+					url_template: "https://x/<num>",
+					is_alphanumeric: true,
+				}),
+				deleteAutolink: ok(undefined),
 				uploadReleaseAsset: ok({
 					id: 77,
 					name: "a.zip",
@@ -898,6 +916,36 @@ const WRITE_TOOLS = [
 	[registerRepoConfigTools, "archive_repository", { owner: "o", repo: "r" }],
 	[registerRepoConfigTools, "unarchive_repository", { owner: "o", repo: "r" }],
 	[registerRepoConfigTools, "sync_fork", { owner: "o", repo: "r", branch: "main" }],
+	[
+		registerRepoDeployKeyTools,
+		"add_deploy_key",
+		{ owner: "o", repo: "r", key: "ssh-ed25519 AAAA", read_only: true },
+		{ owner: "o", repo: "r", deploy_key_id: 5 },
+	],
+	[
+		registerRepoDeployKeyTools,
+		"delete_deploy_key",
+		{ owner: "o", repo: "r", key_id: 5 },
+		{ owner: "o", repo: "r", deploy_key_id: 5 },
+	],
+	[
+		registerRepoAutolinkTools,
+		"create_autolink",
+		{
+			owner: "o",
+			repo: "r",
+			key_prefix: "T-",
+			url_template: "https://x/<num>",
+			is_alphanumeric: true,
+		},
+		{ owner: "o", repo: "r", autolink_id: 9 },
+	],
+	[
+		registerRepoAutolinkTools,
+		"delete_autolink",
+		{ owner: "o", repo: "r", autolink_id: 9 },
+		{ owner: "o", repo: "r", autolink_id: 9 },
+	],
 	[
 		registerAttachmentTools,
 		"upload_attachment",

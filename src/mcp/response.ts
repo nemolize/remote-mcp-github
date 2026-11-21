@@ -199,6 +199,8 @@ export type WriteAuditFields = {
 	source_owner?: string; // clone_labels (the repo copied from)
 	source_repo?: string; // clone_labels (the repo copied from)
 	label_count?: number; // clone_labels (labels created + updated)
+	deploy_key_id?: number; // add_deploy_key (the created key) / delete_deploy_key (the removed key)
+	autolink_id?: number; // create_autolink (the created autolink) / delete_autolink (the removed autolink)
 	file_count?: number;
 	updated_fields?: string; // update_repository (comma-separated names of the fields sent)
 	new_name?: string; // rename_repository (the name the repo was renamed to)

@@ -141,6 +141,13 @@ describe("MCP transport E2E", () => {
 			"archive_repository", // repo config write
 			"unarchive_repository", // repo config write
 			"sync_fork", // repo config write
+			"list_deploy_keys", // repo deploy keys read
+			"add_deploy_key", // repo deploy keys write
+			"delete_deploy_key", // repo deploy keys write
+			"list_autolinks", // repo autolinks read
+			"get_autolink", // repo autolinks read
+			"create_autolink", // repo autolinks write
+			"delete_autolink", // repo autolinks write
 			"search_issues", // issues read
 			"add_comment", // issues write
 			"lock_conversation", // issues write (lifecycle)
