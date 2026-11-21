@@ -30,7 +30,7 @@ const escapeAltText = (name: string): string => name.replace(/[[\]\\]/g, "\\$&")
 
 // A filename containing a backtick would close a single-backtick span early;
 // CommonMark lets a longer fence carry it, as long as the body has no run that long.
-const inlineCode = (name: string): string => {
+export const inlineCode = (name: string): string => {
 	const longestRun = [...name.matchAll(/`+/g)].reduce((m, [run]) => Math.max(m, run.length), 0);
 	const fence = "`".repeat(longestRun + 1);
 	const pad = name.startsWith("`") || name.endsWith("`") ? " " : "";
@@ -45,7 +45,7 @@ const contentTypeFor = (filename: string): string | undefined =>
 export const MAX_BASE64_LENGTH = MAX_MCP_MESSAGE_BYTES - 64 * 1024;
 // Whole base64 quanta: 4 chars carry 3 bytes, so any other rounding can state a
 // size whose padded encoding overflows the char cap above.
-const MAX_ATTACHMENT_BYTES = Math.floor(MAX_BASE64_LENGTH / 4) * 3;
+export const MAX_ATTACHMENT_BYTES = Math.floor(MAX_BASE64_LENGTH / 4) * 3;
 
 export const registerAttachmentTools = (server: McpServer, client: OctokitFactory): void => {
 	server.registerTool(

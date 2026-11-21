@@ -209,6 +209,9 @@ describe("MCP transport E2E", () => {
 			"get_workflow_run_usage", // actions read
 			"delete_workflow_run_logs", // actions write
 			"download_workflow_run_artifact", // actions read
+			"list_release_assets", // release assets read
+			"upload_release_asset", // release assets write
+			"download_release_asset", // release assets read
 		]) {
 			expect(names, `tools/list missing ${required}`).toContain(required);
 		}

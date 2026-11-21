@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { errorResult, logRateLimit, logWrite, text, truncate, wrapTool } from "../mcp/response.js";
-import { isHttpStatus, stripUndefined } from "../utils.js";
+import { isAlreadyExistsError, isHttpStatus, stripUndefined } from "../utils.js";
 import type { OctokitFactory } from "./common.js";
 import { RepoTarget } from "./common.js";
 
@@ -24,25 +24,6 @@ const normalizeColor = (color: string): string => color.replace(/^#/, "").toLowe
 // GitHub collides label names case-insensitively, so an index keyed on the raw
 // name reads `Bug` as absent beside `bug` and the create then 422s.
 const labelKey = (name: string): string => name.toLowerCase();
-
-// GitHub returns 422 for several distinct conditions on `createLabel` (name
-// collision, validation failure, abuse detection). Only the collision means
-// "already there, safe to skip/overwrite" — the rest must abort the clone, so
-// match the error code rather than the bare status.
-const isAlreadyExists = (err: unknown): boolean => {
-	if (!isHttpStatus(err, 422)) return false;
-	if (err == null || typeof err !== "object" || !("response" in err)) return false;
-	const response: unknown = err.response;
-	if (response == null || typeof response !== "object" || !("data" in response)) return false;
-	const data: unknown = response.data;
-	if (data == null || typeof data !== "object" || !("errors" in data)) return false;
-	const errors: unknown = data.errors;
-	if (!Array.isArray(errors)) return false;
-	return errors.some(
-		(e: unknown) =>
-			e != null && typeof e === "object" && "code" in e && e.code === "already_exists",
-	);
-};
 
 // The three fields the clone diffs on; the list endpoint returns more.
 type RepoLabel = { name: string; color: string; description?: string | null };
@@ -306,7 +287,7 @@ export const registerLabelTools = (server: McpServer, client: OctokitFactory): v
 						return;
 					} catch (err: unknown) {
 						// Created between the prefetch and this write.
-						if (!isAlreadyExists(err)) throw err;
+						if (!isAlreadyExistsError(err)) throw err;
 						recordFailure(err);
 					}
 					if (overwrite !== true) {

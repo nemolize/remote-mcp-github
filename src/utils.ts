@@ -5,6 +5,23 @@ export const isHttpStatus = (e: unknown, status: number): boolean => {
 	return e.status === status || e.status === String(status);
 };
 
+// 422 also covers validation failures and abuse detection, so a collision is
+// told apart by the error code, not the status.
+export const isAlreadyExistsError = (err: unknown): boolean => {
+	if (!isHttpStatus(err, 422)) return false;
+	if (err == null || typeof err !== "object" || !("response" in err)) return false;
+	const response: unknown = err.response;
+	if (response == null || typeof response !== "object" || !("data" in response)) return false;
+	const data: unknown = response.data;
+	if (data == null || typeof data !== "object" || !("errors" in data)) return false;
+	const errors: unknown = data.errors;
+	if (!Array.isArray(errors)) return false;
+	return errors.some(
+		(e: unknown) =>
+			e != null && typeof e === "object" && "code" in e && e.code === "already_exists",
+	);
+};
+
 /**
  * Narrows `T` so the keys that *could* be `undefined` become optional (with
  * `undefined` excluded from their value) while always-present keys stay

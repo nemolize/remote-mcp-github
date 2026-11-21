@@ -14,6 +14,7 @@ import { registerIssueTools } from "./tools/issues.js";
 import { registerLabelTools } from "./tools/labels.js";
 import { registerProjectTools } from "./tools/projects.js";
 import { registerPullTools } from "./tools/pulls.js";
+import { registerReleaseAssetTools } from "./tools/release-assets.js";
 import { registerReleaseTools } from "./tools/releases.js";
 import { registerRepoTools } from "./tools/repos.js";
 import { registerSearchTools } from "./tools/search.js";
@@ -35,6 +36,7 @@ export const registerTools = (server: McpServer, client: OctokitFactory): void =
 	registerActionTools(server, client);
 	registerActionAdminTools(server, client);
 	registerReleaseTools(server, client);
+	registerReleaseAssetTools(server, client);
 	registerSecurityTools(server, client);
 	registerGistTools(server, client);
 	registerProjectTools(server, client);
