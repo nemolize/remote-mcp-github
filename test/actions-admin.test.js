@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { sealSecret } from "../src/sealed-box.js";
-import { MAX_VALUE_BYTES, registerActionAdminTools } from "../src/tools/actions-admin.js";
+import { registerActionAdminTools } from "../src/tools/actions-admin.js";
+import { MAX_VALUE_BYTES } from "../src/tools/common.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
 
 // captureHandlers bypasses the MCP SDK's Zod parse, so schema-level rules
