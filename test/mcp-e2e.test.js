@@ -141,6 +141,11 @@ describe("MCP transport E2E", () => {
 			"archive_repository", // repo config write
 			"unarchive_repository", // repo config write
 			"sync_fork", // repo config write
+			"list_notifications", // notifications read
+			"get_notification_thread", // notifications read
+			"mark_notifications_read", // notifications write
+			"mark_thread_read", // notifications write
+			"set_thread_subscription", // notifications write
 			"list_deploy_keys", // repo deploy keys read
 			"add_deploy_key", // repo deploy keys write
 			"delete_deploy_key", // repo deploy keys write
