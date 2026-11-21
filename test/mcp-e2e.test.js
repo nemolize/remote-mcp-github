@@ -136,6 +136,11 @@ describe("MCP transport E2E", () => {
 			"create_repository", // repos write
 			"fork_repository", // repos write
 			"delete_repository", // repos write
+			"update_repository", // repo config write
+			"rename_repository", // repo config write
+			"archive_repository", // repo config write
+			"unarchive_repository", // repo config write
+			"sync_fork", // repo config write
 			"search_issues", // issues read
 			"add_comment", // issues write
 			"lock_conversation", // issues write (lifecycle)
