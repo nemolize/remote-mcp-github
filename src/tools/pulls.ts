@@ -291,7 +291,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		"request_pr_review",
 		{
 			description:
-				"Request reviewers (users and/or teams) on an existing pull request. Use when the user asks to assign, request, or add reviewers to a PR. At least one of `reviewers` or `team_reviewers` must be non-empty. Returns the PR URL and the list of requested reviewers.",
+				"Request reviewers (users and/or teams) on an existing pull request. Use when the user asks to assign, request, or add reviewers to a PR. At least one of `reviewers` or `team_reviewers` must be non-empty. For a Copilot review, use `request_copilot_review` instead. Returns the PR URL and the list of requested reviewers.",
 			inputSchema: {
 				...RepoTarget,
 				pull_number: z.number().int().positive().describe("Pull request number."),

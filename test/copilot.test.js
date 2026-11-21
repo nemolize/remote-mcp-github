@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { registerCopilotTools } from "../src/tools/copilot.js";
 import { captureHandlers, invoke } from "./_helpers/tools.js";
@@ -10,6 +10,10 @@ const run = async (octokit, tool, params) => {
 };
 
 const textOf = (result) => result.content[0].text;
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
 
 describe("assign_copilot_to_issue", () => {
 	it("assigns the coding-agent bot and forwards agent_assignment", async () => {
@@ -62,7 +66,6 @@ describe("assign_copilot_to_issue", () => {
 		expect(result.isError).toBe(true);
 		expect(textOf(result)).toContain("did not assign Copilot");
 		expect(logSpy.mock.calls.some(([line]) => String(line).includes("github-audit"))).toBe(false);
-		logSpy.mockRestore();
 	});
 });
 
@@ -90,7 +93,8 @@ describe("request_copilot_review", () => {
 		expect(textOf(result)).toContain("https://x/pull/4");
 	});
 
-	it("errors when the bot is absent from requested_reviewers", async () => {
+	it("errors without an audit line when the bot is absent from requested_reviewers", async () => {
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 		const requestReviewers = vi.fn(async () => ({
 			data: { html_url: "https://x/pull/4", requested_reviewers: [] },
 			headers: {},
@@ -102,5 +106,6 @@ describe("request_copilot_review", () => {
 		});
 		expect(result.isError).toBe(true);
 		expect(textOf(result)).toContain("did not request a Copilot review");
+		expect(logSpy.mock.calls.some(([line]) => String(line).includes("github-audit"))).toBe(false);
 	});
 });
