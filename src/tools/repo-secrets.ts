@@ -37,7 +37,7 @@ const FAMILIES: SecretFamily[] = [
 			set: "set_codespaces_secret",
 			delete: "delete_codespaces_secret",
 		},
-		access: "Listing needs read access; setting or deleting needs repository admin access.",
+		access: "Setting or deleting needs repository admin access.",
 		consumer: "codespaces created for the repository",
 	},
 	{
