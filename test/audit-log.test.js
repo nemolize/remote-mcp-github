@@ -312,10 +312,7 @@ describe("write tools emit audit logs", () => {
 	});
 });
 
-// A permissive Octokit stub whose every method resolves with a shape generous
-// enough for any single write handler. Each handler only reads a subset, so one
-// fixture covers all 18 — this keeps the all-tools coverage table below from
-// repeating a bespoke mock per tool.
+// Permissive stub: every method resolves with a shape generous enough for any write handler.
 const wideOctokit = () => {
 	const ok = (data) => async () => ({ data, headers: {} });
 	return {

@@ -370,7 +370,7 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 		"delete_workflow_run_logs",
 		{
 			description:
-				"Delete the log archive of a completed workflow run (retention hygiene — the logs cannot be recovered afterwards). Use when the user asks to purge a run's logs. Mutates CI state and is irreversible. A run still in progress returns 403 / 409; logs already deleted return 404 / 410.",
+				"Delete the log archive of a completed workflow run (retention hygiene — the logs cannot be recovered afterwards). Use when the user asks to purge a run's logs. Mutates CI state and is irreversible. GitHub refuses a run that is still in progress; a run that does not exist or is not visible to you returns 404. GitHub's error is returned as-is.",
 			inputSchema: {
 				...RepoTarget,
 				run_id: z.number().int().positive().describe("Workflow run ID whose logs to delete."),
@@ -478,7 +478,7 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 		"get_artifact",
 		{
 			description:
-				"Fetch a single artifact's metadata: name, size, expiry, the producing workflow run, and the archive download URL. Use after `list_workflow_run_artifacts` to inspect one artifact by ID. The artifact is a zip archive — this tool returns its metadata and download URL only (no download / unzip); fetching the URL requires an authenticated GitHub API request.",
+				"Fetch a single artifact's metadata: name, size, expiry, the producing workflow run, and the archive download URL. Use after `list_workflow_run_artifacts` to inspect one artifact by ID. The artifact is a zip archive — this tool returns its metadata and download URL only (no download / unzip); fetching the URL requires an authenticated GitHub API request. For a directly fetchable, unauthenticated URL use `download_workflow_run_artifact`.",
 			inputSchema: {
 				...RepoTarget,
 				artifact_id: z
@@ -514,7 +514,7 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 					`- created: ${data.created_at ?? "(unknown)"}`,
 					`- updated: ${data.updated_at ?? "(unknown)"}`,
 					runLine,
-					`- download (authenticated API request): ${data.archive_download_url}`,
+					`- download (authenticated API request; for a directly fetchable URL use \`download_workflow_run_artifact\`): ${data.archive_download_url}`,
 				];
 				return text(truncate(lines.join("\n")));
 			}),

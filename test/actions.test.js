@@ -723,7 +723,7 @@ describe("registerActionTools", () => {
 		expect(body).toContain("- expires 2026-09-01T00:00:00Z");
 		expect(body).toContain("- from run: `999` (branch `main` @ `abcdef1`)");
 		expect(body).toContain(
-			"- download (authenticated API request): https://api.github.com/repos/o/r/actions/artifacts/555/zip",
+			"- download (authenticated API request; for a directly fetchable URL use `download_workflow_run_artifact`): https://api.github.com/repos/o/r/actions/artifacts/555/zip",
 		);
 		expect(result.isError).toBeUndefined();
 	});
