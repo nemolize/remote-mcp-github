@@ -217,6 +217,58 @@ describe("write tools emit audit logs", () => {
 		]);
 	});
 
+	it("delete_workflow_run_logs logs the run_id, and nothing when GitHub refuses", async () => {
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const { handlers, server } = captureHandlers();
+		let fail = false;
+		const octokit = {
+			rest: {
+				actions: {
+					deleteWorkflowRunLogs: async () => {
+						if (fail) throw Object.assign(new Error("Conflict"), { status: 409 });
+						return { data: undefined, headers: {} };
+					},
+				},
+			},
+		};
+		registerActionTools(server, () => octokit);
+		await invoke(handlers, "delete_workflow_run_logs", { owner: "o", repo: "r", run_id: 42 });
+		expect(auditEntries(logSpy)).toEqual([
+			{ tool: "delete_workflow_run_logs", owner: "o", repo: "r", run_id: 42 },
+		]);
+
+		logSpy.mockClear();
+		fail = true;
+		const result = await invoke(handlers, "delete_workflow_run_logs", {
+			owner: "o",
+			repo: "r",
+			run_id: 42,
+		});
+		expect(result.isError).toBe(true);
+		expect(auditEntries(logSpy)).toEqual([]);
+	});
+
+	it("get_workflow_run_usage and download_workflow_run_artifact emit no audit line", async () => {
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const { handlers, server } = captureHandlers();
+		const octokit = {
+			request: async () => ({ headers: { location: "https://x.example/a.zip" } }),
+			rest: {
+				actions: {
+					getWorkflowRunUsage: async () => ({ data: { billable: {} }, headers: {} }),
+				},
+			},
+		};
+		registerActionTools(server, () => octokit);
+		await invoke(handlers, "get_workflow_run_usage", { owner: "o", repo: "r", run_id: 1 });
+		await invoke(handlers, "download_workflow_run_artifact", {
+			owner: "o",
+			repo: "r",
+			artifact_id: 1,
+		});
+		expect(auditEntries(logSpy)).toEqual([]);
+	});
+
 	it("trigger_workflow_dispatch logs the workflow_id and ref", async () => {
 		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 		const { handlers, server } = captureHandlers();
@@ -260,10 +312,7 @@ describe("write tools emit audit logs", () => {
 	});
 });
 
-// A permissive Octokit stub whose every method resolves with a shape generous
-// enough for any single write handler. Each handler only reads a subset, so one
-// fixture covers all 18 — this keeps the all-tools coverage table below from
-// repeating a bespoke mock per tool.
+// Permissive stub: every method resolves with a shape generous enough for any write handler.
 const wideOctokit = () => {
 	const ok = (data) => async () => ({ data, headers: {} });
 	return {
@@ -360,6 +409,7 @@ const wideOctokit = () => {
 				reRunWorkflow: ok({}),
 				reRunWorkflowFailedJobs: ok({}),
 				cancelWorkflowRun: ok({}),
+				deleteWorkflowRunLogs: ok(undefined),
 				createWorkflowDispatch: ok({}),
 				// set_actions_secret: a real 32-byte X25519 public key (base64) so the
 				// sealed-box encryption inside the handler succeeds.
@@ -736,6 +786,7 @@ const WRITE_TOOLS = [
 	[registerActionTools, "rerun_workflow_run", { owner: "o", repo: "r", run_id: 1 }],
 	[registerActionTools, "rerun_failed_jobs", { owner: "o", repo: "r", run_id: 1 }],
 	[registerActionTools, "cancel_workflow_run", { owner: "o", repo: "r", run_id: 1 }],
+	[registerActionTools, "delete_workflow_run_logs", { owner: "o", repo: "r", run_id: 1 }],
 	[
 		registerActionTools,
 		"trigger_workflow_dispatch",

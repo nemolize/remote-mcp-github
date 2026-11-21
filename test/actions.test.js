@@ -18,6 +18,8 @@ const stubOctokit = (overrides, { request } = {}) => ({
 			reRunWorkflow: async () => ({ data: {}, headers: {} }),
 			reRunWorkflowFailedJobs: async () => ({ data: {}, headers: {} }),
 			cancelWorkflowRun: async () => ({ data: {}, headers: {} }),
+			getWorkflowRunUsage: async () => ({ data: { billable: {} }, headers: {} }),
+			deleteWorkflowRunLogs: async () => ({ data: undefined, headers: {} }),
 			createWorkflowDispatch: async () => ({ data: {}, headers: {} }),
 			...overrides,
 		},
@@ -420,6 +422,201 @@ describe("registerActionTools", () => {
 		expect(result.content[0].text).toBe("(no log archive URL returned for run 7)");
 	});
 
+	it("get_workflow_run_usage renders run duration and per-OS billable time and jobs", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedParams;
+		const octokit = stubOctokit({
+			getWorkflowRunUsage: async (params) => {
+				capturedParams = params;
+				return {
+					data: {
+						billable: {
+							UBUNTU: { total_ms: 125000, jobs: 2 },
+							MACOS: { total_ms: 60000, jobs: 1 },
+						},
+						run_duration_ms: 90500,
+					},
+					headers: {},
+				};
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_workflow_run_usage", {
+			owner: "o",
+			repo: "r",
+			run_id: 31,
+		});
+		const body = result.content[0].text;
+		expect(capturedParams).toMatchObject({ owner: "o", repo: "r", run_id: 31 });
+		expect(body).toContain("# Usage for run 31 in o/r");
+		expect(body).toContain("run duration: 90.5s (90500 ms)");
+		expect(body).toContain("**UBUNTU**: 125.0s billable (125000 ms) across 2 jobs");
+		expect(body).toContain("**MACOS**: 60.0s billable (60000 ms) across 1 job");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("get_workflow_run_usage says so when there is no billable usage", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit({
+			getWorkflowRunUsage: async () => ({ data: { billable: {} }, headers: {} }),
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_workflow_run_usage", {
+			owner: "o",
+			repo: "r",
+			run_id: 1,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("(no billable usage)");
+		expect(body).not.toContain("run duration");
+	});
+
+	it("get_workflow_run_usage surfaces Octokit errors via wrapTool (isError = true)", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit({
+			getWorkflowRunUsage: async () => {
+				const err = new Error("Not Found");
+				err.status = 404;
+				throw err;
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "get_workflow_run_usage", {
+			owner: "o",
+			repo: "r",
+			run_id: 1,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("HTTP 404");
+	});
+
+	it("delete_workflow_run_logs forwards the run and confirms the deletion", async () => {
+		const { handlers, server } = captureHandlers();
+		let capturedParams;
+		const octokit = stubOctokit({
+			deleteWorkflowRunLogs: async (params) => {
+				capturedParams = params;
+				return { data: undefined, headers: {} };
+			},
+		});
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "delete_workflow_run_logs", {
+			owner: "o",
+			repo: "r",
+			run_id: 88,
+		});
+		const body = result.content[0].text;
+		expect(capturedParams).toMatchObject({ owner: "o", repo: "r", run_id: 88 });
+		expect(body).toContain("# Logs deleted");
+		expect(body).toContain("`88`");
+		expect(body).toContain("o/r");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it.each([403, 404, 409, 410])(
+		"delete_workflow_run_logs surfaces a %i via wrapTool (isError = true)",
+		async (status) => {
+			const { handlers, server } = captureHandlers();
+			const octokit = stubOctokit({
+				deleteWorkflowRunLogs: async () => {
+					const err = new Error("nope");
+					err.status = status;
+					throw err;
+				},
+			});
+			registerActionTools(server, () => octokit);
+
+			const result = await invoke(handlers, "delete_workflow_run_logs", {
+				owner: "o",
+				repo: "r",
+				run_id: 1,
+			});
+			expect(result.isError).toBe(true);
+			expect(result.content[0].text).toContain(`HTTP ${status}`);
+		},
+	);
+
+	it("download_workflow_run_artifact returns the short-lived URL without following the redirect", async () => {
+		const { handlers, server } = captureHandlers();
+		let captured;
+		const octokit = stubOctokit(
+			{},
+			{
+				request: async (route, params) => {
+					captured = { route, params };
+					return {
+						status: 302,
+						data: "",
+						headers: { location: "https://artifacts.example/a.zip?sig=xyz" },
+					};
+				},
+			},
+		);
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "download_workflow_run_artifact", {
+			owner: "o",
+			repo: "r",
+			artifact_id: 4242,
+		});
+		const body = result.content[0].text;
+		expect(captured.route).toContain("/actions/artifacts/{artifact_id}/{archive_format}");
+		expect(captured.params).toMatchObject({
+			owner: "o",
+			repo: "r",
+			artifact_id: 4242,
+			archive_format: "zip",
+			request: { redirect: "manual" },
+		});
+		expect(body).toContain("# Download for artifact 4242 in o/r");
+		expect(body).toContain("https://artifacts.example/a.zip?sig=xyz");
+		expect(body).toContain("get_artifact");
+		expect(result.isError).toBeUndefined();
+	});
+
+	it("download_workflow_run_artifact reports when no URL is returned", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(
+			{},
+			{ request: async () => ({ status: 302, data: "", headers: {} }) },
+		);
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "download_workflow_run_artifact", {
+			owner: "o",
+			repo: "r",
+			artifact_id: 9,
+		});
+		expect(result.content[0].text).toBe("(no download URL returned for artifact 9)");
+	});
+
+	it("download_workflow_run_artifact surfaces an expired artifact (410) via wrapTool", async () => {
+		const { handlers, server } = captureHandlers();
+		const octokit = stubOctokit(
+			{},
+			{
+				request: async () => {
+					const err = new Error("Gone");
+					err.status = 410;
+					throw err;
+				},
+			},
+		);
+		registerActionTools(server, () => octokit);
+
+		const result = await invoke(handlers, "download_workflow_run_artifact", {
+			owner: "o",
+			repo: "r",
+			artifact_id: 9,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("HTTP 410");
+	});
+
 	it("list_workflow_run_artifacts renders ID, name, size, expiry, created time", async () => {
 		const { handlers, server } = captureHandlers();
 		let captured;
@@ -526,7 +723,7 @@ describe("registerActionTools", () => {
 		expect(body).toContain("- expires 2026-09-01T00:00:00Z");
 		expect(body).toContain("- from run: `999` (branch `main` @ `abcdef1`)");
 		expect(body).toContain(
-			"- download (authenticated API request): https://api.github.com/repos/o/r/actions/artifacts/555/zip",
+			"- download (authenticated API request; for a directly fetchable URL use `download_workflow_run_artifact`): https://api.github.com/repos/o/r/actions/artifacts/555/zip",
 		);
 		expect(result.isError).toBeUndefined();
 	});

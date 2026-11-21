@@ -206,6 +206,9 @@ describe("MCP transport E2E", () => {
 			"create_label", // labels write (definition CRUD)
 			"clone_labels", // labels write (cross-repo clone)
 			"upload_attachment", // attachments write
+			"get_workflow_run_usage", // actions read
+			"delete_workflow_run_logs", // actions write
+			"download_workflow_run_artifact", // actions read
 		]) {
 			expect(names, `tools/list missing ${required}`).toContain(required);
 		}
