@@ -252,10 +252,10 @@ describe("write tools emit audit logs", () => {
 		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 		const { handlers, server } = captureHandlers();
 		const octokit = {
-			request: async () => ({ headers: { location: "https://x.example/a.zip" } }),
 			rest: {
 				actions: {
 					getWorkflowRunUsage: async () => ({ data: { billable: {} }, headers: {} }),
+					downloadArtifact: async () => ({ headers: { location: "https://x.example/a.zip" } }),
 				},
 			},
 		};

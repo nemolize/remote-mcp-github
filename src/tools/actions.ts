@@ -296,19 +296,17 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 		},
 		async ({ owner, repo, run_id }) =>
 			wrapTool(async () => {
-				// Raw `request` (not a typed `client().rest.actions.*` call like every
-				// other handler here) because the pinned octokit has no typed method for
-				// this endpoint — `get_job_logs` uses the typed `downloadJobLogsForWorkflowRun`
-				// precisely because that one exists; the run-logs endpoint has no equivalent.
 				// The logs endpoint answers 302 to a short-lived archive URL. Octokit
 				// follows redirects and downloads the zip body by default; `redirect:
 				// "manual"` stops at the 302 so only the `Location` URL is read — the
 				// zip is never fetched into the Worker (binary handling avoided, per the
 				// get_artifact metadata-only convention).
-				const { headers } = await client().request(
-					"GET /repos/{owner}/{repo}/actions/runs/{run_id}/logs",
-					{ owner, repo, run_id, request: { redirect: "manual" } },
-				);
+				const { headers } = await client().rest.actions.downloadWorkflowRunLogs({
+					owner,
+					repo,
+					run_id,
+					request: { redirect: "manual" },
+				});
 				logRateLimit(headers);
 				const url = headers.location;
 				if (url == null || url.length === 0) {
@@ -407,10 +405,13 @@ export const registerActionTools = (server: McpServer, client: OctokitFactory): 
 		},
 		async ({ owner, repo, artifact_id }) =>
 			wrapTool(async () => {
-				const { headers } = await client().request(
-					"GET /repos/{owner}/{repo}/actions/artifacts/{artifact_id}/{archive_format}",
-					{ owner, repo, artifact_id, archive_format: "zip", request: { redirect: "manual" } },
-				);
+				const { headers } = await client().rest.actions.downloadArtifact({
+					owner,
+					repo,
+					artifact_id,
+					archive_format: "zip",
+					request: { redirect: "manual" },
+				});
 				logRateLimit(headers);
 				const url = headers.location;
 				if (url == null || url.length === 0) {
