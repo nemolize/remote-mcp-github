@@ -554,7 +554,7 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 		"update_pull_request",
 		{
 			description:
-				'Edit an existing pull request\'s title, body, state, or base branch. Use when the user asks to retitle, edit the description of, close (without merging), reopen, or retarget a PR. Pass `state: "closed"` to close without merging, `state: "open"` to reopen. `base` retargets the merge destination. To merge a PR, use merge_pull_request instead; to mark a draft as ready for review, that is a separate GraphQL operation not covered here.',
+				'Edit an existing pull request\'s title, body, state, or base branch. Use when the user asks to retitle, edit the description of, close (without merging), reopen, or retarget a PR. Pass `state: "closed"` to close without merging, `state: "open"` to reopen. `base` retargets the merge destination. To merge a PR, use merge_pull_request instead; to mark a draft as ready for review, use mark_pull_request_ready_for_review.',
 			inputSchema: {
 				...RepoTarget,
 				pull_number: z.number().int().positive().describe("Pull request number to update."),
@@ -598,6 +598,45 @@ export const registerPullTools = (server: McpServer, client: OctokitFactory): vo
 				const resolvedState = resolvePrState(data);
 				return text(
 					`# Pull request updated\n\n- **${data.title}** (#${data.number}) — state: **${resolvedState}** → base \`${data.base.ref}\`\n- ${data.html_url}`,
+				);
+			}),
+	);
+
+	server.registerTool(
+		"mark_pull_request_ready_for_review",
+		{
+			description:
+				"Mark a draft pull request as ready for review (the `gh pr ready` counterpart; GraphQL `markPullRequestReadyForReview`). Use when the user asks to publish a draft PR, take it out of draft, or mark it ready. Errors without changing anything when the PR is not a draft. Returns the PR's new draft state and URL.",
+			inputSchema: {
+				...RepoTarget,
+				pull_number: z
+					.number()
+					.int()
+					.positive()
+					.describe("Draft pull request number to mark ready."),
+			},
+		},
+		async ({ owner, repo, pull_number }) =>
+			wrapTool(async () => {
+				const octo = client();
+				const { data: pr, headers } = await octo.rest.pulls.get({ owner, repo, pull_number });
+				logRateLimit(headers);
+				if (pr.state !== "open") {
+					return errorResult(`${owner}/${repo}#${pull_number} is ${pr.state}; reopen it first.`);
+				}
+				if (pr.draft !== true) {
+					return errorResult(`${owner}/${repo}#${pull_number} is not a draft; nothing to do.`);
+				}
+				const result = await octo.graphql<MarkReadyResult>(MARK_READY_MUTATION, {
+					pull_request_id: pr.node_id,
+				});
+				const marked = result.markPullRequestReadyForReview?.pullRequest;
+				if (marked == null) {
+					return errorResult(`Failed to mark ${owner}/${repo}#${pull_number} ready for review.`);
+				}
+				logWrite({ tool: "mark_pull_request_ready_for_review", owner, repo, pull_number });
+				return text(
+					`# Pull request ready for review\n\n- ${owner}/${repo}#${marked.number} — isDraft: ${marked.isDraft}\n- ${marked.url}`,
 				);
 			}),
 	);
@@ -1166,6 +1205,12 @@ type AddReviewThreadResult = {
 	};
 };
 
+type MarkReadyResult = {
+	markPullRequestReadyForReview: {
+		pullRequest: { number: number; isDraft: boolean; url: string } | null;
+	} | null;
+};
+
 const REVIEW_THREADS_QUERY = `
 	query ($owner: String!, $repo: String!, $pull_number: Int!, $first: Int!, $after: String) {
 		repository(owner: $owner, name: $repo) {
@@ -1228,6 +1273,14 @@ const UNRESOLVE_THREAD_MUTATION = `
 	mutation ($thread_id: ID!) {
 		unresolveReviewThread(input: { threadId: $thread_id }) {
 			thread { id isResolved }
+		}
+	}
+`;
+
+const MARK_READY_MUTATION = `
+	mutation ($pull_request_id: ID!) {
+		markPullRequestReadyForReview(input: { pullRequestId: $pull_request_id }) {
+			pullRequest { number isDraft url }
 		}
 	}
 `;

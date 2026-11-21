@@ -2097,3 +2097,163 @@ describe("registerPullTools — pending pr review lifecycle", () => {
 		expect(result.content[0].text).toContain("Can not delete a non-pending");
 	});
 });
+
+const stubMarkReady = ({ get, graphql }) => {
+	const getCalls = [];
+	const gqlCalls = [];
+	const octokit = {
+		rest: {
+			pulls: {
+				get: (args) => {
+					getCalls.push(args);
+					return get(args);
+				},
+			},
+		},
+		graphql: (query, vars) => {
+			gqlCalls.push({ query, vars });
+			return graphql(query, vars);
+		},
+	};
+	return { octokit, getCalls, gqlCalls };
+};
+
+const readyPayload = (overrides = {}) => ({
+	markPullRequestReadyForReview: {
+		pullRequest: { number: 42, isDraft: false, url: "https://github.com/o/r/pull/42" },
+		...overrides,
+	},
+});
+
+describe("registerPullTools — mark_pull_request_ready_for_review", () => {
+	it("marks a draft PR ready via its node_id and reports isDraft: false", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, getCalls, gqlCalls } = stubMarkReady({
+			get: async () => ({
+				data: { draft: true, state: "open", node_id: "PR_node_42" },
+				headers: {},
+			}),
+			graphql: async () => readyPayload(),
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "mark_pull_request_ready_for_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		const body = result.content[0].text;
+		expect(body).toContain("# Pull request ready for review");
+		expect(body).toContain("o/r#42 — isDraft: false");
+		expect(body).toContain("https://github.com/o/r/pull/42");
+		expect(result.isError).toBeUndefined();
+		expect(getCalls).toEqual([{ owner: "o", repo: "r", pull_number: 42 }]);
+		expect(gqlCalls).toHaveLength(1);
+		expect(gqlCalls[0].query).toContain("markPullRequestReadyForReview");
+		expect(gqlCalls[0].vars).toEqual({ pull_request_id: "PR_node_42" });
+	});
+
+	it("errors without running the mutation when the PR is not a draft", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, gqlCalls } = stubMarkReady({
+			get: async () => ({
+				data: { draft: false, state: "open", node_id: "PR_node_42" },
+				headers: {},
+			}),
+			graphql: async () => readyPayload(),
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "mark_pull_request_ready_for_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("not a draft");
+		expect(gqlCalls).toHaveLength(0);
+	});
+
+	it("errors without running the mutation when the PR is closed", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, gqlCalls } = stubMarkReady({
+			get: async () => ({
+				data: { draft: true, state: "closed", node_id: "PR_node_42" },
+				headers: {},
+			}),
+			graphql: async () => readyPayload(),
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "mark_pull_request_ready_for_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("is closed; reopen it first");
+		expect(gqlCalls).toHaveLength(0);
+	});
+
+	it("errors when the mutation payload carries no pull request", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubMarkReady({
+			get: async () => ({
+				data: { draft: true, state: "open", node_id: "PR_node_42" },
+				headers: {},
+			}),
+			graphql: async () => readyPayload({ pullRequest: null }),
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "mark_pull_request_ready_for_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Failed to mark o/r#42 ready for review");
+	});
+
+	it("propagates a REST lookup failure without running the mutation", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit, gqlCalls } = stubMarkReady({
+			get: async () => {
+				throw new Error("Not Found");
+			},
+			graphql: async () => readyPayload(),
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "mark_pull_request_ready_for_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 999,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Not Found");
+		expect(gqlCalls).toHaveLength(0);
+	});
+
+	it("propagates a GraphQL failure via wrapTool", async () => {
+		const { handlers, server } = captureHandlers();
+		const { octokit } = stubMarkReady({
+			get: async () => ({
+				data: { draft: true, state: "open", node_id: "PR_node_42" },
+				headers: {},
+			}),
+			graphql: async () => {
+				throw new Error("Resource not accessible");
+			},
+		});
+		registerPullTools(server, () => octokit);
+
+		const result = await invoke(handlers, "mark_pull_request_ready_for_review", {
+			owner: "o",
+			repo: "r",
+			pull_number: 42,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Resource not accessible");
+	});
+});

@@ -138,7 +138,7 @@ describe("MCP transport E2E", () => {
 			"delete_repository", // repos write
 			"search_issues", // issues read
 			"add_comment", // issues write
-			"lock_issue", // issues write (lifecycle)
+			"lock_conversation", // issues write (lifecycle)
 			"transfer_issue", // issues write (lifecycle)
 			"delete_issue", // issues write (lifecycle)
 			"develop_issue", // issues write (lifecycle)
@@ -148,6 +148,7 @@ describe("MCP transport E2E", () => {
 			"list_branches", // branches
 			"commit_file", // files
 			"create_pull_request", // pulls
+			"mark_pull_request_ready_for_review", // pulls write (draft -> ready)
 			"create_pending_pr_review", // pulls write (pending review lifecycle)
 			"add_comment_to_pending_pr_review", // pulls write (pending review lifecycle)
 			"submit_pending_pr_review", // pulls write (pending review lifecycle)
