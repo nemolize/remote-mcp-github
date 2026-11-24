@@ -1,4 +1,5 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"extends": ["local>nemolize/renovate-config"]
+	"extends": ["local>nemolize/renovate-config"],
+	"platformAutomerge": false
 }
