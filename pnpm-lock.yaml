@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@cloudflare/workers-oauth-provider':
-        specifier: ^0.8.0
-        version: 0.8.2
+        specifier: ^0.10.0
+        version: 0.10.4
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.1
         version: 1.32.2(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7)
@@ -320,8 +320,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@cloudflare/workers-oauth-provider@0.8.2':
-    resolution: {integrity: sha512-Pho5qWDl4qj1STI5QYMQfPmJBBkxyrFpXyDl9BrtYOfWHxThabEzdi9p3ezS2cUkbjA0E6L5ki/kq2pcbRUtlg==}
+  '@cloudflare/workers-oauth-provider@0.10.4':
+    resolution: {integrity: sha512-KIS54OMew3ZtlnWqbqGYaX+7deCu9CY/lFy5R84VSNYT8W1oPir9ANRmiVTvyUaQL1hCgE0NGXImR6IyZ1VZfw==}
 
   '@cloudflare/workers-utils@0.56.0':
     resolution: {integrity: sha512-Fw3/zR+pQp+5hKn1CHIRkCYz49fyAb2qRqCq01jBGqlKL0rRnZyXYD4j0h9cjaWPYYQUOe5y6L7BNp2ZwsHg5A==}
@@ -3354,7 +3354,7 @@ snapshots:
   '@cloudflare/workerd-windows-64@1.20261119.1':
     optional: true
 
-  '@cloudflare/workers-oauth-provider@0.8.2': {}
+  '@cloudflare/workers-oauth-provider@0.10.4': {}
 
   '@cloudflare/workers-utils@0.56.0(vitest@4.1.12(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.1)(yaml@2.9.0)))':
     dependencies:
